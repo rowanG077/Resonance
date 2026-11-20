@@ -572,11 +572,10 @@ pub(super) fn render(
             applied.loading(request);
             continue;
         };
-        let Some(actor) = world.actors.get(&actor) else {
+        let Some(actor) = world.field_model_actor(actor) else {
             continue;
         };
-        let Some(anchor) =
-            anchor_position(rig, anchor_name, fallback, actor.position, &names, &helper)
+        let Some(anchor) = anchor_position(rig, anchor_name, fallback, actor, &names, &helper)
         else {
             continue;
         };
@@ -663,7 +662,7 @@ fn anchor_position(
     rig: &Rig,
     anchor: &str,
     fallback: [f32; 3],
-    actor: [f32; 3],
+    actor: &resonance_events::Actor,
     names: &Query<&Name>,
     helper: &TransformHelper,
 ) -> Option<Vec3> {
@@ -672,7 +671,9 @@ fn anchor_position(
             .compute_global_transform(bone)
             .ok()
             .map(|t| t.translation()),
-        None => Some(Vec3::from_array(actor) + Vec3::from_array(fallback)),
+        None => {
+            Some(Vec3::from_array(actor.field_model_pose().position) + Vec3::from_array(fallback))
+        }
     }
 }
 
@@ -885,7 +886,7 @@ mod tests {
     }
 
     #[test]
-    fn anchors_use_model_order_or_logical_position_but_never_hide_transform_errors() {
+    fn anchors_follow_the_presented_head_or_actor_origin_and_propagate_transform_errors() {
         use bevy::ecs::system::RunSystemOnce;
         let mut world = World::new();
         let root = world.spawn(Transform::from_xyz(900., 800., 700.)).id();
@@ -907,9 +908,12 @@ mod tests {
         let unlabeled = world.spawn(Transform::IDENTITY).id();
         let mut sample = |nodes: &[Entity], offset| {
             let rig = Rig::new(nodes.iter().map(|&e| (e, Transform::IDENTITY)).collect());
+            let mut actor = resonance_events::Actor::new(1, [10., 20., 30.]);
+            actor.sample_field_model(false);
+            actor.position = [40., 50., 60.];
             world
                 .run_system_once(move |names: Query<&Name>, helper: TransformHelper| {
-                    anchor_position(&rig, "head", offset, [10., 20., 30.], &names, &helper)
+                    anchor_position(&rig, "head", offset, &actor, &names, &helper)
                 })
                 .unwrap()
         };

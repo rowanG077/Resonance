@@ -64,7 +64,7 @@ pub(crate) fn render(
                     );
                 }
             }
-            if let Some(actor) = world.actors.get(&root.actor) {
+            if let Some(actor) = world.field_model_actor(root.actor) {
                 visible = !layer.art.spec.material_nodes.iter().flatten().any(|&n| {
                     (names[usize::from(n)].starts_with("SP_himo")
                         || names[usize::from(n)] == "obj_gen000_tama")

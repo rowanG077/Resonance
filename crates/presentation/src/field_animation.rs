@@ -4,10 +4,11 @@ mod camera_tests;
 #[cfg(test)]
 mod continuity_tests;
 mod frame;
-use super::field_view::{ActorPart, Art, State};
+use super::field_view::{ActorPart, Art, Part, State};
 use super::sparse_animation::affine::{Locals, Pose};
 use bevy::prelude::*;
 use frame::Frame;
+use resonance_events::{Actor, Animation, Wings};
 use std::collections::BTreeSet;
 
 #[derive(Component)]
@@ -26,6 +27,7 @@ pub(super) struct Rig {
 
 pub(super) fn bind(
     mut commands: Commands,
+    state: State,
     art: Res<Art>,
     roots: Query<(Entity, &ActorPart, &crate::model_asset::Instance), Without<Rig>>,
 ) {
@@ -33,7 +35,8 @@ pub(super) fn bind(
         if !part.prepared {
             continue;
         }
-        let spec = &art.models[&part.resource][part.part].spec;
+        let artwork = &art.models[&part.resource][part.part];
+        let spec = &artwork.spec;
         let mut rig = Rig::new(
             model
                 .binding(spec.bone_names.len())
@@ -53,10 +56,23 @@ pub(super) fn bind(
                         .map(|joint| usize::from(joint.node))
                 }),
         );
-        for (i, &(_, rest)) in rig.bones.iter().enumerate() {
-            let frame = Frame::sample(rest.into(), 0);
-            rig.from[i] = frame;
-            rig.presented[i] = frame;
+        if let Some(start) = state.get().events.world.field_model_start(part.actor) {
+            let sample = ActorSample {
+                resource: start.resource,
+                wings: start.wings.as_ref(),
+                tick: start.tick,
+                effect_tick: start.effect_tick,
+                pass: part.pass,
+            };
+            let weight = sample.wing_weight(start.animation.as_ref()).unwrap_or(1.);
+            for clip in start.animation.iter().chain(&start.scenery_animations) {
+                if let Some(tracks) = sample.tracks(&mut rig, artwork, clip) {
+                    for (bone, mut pose) in tracks {
+                        rig.blend_bone(bone, &mut pose, weight, true);
+                    }
+                }
+            }
+            rig.sampled = rig.authored_channels.iter().any(|&channels| channels != 0);
         }
         commands.entity(root).insert(rig);
     }
@@ -75,18 +91,18 @@ pub(super) fn restore(rigs: Query<&Rig>, mut nodes: Query<&mut Transform>) {
 
 /// Resolve the displayed clip and its sampling time.
 fn sample_clip<'a>(
-    model: &'a resonance_content::ScenePart,
-    motions: &'a [std::sync::Arc<resonance_content::animation::Motion>],
-    animation: &resonance_events::Animation,
+    model: &'a Part,
+    animation: &Animation,
     resource: u32,
     tick: u32,
     delay: f32,
-) -> Option<(&'a resonance_content::animation::Motion, f32, &'a [String])> {
+) -> Option<(&'a resonance_content::animation::Motion, f32)> {
     let index = model
+        .spec
         .clips
         .iter()
         .position(|clip| animation.matches(clip, resource))?;
-    let spec = &model.clips[index];
+    let spec = &model.spec.clips[index];
     let duration = spec.duration_seconds * resonance_content::ANIMATION_HZ;
     let mut time = animation.sample(tick, 0, duration);
     if delay != 0. && duration > 0. {
@@ -101,10 +117,69 @@ fn sample_clip<'a>(
         }
     }
     Some((
-        &motions[index],
+        &model.motions[index],
         time * resonance_content::animation::FRAME_HZ / resonance_content::ANIMATION_HZ,
-        &spec.pose_chains,
     ))
+}
+
+#[derive(Clone, Copy)]
+struct ActorSample<'a> {
+    resource: u32,
+    wings: Option<&'a Wings>,
+    tick: u32,
+    effect_tick: u32,
+    pass: u8,
+}
+
+impl<'a> ActorSample<'a> {
+    fn current(actor: &'a Actor, world: &resonance_events::GameWorld, pass: u8) -> Self {
+        Self {
+            resource: actor.resource,
+            wings: actor.wings.as_ref(),
+            tick: world.tick,
+            effect_tick: world.effect_tick,
+            pass,
+        }
+    }
+
+    fn wing_weight(self, animation: Option<&Animation>) -> Option<f32> {
+        self.wings?
+            .entrance(self.pass, self.tick.saturating_sub(animation?.start_tick))
+            .map(|entrance| entrance.weight)
+    }
+
+    fn tracks(
+        self,
+        rig: &mut Rig,
+        model: &Part,
+        animation: &Animation,
+    ) -> Option<Vec<(usize, Frame)>> {
+        let layer = self.wings.map(|w| w.layer(self.pass, self.effect_tick));
+        let delay = self
+            .wings
+            .and_then(|w| w.entrance(self.pass, self.tick.saturating_sub(animation.start_tick)))
+            .map_or_else(
+                || layer.as_ref().map_or(0., |layer| layer.pose_delay),
+                |entrance| entrance.delay,
+            );
+        let (clip, mut time) = sample_clip(model, animation, self.resource, self.tick, delay)?;
+        let echo = layer
+            .and_then(|layer| layer.echo)
+            .and_then(|echo| echo.entrance_weight(self.tick));
+        if echo.is_some() {
+            time = 0.;
+        }
+        let mut tracks = rig
+            .sample_tracks(clip, time)
+            .expect("validated animation must evaluate");
+        if let Some(weight) = echo {
+            for (i, pose) in &mut tracks {
+                let rest = rig.bones[*i].1;
+                *pose = Frame::sample(rest.into(), 0).mix(*pose, rest, weight);
+            }
+        }
+        Some(tracks)
+    }
 }
 
 /// Evaluate sparse curves before blending and script adjustments.
@@ -119,49 +194,19 @@ pub(super) fn sample(
     let world = &state.get().events.world;
     for (part, mut rig) in &mut rigs {
         rig.authored_channels.fill(0);
-        let actor = &world.actors[&part.actor];
+        let actor = world.field_model_actor(part.actor).unwrap();
+        let sample = ActorSample::current(actor, world, part.pass);
         let model = &art.models[&part.resource][part.part];
         for animation in actor
-            .animation
-            .iter()
+            .field_model_animation()
+            .into_iter()
             .chain(actor.scenery_animations.values())
         {
-            let delay = actor.wings.as_ref().map_or(0., |w| {
-                if let Some(entrance) =
-                    w.entrance(part.pass, world.tick.saturating_sub(animation.start_tick))
-                {
-                    entrance.delay
-                } else {
-                    w.layer(part.pass, world.effect_tick).pose_delay
-                }
-            });
-            let Some((clip, mut time, _)) = sample_clip(
-                &model.spec,
-                &model.motions,
-                animation,
-                actor.resource,
-                world.tick,
-                delay,
-            ) else {
+            let Some(tracks) = sample.tracks(&mut rig, model, animation) else {
                 continue;
             };
-            let echo_entrance = actor
-                .wings
-                .as_ref()
-                .and_then(|w| w.layer(part.pass, world.effect_tick).echo)
-                .and_then(|echo| echo.entrance_weight(world.tick));
-            if echo_entrance.is_some() {
-                time = 0.;
-            }
-            for (i, mut pose) in rig
-                .sample_tracks(clip, time)
-                .expect("validated animation must evaluate")
-            {
+            for (i, pose) in tracks {
                 let entity = rig.bones[i].0;
-                if let Some(weight) = echo_entrance {
-                    let rest = rig.bones[i].1;
-                    pose = Frame::sample(rest.into(), 0).mix(pose, rest, weight);
-                }
                 if let Ok(mut transform) = nodes.get_mut(entity) {
                     affine.set(entity, &mut transform, pose.pose);
                 }
@@ -218,7 +263,10 @@ impl Rig {
     }
 
     pub(super) fn new(bones: Vec<(Entity, Transform)>) -> Self {
-        let previous: Vec<_> = bones.iter().map(|(_, t)| Frame::from(*t)).collect();
+        let rest: Vec<_> = bones
+            .iter()
+            .map(|&(_, transform)| Frame::sample(transform.into(), 0))
+            .collect();
         Self {
             binding_key: Default::default(),
             sampled: false,
@@ -226,8 +274,8 @@ impl Rig {
             bones,
             camera_facing: Vec::new(),
             secondary_bones: BTreeSet::new(),
-            from: previous.clone(),
-            presented: previous.clone(),
+            from: rest.clone(),
+            presented: rest,
             clip: None,
         }
     }
@@ -266,6 +314,10 @@ impl Rig {
                 ))
             })
             .collect()
+    }
+
+    fn start_blend(&mut self) {
+        self.from.copy_from_slice(&self.presented);
     }
 
     fn blend_bone(&mut self, index: usize, pose: &mut Frame, weight: f32, animated: bool) {
@@ -307,26 +359,18 @@ pub(super) fn blend(
 ) {
     let world = &state.get().events.world;
     for (part, mut rig) in &mut rigs {
-        let actor = &world.actors[&part.actor];
-        let animation = actor.animation.as_ref();
+        let actor = world.field_model_actor(part.actor).unwrap();
+        let animation = actor.field_model_animation();
         let key = animation.map(|a| (a.source, a.resource, a.slot, a.start_tick));
         if key != rig.clip {
-            rig.from = rig.presented.clone();
+            rig.start_blend();
             rig.clip = key;
         }
-        let weight = animation.map_or(1., |a| {
-            actor
-                .wings
-                .as_ref()
-                .and_then(|w| w.entrance(part.pass, world.tick.saturating_sub(a.start_tick)))
-                .map(|entrance| entrance.weight)
-                .unwrap_or_else(|| {
-                    if rig.sampled {
-                        a.blend_weight(world.tick)
-                    } else {
-                        1.
-                    }
-                })
+        let sample = ActorSample::current(actor, world, part.pass);
+        let weight = sample.wing_weight(animation).unwrap_or_else(|| {
+            animation
+                .filter(|_| rig.sampled)
+                .map_or(1., |a| a.blend_weight(world.tick))
         });
         for i in 0..rig.bones.len() {
             let entity = rig.bones[i].0;
@@ -361,7 +405,7 @@ mod tests {
         for i in 0..2 {
             rig.blend_bone(i, &mut Frame::from(folded), 1., true);
         }
-        rig.from = rig.presented.clone();
+        rig.start_blend();
         for (weight, angle) in [(0.5, 0.5), (1., 0.)] {
             for i in 0..2 {
                 let mut pose = Frame::sample(rest.into(), 0);
@@ -382,7 +426,7 @@ mod tests {
         let mut pose = target;
         rig.blend_bone(0, &mut pose, 0.5, true);
         assert_eq!(pose.pose.global().translation().x, 5.);
-        rig.from = rig.presented.clone();
+        rig.start_blend();
         pose = Frame::from(Transform::from_xyz(-5., 0., 0.));
         rig.blend_bone(0, &mut pose, 0.5, true);
         assert_eq!(pose.pose.global().translation().x, 0.);

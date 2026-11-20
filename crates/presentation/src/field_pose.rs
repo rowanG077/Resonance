@@ -57,7 +57,7 @@ pub(super) fn bones(
     mut applied: ResMut<Applied>,
 ) {
     for (part, rig) in &actors {
-        let Some(actor) = state.get().events.world.actors.get(&part.actor) else {
+        let Some(actor) = state.get().events.world.field_model_actor(part.actor) else {
             continue;
         };
         if !part.prepared {
@@ -225,14 +225,18 @@ pub(super) fn attachments(
     let mut ordered: Vec<_> = actors.iter().collect();
     ordered.sort_by_key(|(_, part, _)| {
         std::iter::successors(Some(part.actor), |id| {
-            world.actors.get(id)?.attachment.as_ref().map(|a| a.actor)
+            world
+                .field_model_actor(*id)?
+                .attachment
+                .as_ref()
+                .map(|a| a.actor)
         })
         .take(world.actors.len())
         .count()
     });
     let helper = transforms.p0();
     for (root, part, retained) in ordered {
-        let Some(actor) = world.actors.get(&part.actor) else {
+        let Some(actor) = world.field_model_actor(part.actor) else {
             continue;
         };
         let Some(attachment) = actor

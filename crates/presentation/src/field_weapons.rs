@@ -30,7 +30,7 @@ fn carried(
     symphonia_constants::FieldEquipmentModelId::try_from(actor.resource).ok()?;
     actor.field_weapon.or_else(|| {
         let attachment = actor.attachment.as_ref()?;
-        let owner = world.actors.get(&attachment.actor)?;
+        let owner = world.field_model_actor(attachment.actor)?;
         resonance_events::FieldWeapon::from_attachment(
             actor.resource,
             owner.resource,
@@ -59,7 +59,7 @@ impl Readiness<'_, '_> {
             if part.part != 0 || part.pass != 0 {
                 return true;
             }
-            let Some(actor) = world.actors.get(&part.actor) else {
+            let Some(actor) = world.field_model_actor(part.actor) else {
                 return true;
             };
             let Some((binding, item)) = selection(actor, world) else {
@@ -222,8 +222,7 @@ pub(super) fn instances(
             continue;
         }
         let Some((binding, item)) = world
-            .actors
-            .get(&part.actor)
+            .field_model_actor(part.actor)
             .and_then(|actor| selection(actor, world))
         else {
             continue;
@@ -354,9 +353,10 @@ pub(super) fn render(
     for (_entity, mut root, model_instance) in &mut roots {
         root.sampled = false;
         root.prepared = false;
-        let Some(actor) = world.actors.get(&root.actor) else {
+        let Some(actor) = world.field_model_actor(root.actor) else {
             continue;
         };
+        let pose = actor.field_model_pose();
         let Ok((_, owner)) = actors.get(root.owner) else {
             continue;
         };
@@ -454,12 +454,11 @@ pub(super) fn render(
                 surface.blend = if layer.preview.additive {
                     Some(Blend::Additive)
                 } else {
-                    actor
-                        .blend
-                        .or((spec.blend || actor.opacity < 255).then_some(Blend::Alpha))
+                    pose.blend
+                        .or((spec.blend || pose.opacity < 255).then_some(Blend::Alpha))
                 };
                 surface.depth_write =
-                    spec.depth_write && actor.depth_write && !layer.preview.additive;
+                    spec.depth_write && pose.depth_write && !layer.preview.additive;
                 surface.cull = if actor.model_scale().iter().product::<f32>() < 0. {
                     match spec.cull {
                         resonance_content::CullFace::Back => resonance_content::CullFace::Front,
@@ -549,7 +548,7 @@ pub(super) fn dynamics(
             let Some(rig) = &mut root.dynamics else {
                 continue;
             };
-            if let Some(actor) = field.events.world.actors.get(&actor_id) {
+            if let Some(actor) = field.events.world.field_model_actor(actor_id) {
                 rig.controls(actor, &field.events.world);
             }
             let yaw = helper

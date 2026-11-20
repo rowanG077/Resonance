@@ -295,6 +295,7 @@ mod tests;
 
 pub(super) struct Part {
     pub(super) spec: ScenePart,
+    pub(super) has_eye_material: bool,
     // Retain all scenes, clips, meshes and skins for the field's lifetime.
     // Resolve labeled assets only after this canonical model load finishes.
     pub(super) gltf: Handle<bevy::gltf::Gltf>,
@@ -342,6 +343,16 @@ impl Part {
             )
         };
         let prepared = spec.prepared_motion_snapshot();
+        let has_eye_material = spec
+            .appearance
+            .as_ref()
+            .and_then(|a| a.eyes)
+            .is_some_and(|eyes| {
+                spec.materials
+                    .iter()
+                    .filter_map(|material| material.color.as_ref())
+                    .any(|binding| binding.texture == eyes)
+            });
         let materials = spec
             .materials
             .iter()
@@ -368,6 +379,7 @@ impl Part {
                 .collect(),
             motions: prepared.unwrap_or_default(),
             materials,
+            has_eye_material,
             spec,
         }
     }

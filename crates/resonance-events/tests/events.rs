@@ -248,6 +248,7 @@ fn controlled_world() -> GameWorld {
 fn node_position_queries_and_setters_use_local_coordinates_and_preserve_rotation() {
     use resonance_content::animation::{Bone, Skeleton, Transform};
     let mut code = Vec::new();
+    native(&mut code, Call::YieldCommand, &[0, 1]);
     let cases = [
         (0, [0, 0, 0], [10, -20, 30]),
         (1, [4, 5, 6], [10, -20, 30]),
@@ -309,9 +310,12 @@ fn node_position_queries_and_setters_use_local_coordinates_and_preserve_rotation
         ..Default::default()
     };
     let mut world = controlled_world();
+    world.current_field = Some(95);
     world.insert_actor(1, Actor::new(1, [1000.; 3]));
     let mut events = runtime(program(&code, &[0x20ff]), resources, world);
     events.step().unwrap();
+    let model = events.world.field_model_actor(1).unwrap();
+    assert!(model.appearance.bone_adjustments.is_empty());
     for (case, &(_, _, expected)) in cases.iter().enumerate() {
         for (axis, value) in expected.into_iter().enumerate() {
             assert_eq!(
@@ -2413,6 +2417,49 @@ fn bone_scale_tweens_from_bind_pose_and_survives_other_controller_commands() {
 }
 
 #[test]
+fn field_bone_tweens_take_their_first_step_on_the_next_model_update() {
+    let mut world = GameWorld::default();
+    world.current_field = Some(95);
+    world.insert_actor(5, Actor::new(5, [0.; 3]));
+    let mut resources = blinking_models(&[5]);
+    resources.models.get_mut(&5).unwrap().names = vec!["neck".into(), "head".into()];
+    resources.blink.as_mut().unwrap().frames = vec![1, 2];
+    let code = script(&[
+        (Call::YieldCommand, &[0, 1]),
+        (Call::ConfigureActorHeadNeck, &[5, 0, 1, 160, 0, 0, 4]),
+        (Call::ConfigureActorBoneTranslation, &[5, 1, 1, 80, 0, 0, 4]),
+        (Call::ConfigureActorBoneScale, &[5, 1, 1, 600, 100, 100, 4]),
+        (Call::YieldCommand, &[0, 1]),
+        (Call::ConfigureActorAttachment, &[5, 1, 1, 60, 0, 0, 2]),
+        (Call::ConfigureActorAttachment, &[5, 1, 1, 0, 0, 0, 2]),
+        (Call::ConfigureActorBoneTranslation, &[5, 1, 1, 0, 0, 0, 2]),
+        (Call::ConfigureActorBoneScale, &[5, 1, 1, 100, 100, 100, 2]),
+    ]);
+    let mut events = runtime(program(&code, &[0x20ff]), resources, world);
+    events.step().unwrap();
+    let model = events.world.field_model_actor(5).unwrap();
+    assert!(model.appearance.bone_adjustments.is_empty());
+    assert_eq!(
+        events.eye_frame(model),
+        events.world.actors[&5].appearance.eyes.unwrap().frame,
+        "turning the head must keep the current blink frame"
+    );
+    for (neck, head, scale) in [(20., 20., 3.), (40., 10., 2.), (60., 0., 1.), (80., 0., 1.)] {
+        events.step().unwrap();
+        let actor = events.world.field_model_actor(5).unwrap();
+        let pose = &actor.appearance.bone_adjustments;
+        let tick = events.tick();
+        assert_eq!(pose[&0].sample(tick)[0], neck);
+        assert_eq!(pose[&1].sample(tick)[0], head);
+        assert_eq!(pose[&1].translation(tick)[0], head);
+        assert_eq!(
+            pose[&1].scale.as_ref().unwrap().sample(tick, [2.; 3])[0],
+            scale
+        );
+    }
+}
+
+#[test]
 fn bound_particles_move_grow_fade_and_expire() {
     const RECIPE: i32 = 10;
     const GROWTH: i32 = 135;
@@ -3773,10 +3820,14 @@ fn replacing_the_player_releases_its_script_id_for_scene_spawns() {
             ..Default::default()
         };
         let mut world = GameWorld::default();
+        world.current_field = Some(466);
         world.controlled_actor = 1;
+        world.player_size = PlayerSize::Small;
         world.insert_actor(1, Actor::new(1, [-500., 0., 0.]));
-        let mut code = script(&[(Call::SelectPartyMember, &[3])]);
-        code.pop();
+        world.insert_actor(3, Actor::new(3, [20., 0., 0.]));
+        let mut code = Vec::new();
+        native(&mut code, Call::YieldCommand, &[0, 1]);
+        native(&mut code, Call::SelectPartyMember, &[3]);
         if delay != 0 {
             native(&mut code, Call::YieldCommand, &[0, delay]);
         }
@@ -3786,8 +3837,22 @@ fn replacing_the_player_releases_its_script_id_for_scene_spawns() {
             (Call::MoveActor, &[1, 44, 50, 0, 2]),
         ]));
         let mut events = runtime(program(&code, &[0x20ff]), resources, world);
-        steps(&mut events, 4);
+        let scales = |world: &GameWorld| {
+            [1, 3].map(|id| {
+                world
+                    .field_model_actor(id)
+                    .unwrap()
+                    .field_model_player_scale(world, id)
+            })
+        };
+        events.step().unwrap();
         assert_eq!(events.world.controlled_actor, 3);
+        assert_eq!(scales(&events.world), [0.4, 1.]);
+        let outgoing = events.world.field_model_actor(1).unwrap();
+        assert!(outgoing.field_model_pose().visible());
+        events.step().unwrap();
+        assert_eq!(scales(&events.world), [1., 0.4]);
+        steps(&mut events, 3);
         let lloyd = &events.world.actors[&1];
         assert!(lloyd.visible);
         assert_eq!(lloyd.position, [44., 50., 0.]);
@@ -4076,57 +4141,86 @@ fn item_notice_reusing_a_choice_window_does_not_inherit_its_cursor() {
     assert!(world.choices[&0].operation.is_pending());
 }
 
+fn blinking_models(ids: &[u32]) -> ResourceLibrary {
+    let model = ModelResource {
+        has_eyes: true,
+        ..Default::default()
+    };
+    ResourceLibrary {
+        blink: Some(resonance_content::effect::BlinkCycle {
+            frames: vec![0, 1, 2, 0, 0],
+        }),
+        models: ids.iter().map(|&id| (id, model.clone())).collect(),
+        ..Default::default()
+    }
+}
+
 #[test]
 fn colette_recovers_her_expression_and_blinking_after_the_story_override() {
+    use resonance_content::appearance::ANGEL_PROGRESS;
     for mode in [0, 1, 6] {
         let mut world = GameWorld::default();
+        world.current_field = Some(95);
         world.insert_actor(2002, Actor::new(2, [0.; 3]));
         world.insert_actor(2001, Actor::new(1, [0.; 3]));
-        let resources = ResourceLibrary {
-            blink: Some(resonance_content::effect::BlinkCycle {
-                frames: vec![0, 1, 2],
-            }),
-            models: [1, 2]
-                .map(|id| {
-                    (
-                        id,
-                        ModelResource {
-                            has_eyes: true,
-                            ..Default::default()
-                        },
-                    )
-                })
-                .into(),
-            ..Default::default()
-        };
-        let setup = script(&[
-            (Call::SetActorFace, &[2002, mode]),
-            (Call::SetActorFace, &[2001, 6]),
-        ]);
-        let mut events = runtime(program(&setup, &[0x20ff]), resources, world);
-        for (progress, forced) in [(999, false), (1000, true), (1999, true), (2000, false)] {
-            events
-                .set_global(resonance_content::appearance::ANGEL_PROGRESS / 4, progress)
-                .unwrap();
-            for _ in 0..3 {
-                events.step().unwrap();
-                let colette = &events.world.actors[&2002];
-                let frame = events.eye_frame(colette);
-                match (forced, mode) {
-                    (true, _) => assert_eq!(frame, 15),
-                    (false, 1) => {
-                        assert!(frame < 3);
-                        assert!(colette.appearance.eyes.is_some());
-                    }
-                    (false, _) => assert_eq!(frame, if mode == 0 { 0 } else { 4 }),
-                }
-                assert_eq!(events.eye_frame(&events.world.actors[&2001]), 4);
+        let mut setup = Vec::new();
+        native(&mut setup, Call::SetActorFace, &[2002, mode]);
+        native(&mut setup, Call::SetActorFace, &[2001, 6]);
+        for progress in [999, 1000, 1999, 2000] {
+            native(&mut setup, Call::YieldCommand, &[0, 1]);
+            setup.extend([0x1200, ANGEL_PROGRESS, 0x0200, progress, 0, 0x3010, 0x3000]);
+            if progress == 1000 {
+                native(&mut setup, Call::SetEventBit, &[24]);
+                native(&mut setup, Call::SetEventBit, &[29]);
             }
         }
-        assert_eq!(events.world.actors[&2002].appearance.costume_frame, 3);
-        events.world.event_flags.insert(24);
-        events.step().unwrap();
-        assert_eq!(events.world.actors[&2002].appearance.costume_frame, 0);
+        setup.push(0x20ff);
+        let mut resources = blinking_models(&[1, 2]);
+        resources.blink.as_mut().unwrap().frames = vec![1, 2];
+        resources.models.get_mut(&1).unwrap().names = vec!["obj_nuno01".into()];
+        let mut events = runtime(program(&setup, &[0x20ff]), resources, world);
+        let mut seed = events.world.random_state;
+        let mut last_frame = 0;
+        for (tick, progress) in [999, 1000, 1999, 2000, 2000].into_iter().enumerate() {
+            events.step().unwrap();
+            assert_eq!(
+                events.memory().read(ANGEL_PROGRESS, Width::S32).unwrap(),
+                progress
+            );
+            let colette = &events.world.actors[&2002];
+            let frame = events.eye_frame(colette);
+            let blink = mode == 1 && !(1000..2000).contains(&progress);
+            assert_eq!(colette.appearance.eyes.is_some(), blink);
+            if mode == 1 && matches!(tick, 0 | 3) {
+                libc_random(&mut seed);
+            }
+            assert_eq!(events.world.random_state, seed);
+            match tick {
+                1 => assert_eq!(frame, last_frame),
+                2 | 3 => assert_eq!(frame, 15),
+                _ if blink => assert_eq!(frame, colette.appearance.eyes.unwrap().frame),
+                _ => assert_eq!(frame, if mode == 0 { 0 } else { 4 }),
+            }
+            last_frame = frame;
+            assert_eq!(
+                colette.appearance.costume_frame,
+                if tick == 0 { 3 } else { 0 }
+            );
+            assert_eq!(
+                colette.field_model_pose().costume_frame,
+                if tick < 2 { 3 } else { 0 }
+            );
+            let lloyd = events.world.field_model_actor(2001).unwrap();
+            assert_eq!(events.eye_frame(lloyd), 4);
+            assert_eq!(lloyd.appearance.hidden_nodes.contains(&0), tick >= 2);
+            assert_eq!(
+                events.world.actors[&2001]
+                    .appearance
+                    .hidden_nodes
+                    .contains(&0),
+                tick >= 1
+            );
+        }
     }
 }
 
@@ -4137,21 +4231,7 @@ fn scripted_eye_modes_enable_blinking_or_a_fixed_expression() {
     world.actors.insert(1, Actor::new(1, [0.; 3]));
     for mode in [1, 0, 6, 1, 1] {
         let code = script(&[(Call::SetActorFace, &[999_999, mode])]);
-        let resources = ResourceLibrary {
-            blink: Some(resonance_content::effect::BlinkCycle {
-                frames: vec![0, 1, 2, 0, 0],
-            }),
-            models: [(
-                1,
-                ModelResource {
-                    has_eyes: true,
-                    ..Default::default()
-                },
-            )]
-            .into(),
-            ..Default::default()
-        };
-        let mut events = runtime(program(&code, &[0x20ff]), resources, world);
+        let mut events = runtime(program(&code, &[0x20ff]), blinking_models(&[1]), world);
         assert!(events.world.actors[&1].appearance.eyes.is_none());
         let mut frames = Vec::new();
         for _ in 0..10 {
@@ -4173,6 +4253,116 @@ fn scripted_eye_modes_enable_blinking_or_a_fixed_expression() {
         world = events.world;
     }
 }
+
+#[test]
+fn field_model_keeps_its_sampled_pose_through_script_changes() {
+    let mut world = GameWorld::default();
+    world.current_field = Some(95);
+    let seed = world.random_state;
+    let mut resources = ResourceLibrary {
+        bindings: [(5, (ResourceKind::Model, 5))].into(),
+        ..blinking_models(&[5])
+    };
+    resources.models.get_mut(&5).unwrap().clips = model([12, 24], 30).clips;
+    let code = script(&[
+        (Call::YieldCommand, &[0, 1]),
+        (Call::SpawnActor, &[5, 0, 0, 0, 0, 5, 0, 0]),
+        (Call::ConfigureActorAnimation, &[5, -1, 12, 0, 2]),
+        (Call::SetActorFace, &[5, 13]),
+        (Call::SetActorMouth, &[5, 8]),
+        (Call::YieldCommand, &[0, 1]),
+        (Call::SetActorPosition, &[5, 80, 20, 0]),
+        (Call::SetActorProperty, &[5, 1, 100]),
+        (Call::SetActorProperty, &[5, 12, 1]),
+        (Call::SetActorProperty, &[5, 8, 95]),
+        (Call::SetActorProperty, &[5, 51, 64]),
+        (Call::SetActorProperty, &[5, 16, 3]),
+        (Call::ConfigureActorAnimation, &[5, -1, 24, 0, 2]),
+        (Call::SetActorFace, &[5, 8]),
+        (Call::SetActorMouth, &[5, 0]),
+        (Call::YieldCommand, &[0, 1]),
+        (Call::SetActorFace, &[5, 1]),
+    ]);
+    let mut events = runtime(program(&code, &[0x20ff]), resources, world);
+    events.step().unwrap();
+    assert_eq!(
+        events.world.random_state, seed,
+        "fixed eyes started a blink on spawn"
+    );
+    events.step().unwrap();
+    let sheena = &events.world.actors[&5];
+    let pose = sheena.field_model_pose();
+    assert_eq!(sheena.position, [100., 20., 0.]);
+    assert_eq!(pose.position, [0.; 3]);
+    assert!(pose.visible());
+    assert_eq!((pose.opacity, pose.texture_variant), (255, 0));
+    assert_eq!(sheena.field_model_animation().unwrap().slot, 12);
+    assert_eq!(events.eye_frame(sheena), 11);
+    assert!(matches!(pose.mouth, Some(Face::Frame(6))));
+    events.step().unwrap();
+    let sheena = &events.world.actors[&5];
+    let pose = sheena.field_model_pose();
+    assert_eq!(pose.position, sheena.position);
+    assert!(!pose.visible());
+    assert_eq!(
+        (pose.opacity, pose.texture_variant, pose.shadow_alpha),
+        (95, 3, 64)
+    );
+    assert_eq!(sheena.field_model_animation().unwrap().slot, 24);
+    assert_eq!(events.eye_frame(sheena), 6);
+    assert!(matches!(pose.mouth, Some(Face::Disabled)));
+    assert!(
+        sheena.appearance.eyes.is_some(),
+        "blink starts on its script tick"
+    );
+}
+
+#[test]
+fn capture_isolation_preserves_the_field_poses_held_during_a_movie() {
+    let mut world = GameWorld::default();
+    world.current_field = Some(95);
+    for id in [1, 2] {
+        world.insert_actor(id, Actor::new(1, [0.; 3]));
+    }
+    let resources = ResourceLibrary {
+        models: [(
+            1,
+            ModelResource {
+                names: vec!["node".into()],
+                ..Default::default()
+            },
+        )]
+        .into(),
+        movies: [8].into(),
+        ..Default::default()
+    };
+    let main = script(&[
+        (Call::YieldCommand, &[0, 1]),
+        (Call::SetActorProperty, &[1, 1, 30]),
+        (Call::SetActorProperty, &[2, 1, 30]),
+        // Hiding a node retains actor 2's model for the pending presentation.
+        (Call::SetActorAnimation, &[2, 0, 0]),
+        (Call::SetActorProperty, &[1, 8, 0]),
+        (Call::PlayMovieBlocking, &[8]),
+    ]);
+    let mut events = runtime(program(&main, &[0x20ff]), resources, world);
+    events.step().unwrap();
+    let tick = events.tick();
+    for visible in [&[][..], &[1, 2]] {
+        events.world.isolate_field_models(visible);
+        events.step().unwrap();
+        assert_eq!(events.tick(), tick);
+        for id in [1, 2] {
+            let actor = events.world.field_model_actor(id).unwrap();
+            let sample = actor.field_model_pose();
+            assert_eq!(sample.position, [0.; 3]);
+            assert_eq!(sample.visible(), visible.contains(&id));
+            assert!(!sample.casts_shadow);
+            assert_eq!(events.world.actors[&id].position[0], 30.);
+        }
+    }
+}
+
 #[test]
 fn camera_target_accepts_the_controlled_actor_alias() {
     let mut world = GameWorld::default();
@@ -5045,6 +5235,8 @@ fn replacing_a_visible_model_has_no_gap_and_still_initializes_its_transform() {
             (Call::SetActorProperty, &[7, 35, 45]),
             (Call::SetActorProperty, &[7, 7, 0]),
             (Call::SetActorProperty, &[7, 36, -30]),
+            (Call::SetActorAnimationProperty, &[7, 2, 6]),
+            (Call::MoveActor, &[7, 100, 0, 0, 2]),
         ]);
         let resources = ResourceLibrary {
             bindings: [
@@ -5052,10 +5244,12 @@ fn replacing_a_visible_model_has_no_gap_and_still_initializes_its_transform() {
                 (100, (ResourceKind::Model, 100)),
             ]
             .into(),
-            models: [(99, model([12], 30)), (100, model([12], 30))].into(),
+            models: [(99, model([12, 36], 30)), (100, model([12, 36], 30))].into(),
             ..Default::default()
         };
-        let mut events = runtime(program(&main, &[0x20ff]), resources, Default::default());
+        let mut world = GameWorld::default();
+        world.current_field = Some(95);
+        let mut events = runtime(program(&main, &[0x20ff]), resources, world);
         assert!(events.world.actors[&7].visible_from > events.world.tick);
         let instance = events.world.actors[&7].instance;
         events.step().unwrap();
@@ -5064,6 +5258,23 @@ fn replacing_a_visible_model_has_no_gap_and_still_initializes_its_transform() {
         assert_eq!(block.visible_from <= events.world.tick, replacement == 99);
         assert_eq!(block.model_scale(), [2., 1., 1.]);
         assert_eq!(block.tilt_degrees(), [45., -30.]);
+
+        let new_instance = block.instance;
+        let presented = events.world.field_model_actor(7).unwrap();
+        assert_eq!(presented.instance, instance);
+        assert_eq!(presented.model_scale(), [1.; 3]);
+        assert!(presented.field_model_pose().visible());
+        events.step().unwrap();
+        let presented = events.world.field_model_actor(7).unwrap();
+        assert_eq!(presented.instance, new_instance);
+        assert_eq!(presented.model_scale(), [2., 1., 1.]);
+        let walk = presented.field_model_animation().unwrap();
+        assert_eq!((walk.slot, walk.blend_ticks), (36, 8));
+        let start = events.world.field_model_start(7).unwrap();
+        assert_eq!(start.instance, new_instance);
+        assert_eq!(start.tick + 1, events.world.tick);
+        let idle = start.animation.as_ref().unwrap();
+        assert_eq!((idle.slot, idle.sample(start.tick, 0, 30.)), (12, 12.));
     }
 }
 
@@ -5075,9 +5286,13 @@ fn actor_attachments_start_hidden_and_script_toggles_are_instance_local() {
         (Call::CreateSceneActor, &[9, 0, 0, 0, 0, 99, 0, 0]),
         (Call::SpawnInteractionActor, &[10, 0, 0, 0, 0, 99, 0, 0]),
         (Call::YieldCommand, &[0, 1]),
+        (Call::SetActorProperty, &[7, 39, -1]),
         (Call::SetActorAnimation, &[7, 1, 1]),
+        (Call::AttachActorToMember, &[8, 7, 0]),
         (Call::YieldCommand, &[0, 1]),
         (Call::SetActorAnimation, &[7, 0, 0]),
+        (Call::SetActorProperty, &[7, 39, -3]),
+        (Call::AttachActorToMember, &[8, 7, -1]),
     ]);
     let mut resources = ResourceLibrary::default();
     resources.bindings.insert(99, (ResourceKind::Model, 99));
@@ -5089,15 +5304,29 @@ fn actor_attachments_start_hidden_and_script_toggles_are_instance_local() {
             ..Default::default()
         },
     );
-    let mut events = runtime(program(&main, &[0x20ff]), resources, Default::default());
-    assert_eq!(events.world.actors[&7].appearance.hidden_nodes, [1].into());
-    assert_eq!(events.world.actors[&9].appearance.hidden_nodes, [1].into());
-    assert_eq!(events.world.actors[&10].appearance.hidden_nodes, [1].into());
-    events.step().unwrap();
-    assert!(events.world.actors[&7].appearance.hidden_nodes.is_empty());
-    assert_eq!(events.world.actors[&8].appearance.hidden_nodes, [1].into());
-    events.step().unwrap();
-    assert_eq!(events.world.actors[&7].appearance.hidden_nodes, [0].into());
+    let mut world = GameWorld::default();
+    world.current_field = Some(95);
+    let mut events = runtime(program(&main, &[0x20ff]), resources, world);
+    let presented = |world: &GameWorld| {
+        let parent = world.field_model_actor(7).unwrap();
+        let child = world.field_model_actor(8).unwrap();
+        (
+            parent.field_model_pose().draw_layer,
+            parent.appearance.hidden_nodes.clone(),
+            child.attachment.as_ref().map(|a| a.actor),
+        )
+    };
+    for id in [7, 9, 10] {
+        assert_eq!(events.world.actors[&id].appearance.hidden_nodes, [1].into());
+    }
+    for expected in [
+        (2, [1].into(), None),
+        (-1, [].into(), Some(7)),
+        (-3, [0].into(), None),
+    ] {
+        events.step().unwrap();
+        assert_eq!(presented(&events.world), expected);
+    }
     assert_eq!(events.world.actors[&8].appearance.hidden_nodes, [1].into());
 }
 
@@ -5934,6 +6163,7 @@ fn door_exit_owns_control_and_finishes_its_pose_sound_and_hinge_before_handoff()
         model([slot::IDLE, slot::EVENT_IDLE, slot::EVENT_WALK], 60),
     );
     let mut world = GameWorld::default();
+    world.current_field = Some(95);
     world.controlled_actor = 1;
     world.input_enabled = true;
     world.actors.insert(1, Actor::new(1, [0.; 3]));
@@ -5952,7 +6182,7 @@ fn door_exit_owns_control_and_finishes_its_pose_sound_and_hinge_before_handoff()
             1 => {
                 assert_eq!(actor.position, [0.; 3]);
                 assert!(actor.motion.is_none());
-                let animation = actor.animation.as_ref().unwrap();
+                let animation = actor.field_model_animation().unwrap();
                 assert_eq!(
                     (animation.slot, animation.start_tick),
                     (slot::EVENT_IDLE, 1)
@@ -6510,8 +6740,10 @@ fn scenery_motion_layers_pause_and_clear_independently() {
         (Call::SetSceneryAnimationRate, &[1, 0, 200]),
     ]);
     let mut world = GameWorld::default();
+    world.current_field = Some(95);
     world.actors.insert(999996, Actor::new(1, [0.; 3]));
     let resources = ResourceLibrary {
+        models: [(1, ModelResource::default())].into(),
         animations: [(123, model([12], 20).clips)].into(),
         ..Default::default()
     };
@@ -6541,6 +6773,11 @@ fn scenery_motion_layers_pause_and_clear_independently() {
     );
     events.step().unwrap();
     assert!(events.world.actors[&999996].scenery_animations.is_empty());
+    let actor = events.world.field_model_actor(999996).unwrap();
+    assert!(actor.scenery_animations.contains_key(&0));
+    events.step().unwrap();
+    let actor = events.world.field_model_actor(999996).unwrap();
+    assert!(actor.scenery_animations.is_empty());
 }
 
 #[test]
