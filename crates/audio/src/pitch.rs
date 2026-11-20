@@ -11,6 +11,13 @@ pub fn ratio(pitch: i32, sample: &Sample) -> Result<u32> {
     Ok((rate * 65536.0).min(f64::from(u32::MAX)) as u32)
 }
 
+/// Limit the final source advance after note tuning, sample rate and both sweeps.
+/// The maximum playback rate is 16,383 / 4,096 input frames per mixer frame.
+pub(crate) fn playback_ratio(pitch: i32, sample: &Sample, sweep: i64) -> Result<u32> {
+    let base = i64::from(ratio(pitch, sample)?);
+    Ok((base + sweep).clamp(0, 0x3fff << 4) as u32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -55,5 +62,12 @@ mod tests {
         assert_eq!(previous, u32::MAX);
         assert_eq!(ratio(i32::MAX, &sample).unwrap(), u32::MAX);
         assert_eq!(ratio(i32::MIN, &sample).unwrap(), 0);
+
+        let two_octaves_up = 84 << 16;
+        assert_eq!(playback_ratio(two_octaves_up, &sample, 0).unwrap(), 262128);
+        assert_eq!(
+            playback_ratio(two_octaves_up, &sample, -8192).unwrap(),
+            253952
+        );
     }
 }

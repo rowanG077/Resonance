@@ -787,8 +787,7 @@ impl<'a> Voice<'a> {
                     + (i32::from(controls.pitch_bend) - 8192) * 2 * 8
                     + pitch_envelope
                     + self.vibrato.pitch_offset(controls.paired[1]);
-                let ratio = pitch::ratio(pitch, cursor.sample())?;
-                source.set_ratio((i64::from(ratio) + sweep).clamp(0, i64::from(u32::MAX)) as u32);
+                source.set_ratio(pitch::playback_ratio(pitch, cursor.sample(), sweep)?);
             }
             self.effective_controls = controls;
             self.tremolo_scale = self.tremolo.gain(
