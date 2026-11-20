@@ -323,7 +323,7 @@ pub(crate) fn apply(
                 continue;
             }
             root.prepared = true;
-            if let Some(actor) = state.get().events.world.actors.get(&root.actor) {
+            if let Some(actor) = state.get().events.world.field_model_actor(root.actor) {
                 for &(material, mesh) in &root.geometry {
                     let hidden = mesh_hidden(
                         source,

@@ -1125,16 +1125,10 @@ impl DialogueDraw<'_> {
         });
         for request in world.dialogue.values() {
             if let Some(id) = request.speaker_actor
-                && let Some(actor) = world.actors.get(&id)
                 && let Some(head) = heads.get(&id)
+                && let Some(position) = camera.speaker_position(id, self.attached_positions)
             {
-                // Capture head height once, then follow the actor’s ground position.
-                // Following animated head XY makes dialogue drift during turns.
-                let position = self
-                    .attached_positions
-                    .get(&id)
-                    .copied()
-                    .unwrap_or_else(|| Vec3::from_array(actor.position));
+                // Measure once so animated head motion does not move the box.
                 self.head_heights
                     .entry(request.operation.id())
                     .or_insert(((*head - position).dot(camera.up)).trunc() + HEAD_ANCHOR_PADDING);
@@ -1442,6 +1436,16 @@ struct DialogueCamera<'a> {
     up: Vec3,
 }
 impl<'a> DialogueCamera<'a> {
+    fn speaker_position(&self, id: i32, attached: &BTreeMap<i32, Vec3>) -> Option<Vec3> {
+        let actor = self.world.field_model_actor(id)?;
+        Some(
+            attached
+                .get(&id)
+                .copied()
+                .unwrap_or_else(|| Vec3::from_array(actor.field_model_pose().position)),
+        )
+    }
+
     fn field(world: &'a resonance_events::GameWorld) -> Self {
         Self {
             world,
@@ -1703,14 +1707,9 @@ fn layout_with_camera(
             project_dialogue_point(transform, camera.fov_degrees, point, resolution)
         })
     };
-    let actor = request.speaker_actor.and_then(|id| {
-        camera.world.actors.get(&id).map(|actor| {
-            attached_positions
-                .get(&id)
-                .copied()
-                .unwrap_or_else(|| Vec3::from_array(actor.position))
-        })
-    });
+    let actor = request
+        .speaker_actor
+        .and_then(|id| camera.speaker_position(id, attached_positions));
     let mut pointer = actor
         .filter(|_| {
             request.flags & flags::POINTER != 0
@@ -2895,7 +2894,11 @@ mod tests {
     fn dialogue_head_clearance_only_moves_overlapping_actor_boxes() -> Result<()> {
         use resonance_events::{Actor, GameWorld, dialogue::ResolvedMessage};
         let mut world = GameWorld::default();
-        world.actors.insert(0, Actor::new(0, [0.; 3]));
+        let mut speaker = Actor::new(0, [0.; 3]);
+        speaker.sample_field_model(false);
+        // The script moves its speaker after the model and its head were sampled.
+        speaker.position = [0., 400., 400.];
+        world.actors.insert(0, speaker);
         world
             .show_notice(ResolvedMessage { tokens: vec![] }, flags::ABOVE)
             .unwrap();

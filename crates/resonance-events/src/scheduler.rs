@@ -807,7 +807,12 @@ impl EventRuntime {
         self.world.effect_changes.clear();
         self.world.model_particles.clear();
         self.world.refractions.clear();
+        // The exploration camera and actors replace the cutscene on this frame.
+        self.world.retained_field_models.clear();
+        self.world.field_model_starts.clear();
         for (&id, actor) in &mut self.world.actors {
+            actor.sampled_field_model = None;
+            actor.rendered_eye_frame = None;
             actor.motion = None;
             actor.attachment = None;
             actor.enemy = None;
@@ -885,8 +890,11 @@ impl EventRuntime {
         {
             return Ok(());
         }
+        self.world.advance_field_models();
         self.world.actors.retain(|_, actor| !actor.retiring);
         for actor in self.world.actors.values_mut() {
+            actor.sampled_field_model = None;
+            actor.rendered_eye_frame = None;
             actor.rendered_scale = None;
             actor.rendered_heading = None;
             if actor.heading_lock == 0 {
@@ -1176,27 +1184,32 @@ impl EventRuntime {
                 && e.duration
                     .is_none_or(|d| self.world.tick - e.start_tick <= d)
         });
-        let result = self
-            .world
-            .step_field_exit(&self.resources)
-            .map_err(anyhow::Error::msg)
-            .and_then(|()| self.execute())
-            .and_then(|()| {
-                let colette_progress = self.memory.read(
-                    resonance_content::appearance::ANGEL_PROGRESS,
-                    symphonia_script::Width::S32,
-                )?;
-                self.world.step_eyes(&self.resources, colette_progress)
-            })
-            .and_then(|()| {
-                // Apply new pickups and scripted player relocations immediately.
-                self.world.anchor_followers_to_player();
-                self.world.update_collision_attachments(&self.resources)?;
-                // Birth poses are ready for presentation after this update's
-                // scripts and emitters have consumed their random inputs.
-                self.world.initialize_billboards();
-                Ok(())
-            });
+        let result = (|| {
+            self.world
+                .step_field_exit(&self.resources)
+                .map_err(anyhow::Error::msg)?;
+            // Present service poses, including a door approach, before dispatching scripts.
+            if self.world.current_field.is_some() {
+                self.world.sampled_angel_progress = Some(self.angel_progress());
+                for (&id, actor) in &mut self.world.actors {
+                    if self.world.tick >= actor.first_update_tick
+                        && self.resources.model(actor.model_resource()).is_some()
+                    {
+                        actor.sample_field_model(id == self.world.controlled_actor);
+                    }
+                }
+            }
+            self.execute()?;
+            self.world
+                .step_eyes(&self.resources, self.angel_progress())?;
+            // Apply new pickups and scripted player relocations immediately.
+            self.world.anchor_followers_to_player();
+            self.world.update_collision_attachments(&self.resources)?;
+            // Birth poses are ready for presentation after this update's
+            // scripts and emitters have consumed their random inputs.
+            self.world.initialize_billboards();
+            Ok(())
+        })();
         self.failed = result.is_err();
         if self.failed {
             let mut ring = std::mem::take(&mut self.world.ring);

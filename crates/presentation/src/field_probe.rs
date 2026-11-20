@@ -160,6 +160,7 @@ impl ClassroomProbe {
         actor.position = self.position;
         actor.face(self.heading);
         actor.motion = None;
+        session.events.world.resample_field_model(player);
         for _ in 0..self.approach_settle_ticks {
             session.step(FieldInput::default())?;
             session.events.world.audio_commands.clear();
@@ -204,6 +205,7 @@ impl ClassroomProbe {
             // it does not perform another native animation binding.
             animation.start_tick = tick.saturating_sub(animation.blend_ticks);
             animation.phase_tick = tick;
+            session.events.world.resample_field_model(id);
         }
         Ok(())
     }

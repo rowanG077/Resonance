@@ -89,23 +89,21 @@ pub(super) fn begin(state: State, art: Res<Art>, mut applied: ResMut<Applied>) {
             }
         }
     }
-    for (&id, actor) in &state.get().events.world.actors {
-        if actor.visible && !actor.appearance.model_hidden {
-            if !matches!(actor.appearance.face, resonance_events::Face::Disabled)
-                && art.has_eyes(actor.model_resource())
-            {
+    for (&id, actor) in state.get().events.world.field_model_actors() {
+        let pose = actor.field_model_pose();
+        if pose.visible() {
+            if art.has_eyes(actor.model_resource()) {
                 applied.expected.insert(Request::Eyes(id));
             }
             for part in art.secondary_parts(actor.model_resource()) {
                 applied.expected.insert(Request::SecondaryMotion(id, part));
             }
-            if actor.casts_shadow && state.get().events.world.tick >= actor.visible_from {
+            if pose.casts_shadow && state.get().events.world.tick >= actor.visible_from {
                 applied.expected.insert(Request::Shadow(id));
             }
         }
-        if actor.visible
-            && !actor.appearance.model_hidden
-            && (actor.appearance.mouth.is_some() || state.get().talking.contains_key(&id))
+        if pose.visible()
+            && (pose.mouth.is_some() || state.get().talking.contains_key(&id))
             && art.has_mouth(actor.model_resource())
         {
             applied.expected.insert(Request::Mouth(id));
@@ -124,8 +122,8 @@ pub(super) fn actor_requests(
     std::iter::once(Request::Actor(id, part))
         .chain(
             actor
-                .animation
-                .iter()
+                .field_model_animation()
+                .into_iter()
                 .chain(actor.scenery_animations.values())
                 .map(move |a| Request::Animation {
                     actor: id,
@@ -154,8 +152,8 @@ fn expected(
     parts: impl Fn(u32) -> usize,
 ) -> BTreeSet<Request> {
     let mut expected = BTreeSet::new();
-    for (&id, actor) in &world.actors {
-        if actor.visible && !actor.appearance.model_hidden {
+    for (&id, actor) in world.field_model_actors() {
+        if actor.field_model_pose().visible() {
             for part in 0..parts(actor.model_resource()).max(1) {
                 expected.extend(actor_requests(id, part, actor));
             }

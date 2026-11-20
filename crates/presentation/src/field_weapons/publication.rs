@@ -16,8 +16,7 @@ pub(crate) fn publish(
             continue;
         }
         let Some((binding, item)) = world
-            .actors
-            .get(&part.actor)
+            .field_model_actor(part.actor)
             .and_then(|actor| selection(actor, world))
         else {
             continue;

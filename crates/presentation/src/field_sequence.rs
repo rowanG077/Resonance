@@ -326,10 +326,9 @@ fn advance(
                 }
             }
             if recording.spec.scene.script().is_none() || update == 0 {
-                for (&id, actor) in &mut world.actors {
-                    actor.appearance.model_hidden = !isolation.visible_actors.contains(&id);
-                    actor.casts_shadow = false;
-                    if recording.spec.scene.script().is_some() {
+                world.isolate_field_models(&isolation.visible_actors);
+                if recording.spec.scene.script().is_some() {
+                    for (&id, actor) in &mut world.actors {
                         // A borrowed effect stage need not have floor under its actors.
                         actor.grounded = false;
                         if id == world.controlled_actor {
@@ -486,9 +485,7 @@ fn capture(
         || !ready.0.load(std::sync::atomic::Ordering::Acquire)
         || !refraction.get()
         || roots.iter().any(|(_, p)| !p.prepared)
-        || session.0.events.world.actors.iter().any(|(id, actor)| {
-            art.models.contains_key(&actor.model_resource()) && !art.instances.contains_key(id)
-        })
+        || !art.has_actor_instances(&session.0.events.world)
     {
         recording.rendered = false;
         return;
@@ -519,7 +516,17 @@ fn capture(
         "input_enabled":world.input_enabled,
         "battle_victories":recording.battle_victories,
         "camera":world.field_camera.as_ref().map(|c| serde_json::json!({"position":c.position,"target":c.target,"fov":c.fov_degrees(),"shake":c.shake.offset})),
-        "actors":world.actors.iter().map(|(id,a)|serde_json::json!({"id":id,"resource":a.resource,"hidden_nodes":a.appearance.hidden_nodes,"position":a.position,"autonomy":a.autonomy,"visual_position":a.visual_position(),"heading":a.heading,"animation":a.animation.as_ref().map(|a|serde_json::json!({"slot":a.slot,"start_tick":a.start_tick,"sample":a.sample(world.tick,0,a.duration_ticks as f32)}))})).collect::<Vec<_>>(),
+        "actors":world.field_model_actors().map(|(id, model)| {
+            let actor = &world.actors[id];
+            serde_json::json!({
+                "id": id, "resource": actor.resource, "hidden_nodes": actor.appearance.hidden_nodes,
+                "position": actor.position, "visual_position": model.visual_position(),
+                "autonomy": actor.autonomy, "heading": actor.heading,
+                "animation": actor.animation.as_ref().map(|a| serde_json::json!({
+                    "slot": a.slot, "start_tick": a.start_tick, "sample": a.sample(world.tick, 0, a.duration_ticks as f32),
+                })),
+            })
+        }).collect::<Vec<_>>(),
         "model_particles":world.model_particles.iter().map(|(id,p)|serde_json::json!({"id":id,"resource":p.resource,"position":p.position,"rotation":p.rotation,"scale":p.scale,"rgba":p.rgba})).collect::<Vec<_>>(),
         "emotes":world.emotes.iter().map(|(id,e)|serde_json::json!({"id":id,"kind":e.kind,"start_tick":e.start_tick,"phase":e.phase})).collect::<Vec<_>>(),
         "billboards":world.billboards.iter().map(|(id,p)|serde_json::json!({"id":id,"draw_order":p.draw_order,"recipe":p.recipe,"born":p.born,"lifetime":p.lifetime,"position":p.position,"rotation":p.rotation,"size":p.size,"rgba":p.rgba,"alpha":p.alpha(world.tick),"velocity":p.velocity,"size_delta":p.size_delta,"blend":p.blend})).collect::<Vec<_>>(),
@@ -559,20 +566,33 @@ mod tests {
     use super::*;
     use resonance_events::input::Button;
 
-    #[test]
-    #[ignore = "requires locally cooked Dirk scenes and a graphics device"]
-    fn fireplace_window_stays_visible_during_the_key_crest_conversation() -> Result<()> {
-        let root = PathBuf::from(std::env::var("RESONANCE_TEST_ASSETS")?);
-        let field = crate::field_test::Scene::story(&root, 374, 501_000, |_| Ok(()))?;
+    fn story_arrival(
+        root: &Path,
+        map_id: u32,
+        story: i32,
+        position: [f32; 3],
+    ) -> Result<FieldScene> {
+        let field = crate::field_test::Scene::story(root, map_id, story, |_| Ok(()))?;
         let checkpoint = resonance_game::field::FieldCheckpoint {
-            map_id: 374,
-            position: [1., 15., -3.],
+            map_id,
+            position,
             heading: 180.,
             camera: None,
             allow_incomplete_scripts: false,
             played_ticks: 0,
             progress: field.events.save_progress()?,
         };
+        Ok(FieldScene::Arrival {
+            checkpoint,
+            script: None,
+        })
+    }
+
+    #[test]
+    #[ignore = "requires locally cooked Dirk scenes and a graphics device"]
+    fn fireplace_window_stays_visible_during_the_key_crest_conversation() -> Result<()> {
+        let root = PathBuf::from(std::env::var("RESONANCE_TEST_ASSETS")?);
+        let scene = story_arrival(&root, 374, 501_000, [1., 15., -3.])?;
         let inputs: Vec<_> = (0..1401)
             .step_by(6)
             .map(|update| {
@@ -584,7 +604,7 @@ mod tests {
             .collect();
         let sequence: FieldSequence = serde_json::from_value(serde_json::json!({
             "resolution": {"width": 1280, "height": 720},
-            "scene": {"arrival": {"checkpoint": checkpoint}},
+            "scene": scene,
             "at": {"kind": "tick", "update": 0},
             "updates": 1401, "renders_per_update": 1,
             "capture_frames": [200, 1400], "inputs": inputs
@@ -614,6 +634,46 @@ mod tests {
                 "window obscured at frame {frame}: {green} green pixels"
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires locally cooked Sylvarant Base and a graphics device"]
+    fn cell_guard_blends_from_standing_into_his_first_step() -> Result<()> {
+        let root = PathBuf::from(std::env::var("RESONANCE_TEST_ASSETS")?);
+        let sequence: FieldSequence = serde_json::from_value(serde_json::json!({
+            "resolution": {"width": 640, "height": 480},
+            "scene": story_arrival(&root, 267, 1_101_000, [0.; 3])?,
+            "at": {"kind": "dialogue", "prefix": "Gotcha.", "hold_updates": 40},
+            "updates": 53, "renders_per_update": 1, "capture_frames": [43, 47, 52],
+            "inputs": [{"update": 2, "buttons": ["accept"]}, {"update": 3}]
+        }))?;
+        let directory = tempfile::tempdir()?;
+        let output = directory.path().join("frames");
+        crate::capture_effect_sequence(&root, &output, &sequence)?;
+        let mut widths = Vec::new();
+        for frame in sequence.capture_frames {
+            let image = resonance_asset_writer::texture::png(&fs::read(
+                output.join(format!("frame-{frame:04}.png")),
+            )?)?;
+            // The guard's red boots draw together against the green cell floor.
+            let mut boots = (250..330).filter(|&x| {
+                (250..273).any(|y| {
+                    let at = (y * image.width as usize + x) * 4;
+                    let rgb = &image.rgba[at..at + 3];
+                    rgb[0] > rgb[1].saturating_mul(2) && rgb[0] > rgb[2]
+                })
+            });
+            let left = boots.next().expect("guard's boots should be visible");
+            let right = boots
+                .next_back()
+                .expect("guard's boots span multiple pixels");
+            widths.push(right - left);
+        }
+        assert!(
+            widths[0] > widths[1] + 5 && widths[1] > widths[2] + 5,
+            "{widths:?}"
+        );
         Ok(())
     }
 

@@ -1390,7 +1390,7 @@ impl NativeHost<'_> {
                 } else {
                     a[1]
                 };
-                if let Some(actor) = self.world.actors.get_mut(&id) {
+                if let Some(actor) = self.world.actors.get(&id) {
                     require(
                         matches!(a[0], 0..=3),
                         "node transform operation is not implemented",
@@ -1418,6 +1418,8 @@ impl NativeHost<'_> {
                     };
                     self.registers[..3].copy_from_slice(&old.map(|v| v as i32));
                     if matches!(a[0], 1 | 3) {
+                        self.world.retain_field_model(id);
+                        let actor = self.world.actors.get_mut(&id).unwrap();
                         let adjustment = actor
                             .appearance
                             .bone_adjustments

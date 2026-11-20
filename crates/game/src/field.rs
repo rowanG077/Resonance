@@ -1367,16 +1367,21 @@ impl FieldSession {
         self.walkmesh.with_actors(self.events.world.actors.values())
     }
     pub fn character_light(&self, id: i32) -> resonance_events::effect::CharacterLight {
-        self.events
-            .world
+        let world = &self.events.world;
+        let Some(model) = world.field_model_actor(id) else {
+            return Default::default();
+        };
+        // Field lighting advances after scripts, even when a node edit retains the pose.
+        // A replacement actor starts its own light when its model appears.
+        let actor = world
             .actors
             .get(&id)
-            .map_or_else(Default::default, |actor| {
-                actor
-                    .light
-                    .clone()
-                    .unwrap_or_else(|| self.actor_light(actor))
-            })
+            .filter(|actor| actor.instance == model.instance)
+            .unwrap_or(model);
+        actor
+            .light
+            .clone()
+            .unwrap_or_else(|| self.actor_light(actor))
     }
     fn actor_light(
         &self,
@@ -1861,6 +1866,51 @@ mod tests {
             vec![4, 0, 0, 0, 0x20ff],
             ResourceLibrary::default(),
         ))
+    }
+
+    #[test]
+    fn field_lighting_follows_the_presented_actor_instance_through_model_edits() {
+        let mut code = vec![4, 0, 0, 0];
+        native(
+            &mut code,
+            NativeCall::SetEffectSetting,
+            &[0, 0, 167, 148, 226],
+        );
+        native(&mut code, NativeCall::YieldCommand, &[0, 2]);
+        native(&mut code, NativeCall::SetActorAnimation, &[1, 0, 0]);
+        native(
+            &mut code,
+            NativeCall::SetEffectSetting,
+            &[0, 0, 255, 255, 255],
+        );
+        code.push(0x20ff);
+        let model = ModelResource {
+            names: vec!["node".into()],
+            ..Default::default()
+        };
+        let mut field = session(runtime(
+            code,
+            ResourceLibrary {
+                models: [(1, model)].into(),
+                ..Default::default()
+            },
+        ));
+        field.events.world.current_field = Some(476);
+        for id in [1, 2] {
+            field
+                .events
+                .world
+                .insert_actor(id, Actor::new(1, [2., 2., 0.]));
+        }
+        for expected in [[41, 37, 56], [45, 41, 60], [49, 45, 63]] {
+            field.step(FieldInput::default()).unwrap();
+            assert_eq!(field.character_light(2).bright, expected);
+            assert_eq!(field.character_light(1).bright, expected);
+        }
+        let mut replacement = Actor::new(1, [2., 2., 0.]);
+        replacement.light = Some(Default::default());
+        field.events.world.insert_actor(1, replacement);
+        assert_eq!(field.character_light(1).bright, [49, 45, 63]);
     }
 
     #[test]
@@ -2921,6 +2971,7 @@ mod tests {
             let mut words = vec![4, 0, 0, 0];
             if !initial {
                 native(&mut words, NativeCall::YieldCommand, &[0, 2]);
+                native(&mut words, NativeCall::SetActorAnimation, &[1, 0, 0]);
                 native(&mut words, NativeCall::SetActorProperty, &[1, 7, 1]);
                 native(&mut words, NativeCall::SetActorProperty, &[1, 35, 90]);
             }
@@ -2943,8 +2994,10 @@ mod tests {
             session.allow_incomplete_scripts = true;
             let mut world = resonance_events::GameWorld::default();
             world.controlled_actor = 1;
+            world.current_field = Some(95);
             let mut player = Actor::new(1, [2., 2., 0.]);
             player.tilt = [30, 0];
+            player.visible = false;
             world.insert_actor(1, player);
             let mut prop = Actor::new(2, [0.; 3]);
             prop.model_collision = Some(resonance_content::test_support::solid_box(
@@ -2954,7 +3007,17 @@ mod tests {
             world.insert_actor(2, prop);
             session.events = EventRuntime::with_state_policy(
                 program,
-                Default::default(),
+                Arc::new(ResourceLibrary {
+                    models: [(
+                        1,
+                        ModelResource {
+                            names: vec!["node".into()],
+                            ..Default::default()
+                        },
+                    )]
+                    .into(),
+                    ..Default::default()
+                }),
                 world,
                 Default::default(),
                 true,
@@ -2973,7 +3036,9 @@ mod tests {
             for _ in 0..4 {
                 session.step(FieldInput::default()).unwrap();
                 if session.events.exploration_error.is_some() {
-                    assert_eq!(session.events.world.actors[&1].tilt_degrees(), [0.; 2]);
+                    let player = session.events.world.field_model_actor(1).unwrap();
+                    assert!(player.field_model_pose().visible());
+                    assert_eq!(player.tilt_degrees(), [0.; 2]);
                 }
             }
             assert!(session.player_has_control());

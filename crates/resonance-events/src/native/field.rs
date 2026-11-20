@@ -16,6 +16,13 @@ const SECOND_SCENERY: i32 = 999_997;
 const THIRD_SCENERY: i32 = 999_998;
 
 impl NativeHost<'_> {
+    fn bone_start_tick(&self) -> u32 {
+        // Field scripts configure the controller after the model update.
+        self.world
+            .tick
+            .saturating_add(u32::from(self.world.current_field.is_some()))
+    }
+
     pub(super) fn field(
         &mut self,
         op: NativeCall,
@@ -196,6 +203,9 @@ impl NativeHost<'_> {
                 };
                 animation.paused_rate = (a[5] & 2 != 0).then_some(a[4] as f32 / 100.);
                 animation.repeat = a[5] & 8 == 0;
+                if a[1] != -1 {
+                    self.world.retain_field_model(id);
+                }
                 let actor = self
                     .world
                     .actors
@@ -217,6 +227,9 @@ impl NativeHost<'_> {
                     _ => MAIN_SCENERY,
                 };
                 require((-1..4).contains(&a[1]), "invalid scenery motion channel")?;
+                if a[1] != -1 {
+                    self.world.retain_field_model(id);
+                }
                 if let Some(actor) = self.world.actors.get_mut(&id) {
                     if op != NativeCall::ClearSceneryAnimation {
                         let animation = if a[1] == -1 {
@@ -1144,7 +1157,7 @@ impl NativeHost<'_> {
             | NativeCall::ConfigureActorBoneTranslation
             | NativeCall::ConfigureActorBoneScale => {
                 if a[2] != -1
-                    && let Some(actor) = self.world.actors.get_mut(&a[0])
+                    && let Some(actor) = self.world.actors.get(&a[0])
                 {
                     require((0..8).contains(&a[1]), "invalid bone controller slot")?;
                     require(a[6] >= 0, "negative bone adjustment duration")?;
@@ -1154,6 +1167,9 @@ impl NativeHost<'_> {
                         .and_then(|m| m.names.get(usize::try_from(a[2]).ok()?))
                         .ok_or("bone adjustment target is not cooked")?
                         .clone();
+                    let start_tick = self.bone_start_tick();
+                    self.world.retain_field_model(a[0]);
+                    let actor = self.world.actors.get_mut(&a[0]).unwrap();
                     if op != NativeCall::ConfigureActorAttachment {
                         let adjustment = actor
                             .appearance
@@ -1173,11 +1189,12 @@ impl NativeHost<'_> {
                         let target = [a[3] as f32, a[4] as f32, a[5] as f32];
                         if op == NativeCall::ConfigureActorBoneScale {
                             const SCALE_PERCENT: f32 = 100.;
-                            adjustment.scale = Some(crate::BoneScale::new(
+                            adjustment.scale = Some(crate::BoneScale::from_sample(
                                 adjustment.scale.as_ref(),
                                 target.map(|v| v / SCALE_PERCENT),
                                 a[6] as u32,
                                 self.world.tick,
+                                start_tick,
                             ));
                         } else {
                             adjustment.translation = Some(crate::world::BoneTranslation {
@@ -1185,7 +1202,7 @@ impl NativeHost<'_> {
                                 from: adjustment.translation(self.world.tick),
                                 to: target,
                                 duration_ticks: (a[6] as u32).max(1),
-                                start_tick: self.world.tick,
+                                start_tick,
                             });
                         }
                     } else {
@@ -1196,6 +1213,7 @@ impl NativeHost<'_> {
                             [a[3] as f32, a[5] as f32, a[4] as f32],
                             a[6] as u32,
                             self.world.tick,
+                            start_tick,
                         );
                     }
                 }
@@ -1212,6 +1230,7 @@ impl NativeHost<'_> {
                 let child = resolve(a[0]);
                 let parent = resolve(a[1]);
                 if a[2] == -1 {
+                    self.world.retain_field_model(child);
                     if let Some(actor) = self.world.actors.get_mut(&child) {
                         actor.attachment = None;
                     }
@@ -1238,6 +1257,7 @@ impl NativeHost<'_> {
                             .and_then(|actor| actor.attachment.as_ref())
                             .map(|a| a.actor);
                     }
+                    self.world.retain_field_model(child);
                     if let Some(actor) = self.world.actors.get_mut(&child) {
                         // Record at the script boundary: a prop can be attached
                         // and thrown again before a render frame observes it.
@@ -1301,6 +1321,10 @@ impl NativeHost<'_> {
                         _ => return Ok(NativeResult::Continue(None)),
                     };
                     if op == NativeCall::SetActorFace {
+                        if actor.sampled_field_model.is_some() {
+                            actor.rendered_eye_frame = Some(actor.scripted_eye_frame());
+                        }
+                        // Let the blink update use the new mode for this tick’s random draw.
                         actor.appearance.face = face;
                         actor.appearance.eyes = None;
                     } else {
@@ -1316,7 +1340,7 @@ impl NativeHost<'_> {
                     a[6]
                 };
                 // Drive neck and head with two independent additive bone controllers.
-                if let Some(actor) = self.world.actors.get_mut(&a[0]) {
+                if let Some(actor) = self.world.actors.get(&a[0]) {
                     let names = &self
                         .resources
                         .model(actor.model_resource())
@@ -1326,6 +1350,9 @@ impl NativeHost<'_> {
                         .iter()
                         .all(|name| names.iter().any(|n| n == name))
                     {
+                        let start_tick = self.bone_start_tick();
+                        self.world.retain_field_model(a[0]);
+                        let actor = self.world.actors.get_mut(&a[0]).unwrap();
                         for (slot, bone) in [(a[1], "neck"), (a[2], "head")] {
                             require((0..8).contains(&slot), "invalid bone controller slot")?;
                             require(duration >= 0, "negative bone adjustment duration")?;
@@ -1336,6 +1363,7 @@ impl NativeHost<'_> {
                                 [(a[3] / 2) as f32, (a[5] / 2) as f32, (a[4] / 2) as f32],
                                 duration as u32,
                                 self.world.tick,
+                                start_tick,
                             );
                         }
                     }
@@ -1343,7 +1371,7 @@ impl NativeHost<'_> {
             }
             NativeCall::SetActorAnimation => {
                 if a[1] != -1
-                    && let Some(actor) = self.world.actors.get_mut(&a[0])
+                    && let Some(actor) = self.world.actors.get(&a[0])
                 {
                     let index = u16::try_from(a[1]).map_err(|_| "invalid node index")?;
                     require(
@@ -1352,6 +1380,11 @@ impl NativeHost<'_> {
                             .is_some_and(|m| (index as usize) < m.names.len()),
                         "node is not cooked",
                     )?;
+                    if actor.appearance.hidden_nodes.contains(&index) == (a[2] == 0) {
+                        return Ok(NativeResult::Continue(None));
+                    }
+                    self.world.retain_field_model(a[0]);
+                    let actor = self.world.actors.get_mut(&a[0]).unwrap();
                     if a[2] == 0 {
                         actor.appearance.hidden_nodes.insert(index);
                     } else {
@@ -1916,6 +1949,7 @@ fn adjust_bone(
     angles: [f32; 3],
     duration: u32,
     tick: u32,
+    start_tick: u32,
 ) {
     let adjustments = &mut actor.appearance.bone_adjustments;
     let from = adjustments.get(&slot).map_or([0.; 3], |a| a.sample(tick));
@@ -1929,7 +1963,7 @@ fn adjust_bone(
             absolute_rotation: false,
             angles,
             duration_ticks: duration.max(1),
-            start_tick: tick,
+            start_tick,
             translation,
             scale,
         },

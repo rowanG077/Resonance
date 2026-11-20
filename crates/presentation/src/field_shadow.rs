@@ -205,8 +205,8 @@ pub(super) fn sync(
             .entity(shadows.instances.remove(&id).unwrap())
             .despawn();
     }
-    for (&id, actor) in &state.get().events.world.actors {
-        if !actor.casts_shadow || shadows.instances.contains_key(&id) {
+    for (&id, actor) in state.get().events.world.field_model_actors() {
+        if !actor.field_model_pose().casts_shadow || shadows.instances.contains_key(&id) {
             continue;
         }
         let material = surfaces
@@ -259,7 +259,7 @@ pub(super) fn pose(
         .iter()
         .filter(|(_, part)| part.part == 0)
         .filter_map(|(root, part)| {
-            let actor = state.get().events.world.actors.get(&part.actor)?;
+            let actor = state.get().events.world.field_model_actor(part.actor)?;
             let anchor = helper
                 .compute_global_transform(part.shadow_anchor?)
                 .ok()?
@@ -273,17 +273,18 @@ pub(super) fn pose(
                     .translation()
                     .to_array()
             } else {
-                actor.position
+                actor.field_model_pose().position
             };
             Some((part.actor, (anchor, ground_point)))
         })
         .collect();
     let collision = state.get().collision();
     for (mut shadow, mut transform, mut visibility, mut order, material) in &mut transforms.p1() {
-        let Some(actor) = state.get().events.world.actors.get(&shadow.0) else {
+        let Some(actor) = state.get().events.world.field_model_actor(shadow.0) else {
             continue;
         };
-        let alpha = f32::from(actor.shadow_alpha) / 255.;
+        let pose = actor.field_model_pose();
+        let alpha = f32::from(pose.shadow_alpha) / 255.;
         if materials
             .get(&material.0)
             .is_some_and(|m| m.tint.w != alpha)
@@ -302,10 +303,9 @@ pub(super) fn pose(
         order.set_if_neq(DrawOrder(crate::draw_order::Layer::Shadows, actor_order, 0));
         let anchor = anchors.get(&shadow.0);
         *visibility = Visibility::Hidden;
-        if actor.visible
+        if pose.visible()
             && state.get().events.world.tick >= actor.visible_from
-            && !actor.appearance.model_hidden
-            && actor.casts_shadow
+            && pose.casts_shadow
             && let Some((anchor, ground_point)) = anchor
         {
             place(

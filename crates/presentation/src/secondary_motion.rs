@@ -54,7 +54,7 @@ impl Rig {
         actor: &resonance_events::Actor,
         world: &resonance_events::GameWorld,
     ) {
-        self.disabled = actor.appearance.secondary_motion_disabled;
+        self.disabled = actor.field_model_pose().secondary_motion_disabled;
         self.impulses = actor
             .chain_impulses
             .iter()
@@ -431,7 +431,7 @@ pub(super) fn apply(
             if part.part != 0 {
                 continue;
             }
-            let Some(actor) = state.get().events.world.actors.get(&part.actor) else {
+            let Some(actor) = state.get().events.world.field_model_actor(part.actor) else {
                 continue;
             };
             rig.controls(actor, &state.get().events.world);

@@ -36,6 +36,51 @@ pub enum ActorRole {
     Interaction,
 }
 
+/// Model properties sampled together during a field update.
+#[derive(Debug, Clone, Copy)]
+pub struct FieldModelPose {
+    pub draw_layer: i8,
+    pub tint: [u8; 3],
+    pub blend: Option<crate::effect::Blend>,
+    pub depth_write: bool,
+    pub toon_lighting: Option<u8>,
+    pub secondary_motion_disabled: bool,
+    pub position: [f32; 3],
+    actor_visible: bool,
+    model_hidden: bool,
+    pub opacity: u8,
+    pub casts_shadow: bool,
+    pub shadow_alpha: u8,
+    pub texture_variant: u8,
+    pub costume_frame: u8,
+    pub mouth: Option<Face>,
+}
+
+impl FieldModelPose {
+    pub fn visible(&self) -> bool {
+        self.actor_visible && !self.model_hidden
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct FieldModelSample {
+    pose: FieldModelPose,
+    animation: Option<Animation>,
+    controlled: bool,
+}
+
+/// Animation controllers configured while the previous field model was still on screen.
+pub struct FieldModelStart {
+    pub instance: u64,
+    model_resource: u32,
+    pub resource: u32,
+    pub tick: u32,
+    pub effect_tick: u32,
+    pub animation: Option<Animation>,
+    pub scenery_animations: Vec<Animation>,
+    pub wings: Option<crate::Wings>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Actor {
     /// A removed actor completes its current presentation before being reclaimed.
@@ -49,6 +94,7 @@ pub struct Actor {
     pub(crate) authored_handle: Option<i32>,
     pub resource: u32,
     pub position: [f32; 3],
+    pub(crate) sampled_field_model: Option<FieldModelSample>,
     pub(crate) visual_lift: Option<crate::projectile::VisualLift>,
     pub chain_impulses: BTreeMap<u32, crate::projectile::ChainImpulse>,
     pub visible: bool,
@@ -93,6 +139,7 @@ pub struct Actor {
     pub target_heading: f32,
     pub turn_speed: f32,
     pub appearance: Appearance,
+    pub(crate) rendered_eye_frame: Option<u8>,
     pub wings: Option<crate::Wings>,
     pub cull_outside_view: bool,
     /// Script overrides are separate from the actor's initial visibility policy.
@@ -192,6 +239,61 @@ impl Actor {
     pub fn model_resource(&self) -> u32 {
         resonance_content::appearance::costume_resource(self.resource, self.appearance.costume)
     }
+    fn live_field_pose(&self) -> FieldModelPose {
+        FieldModelPose {
+            draw_layer: self.draw_layer,
+            tint: self.tint,
+            blend: self.blend,
+            depth_write: self.depth_write,
+            toon_lighting: self.toon_lighting,
+            secondary_motion_disabled: self.appearance.secondary_motion_disabled,
+            position: self.position,
+            actor_visible: self.visible,
+            model_hidden: self.appearance.model_hidden,
+            opacity: self.opacity,
+            casts_shadow: self.casts_shadow,
+            shadow_alpha: self.shadow_alpha,
+            texture_variant: self.appearance.expression,
+            costume_frame: self.appearance.costume_frame,
+            mouth: self.appearance.mouth,
+        }
+    }
+
+    /// Scripts run after the field models update and can immediately read their own writes.
+    pub fn sample_field_model(&mut self, controlled: bool) {
+        self.sampled_field_model = Some(FieldModelSample {
+            pose: self.live_field_pose(),
+            animation: self.animation.clone(),
+            controlled,
+        });
+    }
+
+    pub fn field_model_pose(&self) -> FieldModelPose {
+        self.sampled_field_model
+            .as_ref()
+            .map_or_else(|| self.live_field_pose(), |sample| sample.pose)
+    }
+
+    pub fn field_model_animation(&self) -> Option<&Animation> {
+        match &self.sampled_field_model {
+            Some(sample) => sample.animation.as_ref(),
+            None => self.animation.as_ref(),
+        }
+    }
+
+    /// The outgoing leader keeps the player's size until the replacement model appears.
+    pub fn field_model_player_scale(&self, world: &GameWorld, id: i32) -> f32 {
+        if self
+            .sampled_field_model
+            .as_ref()
+            .map_or(id == world.controlled_actor, |sample| sample.controlled)
+        {
+            world.player_size.model_scale()
+        } else {
+            1.
+        }
+    }
+
     pub fn model_scale(&self) -> [f32; 3] {
         self.model_scale_percent().map(|scale| scale as f32 / 100.)
     }
@@ -227,7 +329,7 @@ impl Actor {
 
     /// Model displacement does not move the actor's navigation or script origin.
     pub fn visual_position(&self) -> [f32; 3] {
-        let mut position = self.position;
+        let mut position = self.field_model_pose().position;
         if let Some(lift) = &self.visual_lift
             && lift.operation.is_pending()
         {
@@ -378,6 +480,7 @@ impl Actor {
             authored_handle: None,
             resource,
             position,
+            sampled_field_model: None,
             visual_lift: None,
             chain_impulses: BTreeMap::new(),
             visible: true,
@@ -411,6 +514,7 @@ impl Actor {
             target_heading: 0.,
             turn_speed: 5.,
             appearance: Appearance::default(),
+            rendered_eye_frame: None,
             wings: None,
             retiring: false,
             cull_outside_view: true,
@@ -610,16 +714,25 @@ pub struct BoneScale {
 }
 impl BoneScale {
     pub fn new(previous: Option<&Self>, to: [f32; 3], duration: u32, tick: u32) -> Self {
+        Self::from_sample(previous, to, duration, tick, tick)
+    }
+    pub(crate) fn from_sample(
+        previous: Option<&Self>,
+        to: [f32; 3],
+        duration: u32,
+        tick: u32,
+        start: u32,
+    ) -> Self {
         Self {
             from: previous.map_or([0.; 3], |p| p.sample(tick, [0.; 3])),
             bind_weight: previous.map_or(1., |p| p.bind_weight * (1. - p.fraction(tick))),
             to,
             duration: duration.max(1),
-            start: tick,
+            start,
         }
     }
     fn fraction(&self, tick: u32) -> f32 {
-        (tick.saturating_sub(self.start) + 1).min(self.duration) as f32 / self.duration as f32
+        bone_fraction(tick, self.start, self.duration)
     }
     pub fn sample(&self, tick: u32, bind_scale: [f32; 3]) -> [f32; 3] {
         let fraction = self.fraction(tick);
@@ -641,19 +754,22 @@ pub struct BoneTranslation {
 impl BoneAdjustment {
     pub fn translation(&self, tick: u32) -> [f32; 3] {
         self.translation.as_ref().map_or([0.; 3], |translation| {
-            let fraction = (tick.saturating_sub(translation.start_tick) + 1)
-                .min(translation.duration_ticks) as f32
-                / translation.duration_ticks.max(1) as f32;
+            let fraction = bone_fraction(tick, translation.start_tick, translation.duration_ticks);
             std::array::from_fn(|i| {
                 translation.from[i] + (translation.to[i] - translation.from[i]) * fraction
             })
         })
     }
     pub fn sample(&self, tick: u32) -> [f32; 3] {
-        let fraction = (tick.saturating_sub(self.start_tick) + 1).min(self.duration_ticks) as f32
-            / self.duration_ticks.max(1) as f32;
+        let fraction = bone_fraction(tick, self.start_tick, self.duration_ticks);
         std::array::from_fn(|i| self.from[i] + (self.angles[i] - self.from[i]) * fraction)
     }
+}
+fn bone_fraction(tick: u32, first_tick: u32, duration: u32) -> f32 {
+    let updates = tick
+        .checked_sub(first_tick)
+        .map_or(0, |age| age.saturating_add(1));
+    updates.min(duration) as f32 / duration.max(1) as f32
 }
 #[derive(Debug, Clone)]
 pub struct CameraTrack {
@@ -689,6 +805,11 @@ pub struct GameWorld {
     pub menu_request: Option<crate::menu::Request>,
     pub screen_request: Option<crate::session_screen::Request>,
     pub actors: BTreeMap<i32, Actor>,
+    /// Model instances retained across script edits until the next field model update.
+    pub(crate) retained_field_models: BTreeMap<i32, Actor>,
+    /// Incoming instances as configured on the update that still displayed their predecessors.
+    pub(crate) field_model_starts: BTreeMap<i32, FieldModelStart>,
+    pub(crate) sampled_angel_progress: Option<i32>,
     pub(crate) duplicate_actors: BTreeMap<i32, i32>,
     pub(crate) automatic_wings: Option<(u64, u64)>,
     pub(crate) actor_order: Vec<i32>,
@@ -1160,6 +1281,102 @@ impl GameWorld {
         }
     }
 
+    /// Keep the first sampled instance when a script changes model data in place.
+    pub(crate) fn retain_field_model(&mut self, id: i32) {
+        if let Some(actor) = self.actors.get(&id) {
+            Self::retain_sampled_actor(&mut self.retained_field_models, id, actor);
+        }
+    }
+
+    pub(crate) fn retain_sampled_actor(
+        retained: &mut BTreeMap<i32, Actor>,
+        id: i32,
+        actor: &Actor,
+    ) {
+        if actor.sampled_field_model.is_some() {
+            retained.entry(id).or_insert_with(|| actor.clone());
+        }
+    }
+
+    pub(crate) fn advance_field_models(&mut self) {
+        self.field_model_starts.retain(|id, start| {
+            self.actors.get(id).is_some_and(|actor| {
+                actor.instance == start.instance
+                    && actor.animation.as_ref().is_some_and(|animation| {
+                        animation.start_tick <= actor.first_update_tick
+                            && animation.blend_weight(self.tick) < 1.
+                    })
+            })
+        });
+        for (id, previous) in std::mem::take(&mut self.retained_field_models) {
+            if let Some(actor) = self.actors.get(&id)
+                && actor.instance != previous.instance
+            {
+                self.field_model_starts.insert(
+                    id,
+                    FieldModelStart {
+                        instance: actor.instance,
+                        model_resource: actor.model_resource(),
+                        resource: actor.resource,
+                        tick: self.tick,
+                        effect_tick: self.effect_tick,
+                        animation: actor.field_model_animation().cloned(),
+                        scenery_animations: actor.scenery_animations.values().cloned().collect(),
+                        wings: actor.wings.clone(),
+                    },
+                );
+            }
+        }
+    }
+
+    /// Animation setup to sample when binding a replacement actor's new skeleton.
+    pub fn field_model_start(&self, id: i32) -> Option<&FieldModelStart> {
+        let current = self.field_model_actor(id)?;
+        let start = self.field_model_starts.get(&id)?;
+        (start.instance == current.instance
+            && start.model_resource == current.model_resource()
+            && current
+                .field_model_animation()
+                .is_none_or(|animation| animation.start_tick <= current.first_update_tick))
+        .then_some(start)
+    }
+
+    pub fn field_model_actor(&self, id: i32) -> Option<&Actor> {
+        let actor = self.actors.get(&id)?;
+        Some(self.retained_field_models.get(&id).unwrap_or(actor))
+    }
+
+    /// Isolate capture subjects even when the field is paused on an earlier model pose.
+    pub fn isolate_field_models(&mut self, visible: &[i32]) {
+        let models = self
+            .actors
+            .iter_mut()
+            .chain(&mut self.retained_field_models);
+        for (id, actor) in models {
+            let hidden = !visible.contains(id);
+            actor.appearance.model_hidden = hidden;
+            actor.casts_shadow = false;
+            if let Some(sample) = &mut actor.sampled_field_model {
+                sample.pose.model_hidden = hidden;
+                sample.pose.casts_shadow = false;
+            }
+        }
+    }
+
+    /// Present an explicitly staged actor immediately when capturing a pose between updates.
+    pub fn resample_field_model(&mut self, id: i32) {
+        self.retained_field_models.remove(&id);
+        if let Some(actor) = self.actors.get_mut(&id) {
+            actor.sample_field_model(id == self.controlled_actor);
+        }
+    }
+
+    pub fn field_model_actors(&self) -> impl Iterator<Item = (&i32, &Actor)> {
+        self.actors
+            .iter()
+            .map(|(id, actor)| (id, self.retained_field_models.get(id).unwrap_or(actor)))
+    }
+
     /// Controlled actor first, followed by stable simulation order.
     pub fn actor_order(&self) -> &[i32] {
         &self.actor_order
@@ -1189,7 +1406,15 @@ impl GameWorld {
         if !self.actor_order.contains(&id) {
             self.actor_order.push(id);
         }
-        self.actors.insert(id, actor);
+        match self.actors.insert(id, actor) {
+            Some(previous) if previous.sampled_field_model.is_some() => {
+                self.retained_field_models.entry(id).or_insert(previous);
+            }
+            None => {
+                self.retained_field_models.remove(&id);
+            }
+            Some(_) => {}
+        }
     }
     pub(crate) fn sync_actor_order(&mut self) {
         self.actor_order.retain(|id| self.actors.contains_key(id));

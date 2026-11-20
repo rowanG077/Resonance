@@ -495,6 +495,12 @@ pub(super) fn model_toon_ramp(
 }
 
 impl Art {
+    fn has_actor_instances(&self, world: &resonance_events::GameWorld) -> bool {
+        world.field_model_actors().all(|(id, actor)| {
+            !self.models.contains_key(&actor.model_resource()) || self.instances.contains_key(id)
+        })
+    }
+
     /// Script replacements belong to this live entry, not the captured package.
     pub(super) fn invalidate(&mut self) {
         self.cache = Weak::new();
@@ -559,9 +565,7 @@ impl Art {
     pub(super) fn has_eyes(&self, resource: u32) -> bool {
         self.models
             .get(&resource)
-            .and_then(|parts| parts.first())
-            .and_then(|part| part.spec.appearance.as_ref())
-            .is_some_and(|a| a.eyes.is_some())
+            .is_some_and(|parts| parts.iter().any(|part| part.has_eye_material))
     }
 }
 
@@ -662,15 +666,7 @@ pub(super) fn ready(world: &mut World) -> bool {
         .sum::<usize>();
     art.ready
         && art.map == session.map_id()
-        && session
-            .field()
-            .events
-            .world
-            .actors
-            .iter()
-            .all(|(id, actor)| {
-                !art.models.contains_key(&actor.model_resource()) || art.instances.contains_key(id)
-            })
+        && art.has_actor_instances(&session.field().events.world)
         && world
             .query::<&ActorPart>()
             .iter(world)
@@ -1105,15 +1101,7 @@ pub(super) fn advance_live(
     }
     if !ui.menu_published(session.field())
         || parts.iter().any(|part| !part.prepared)
-        || session
-            .field()
-            .events
-            .world
-            .actors
-            .iter()
-            .any(|(id, actor)| {
-                art.models.contains_key(&actor.model_resource()) && !art.instances.contains_key(id)
-            })
+        || !art.has_actor_instances(&session.field().events.world)
     {
         controls.clear_actions();
         return;
@@ -1273,8 +1261,7 @@ fn ui(
                 && field
                     .events
                     .world
-                    .actors
-                    .get(&part.actor)
+                    .field_model_actor(part.actor)
                     .is_some_and(|actor| actor.attachment.is_some())
         })
         .filter_map(|(root, part, _)| {
@@ -1682,7 +1669,7 @@ fn instances(
     mut missing_models: Local<BTreeSet<(u32, u32)>>,
 ) {
     profile_span!("field instances");
-    for (&id, actor) in &session.get().events.world.actors {
+    for (&id, actor) in session.get().events.world.field_model_actors() {
         if let Some(entities) = art.instances.get(&id) {
             if !entities.is_empty()
                 && entities
@@ -1787,8 +1774,8 @@ fn pose(
     actor_depths.clear();
     actor_depths.extend(world.actor_order().iter().filter_map(|&id| {
         // Attached models have local coordinates; sort them with their owner.
-        let actor = std::iter::successors(world.actors.get(&id), |actor| {
-            world.actors.get(&actor.attachment.as_ref()?.actor)
+        let actor = std::iter::successors(world.field_model_actor(id), |actor| {
+            world.field_model_actor(actor.attachment.as_ref()?.actor)
         })
         .take(world.actors.len())
         .last()?;
@@ -1802,7 +1789,7 @@ fn pose(
             *visibility = Visibility::Hidden;
             continue;
         }
-        let Some(actor) = world.actors.get(&instance.actor) else {
+        let Some(actor) = world.field_model_actor(instance.actor) else {
             continue;
         };
         let Some(actor_order) = world
@@ -1845,6 +1832,7 @@ fn pose(
             *visibility = Visibility::Hidden;
             continue;
         }
+        let pose = actor.field_model_pose();
         let save_point = world.save_points.iter().find(|p| p.actor == instance.actor);
         let sealed = save_point.is_some_and(|p| !p.is_open(&world.event_flags));
         let wing_layer = actor
@@ -1870,11 +1858,7 @@ fn pose(
                 1.,
                 1.,
                 f32::from(wing_layer.as_ref().map_or(
-                    if actor.ring_station {
-                        64
-                    } else {
-                        actor.opacity
-                    },
+                    if actor.ring_station { 64 } else { pose.opacity },
                     |layer| echo_color.map_or(layer.alpha, |rgba| rgba[3]),
                 )) / 255.,
             )
@@ -1900,16 +1884,18 @@ fn pose(
                 1.,
             )
         } else if instance.part == 0 && ambient_modulation {
-            Vec3::from_array(actor.tint.map(f32::from)).extend(1.)
+            Vec3::from_array(pose.tint.map(f32::from)).extend(1.)
         } else {
             Vec4::new(64., 64., 64., 0.)
         };
         let light_position = match light.position {
-            LightPosition::Relative(p) => Vec3::from_array(p) + Vec3::from_array(actor.position),
+            LightPosition::Relative(p) => Vec3::from_array(p) + Vec3::from_array(pose.position),
             LightPosition::World(p) => Vec3::from_array(p),
-            LightPosition::Actor { id, height } => world.actors.get(&id).map_or(Vec3::ZERO, |a| {
-                Vec3::from_array(a.position) + Vec3::Z * height
-            }),
+            LightPosition::Actor { id, height } => {
+                world.field_model_actor(id).map_or(Vec3::ZERO, |a| {
+                    Vec3::from_array(a.field_model_pose().position) + Vec3::Z * height
+                })
+            }
         }
         .extend(f32::from(light.strength));
         // Quantize light colors to five bits per channel before shading.
@@ -1923,9 +1909,7 @@ fn pose(
         transform.scale = Vec3::from_array(
             wing_echo.map_or_else(|| actor.model_scale(), |echo| echo.scale(tick)),
         ) * wing_layer.as_ref().map_or(1., |layer| layer.scale);
-        if instance.actor == world.controlled_actor {
-            transform.scale *= world.player_size.model_scale();
-        }
+        transform.scale *= actor.field_model_player_scale(world, instance.actor);
         let mirrored = transform.scale.element_product() < 0.;
         for (index, material) in part.spec.materials.iter().enumerate() {
             let tint = tint
@@ -1942,7 +1926,7 @@ fn pose(
                 if let Some(variant) = &channels.variant
                     && variant.texture == binding.texture
                 {
-                    offset[1] += f32::from(actor.appearance.expression % variant.frames)
+                    offset[1] += f32::from(pose.texture_variant % variant.frames)
                         / f32::from(variant.frames);
                 }
                 if channels.eyes == Some(binding.texture) {
@@ -1951,7 +1935,7 @@ fn pose(
                     applied.ack(Request::Eyes(instance.actor));
                 }
                 if channels.mouth == Some(binding.texture) {
-                    let frame = match actor.appearance.mouth {
+                    let frame = match pose.mouth {
                         Some(Face::Frame(frame)) => frame,
                         _ if session.talking.contains_key(&instance.actor) => effects
                             .mouth_frame(tick.saturating_sub(session.talking[&instance.actor])),
@@ -1962,7 +1946,7 @@ fn pose(
                     applied.ack(Request::Mouth(instance.actor));
                 }
                 if channels.costume == Some(binding.texture) {
-                    offset[1] += f32::from(actor.appearance.costume_frame) / 4.;
+                    offset[1] += f32::from(pose.costume_frame) / 4.;
                 }
             }
             let mut offsets = Vec4::new(offset[0], offset[1], 0., 0.);
@@ -2023,9 +2007,9 @@ fn pose(
                 instance.resource,
                 instance.part,
                 material,
-                actor.toon_lighting.map(i32::from),
+                pose.toon_lighting.map(i32::from),
             );
-            let depth_write = material.depth_write && actor.depth_write;
+            let depth_write = material.depth_write && pose.depth_write;
             let cull = if actor.ring_station
                 || actor.resource == resonance_content::field::SAVE_POINT_RESOURCE
             {
@@ -2039,7 +2023,7 @@ fn pose(
                     (cull, _) => cull,
                 }
             };
-            let blend = actor.blend.or_else(|| {
+            let blend = pose.blend.or_else(|| {
                 if actor.ring_station || (save_point.is_some() && !sealed) {
                     Some(Blend::Additive)
                 } else {
@@ -2098,9 +2082,8 @@ fn pose(
         // Fades can stop at one byte of opacity; omit the whole model so it
         // cannot leave invisible depth coverage behind.
         *visibility = if tint.w > 1. / 255.
-            && actor.visible
+            && pose.visible()
             && world.tick >= actor.visible_from
-            && !actor.appearance.model_hidden
             && !actor.animation_culled
             && wing_layer.as_ref().is_none_or(|layer| layer.visible)
             && !(sealed && instance.pass != 0)
@@ -2109,7 +2092,7 @@ fn pose(
         } else {
             Visibility::Hidden
         };
-        let animation = actor.animation.as_ref().and_then(|a| {
+        let animation = actor.field_model_animation().and_then(|a| {
             part.spec
                 .clips
                 .iter()
@@ -2123,7 +2106,7 @@ fn pose(
         {
             Layer::Scene(0)
         } else {
-            match actor.draw_layer {
+            match pose.draw_layer {
                 -1 => Layer::Scene(DrawStage::LateActors.offset()),
                 -4 => Layer::Scene(DrawStage::TranslucentScenery.offset() + 2 * MODEL_DRAW_SPAN),
                 -3 => Layer::ModelEffects(MODEL_DRAW_SPAN),
