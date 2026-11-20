@@ -388,14 +388,26 @@ fn hold_position_keeps_current_spot_and_suppresses_autonomous_healing() -> Resul
     prepared.actors[0].hp = 1;
     let mut battle = prepared.finish()?;
     let owner = ActorId(2);
-    // Formation and current position differ after an interrupted movement.
-    battle.actors[2].position[0] = 100.;
+    battle.set_control_mode(owner, Control::Manual)?;
+    let mut input = crate::ControlInput::neutral(owner);
+    input.stick = [100, 0];
+    // Run beyond the formation arrival distance before handing control back.
+    for _ in 0..4 {
+        battle.step(input.into())?;
+    }
+    assert_eq!(battle.actors[2].movement.locomotion, crate::Locomotion::Run);
     let position = battle.actors[2].position;
+    battle.set_control_mode(owner, Control::Auto)?;
     let random = battle.random.state();
-    battle.advance_ai(owner, &mut Vec::new())?;
+    battle.step(crate::BattleInput::default())?;
     assert_eq!(battle.activity(owner), crate::Activity::Idle);
     assert_eq!(battle.actors[2].position, position);
     assert_eq!(battle.actors[2].movement.forward, 0.);
+    assert_eq!(
+        battle.actors[2].movement.locomotion,
+        crate::Locomotion::Idle
+    );
+    assert_eq!(battle.runtime[2].control.as_ref().unwrap().run_ticks, 0);
     assert_eq!(battle.random.state(), random);
     assert!(battle.sequences().next().is_none());
     // A player command remains available even with the autonomous technique disabled.
