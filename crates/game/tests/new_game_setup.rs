@@ -41,6 +41,53 @@ fn field_entry_has_a_pose_before_the_first_update() {
 }
 
 #[test]
+#[ignore = "requires locally cooked field and session data; no devices"]
+fn field_entry_binds_only_the_implicit_camera_to_the_restored_player() {
+    use resonance_events::{PersistentState, camera::EntryCamera};
+    use resonance_game::field::{FieldEntry, FieldSession};
+
+    let assets: FieldAssets = common::field(332);
+    let data = Arc::new(common::session());
+    let mut party = Party::new(&data, Default::default()).unwrap();
+    party.formation = vec![2, 1, 3];
+    party.field_leader = 2;
+    let script = [4u16, 0, 0, 0, 0x20ff]
+        .into_iter()
+        .flat_map(u16::to_be_bytes)
+        .collect::<Vec<_>>();
+    for target in [resonance_events::CONTROLLED_ACTOR, 1, 20, 2] {
+        let field = FieldSession::enter(
+            &script,
+            vec![],
+            &assets,
+            FieldEntry {
+                persistent: PersistentState {
+                    party: Some(party.clone()),
+                    ..Default::default()
+                },
+                data: Some(data.clone()),
+                camera: Some(EntryCamera::following(target)),
+                position: [100., 200., 300.],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let world = &field.events.world;
+        assert_eq!(world.controlled_actor, 2);
+        assert!(!world.actors.contains_key(&1));
+        let expected = if target == resonance_events::CONTROLLED_ACTOR {
+            2
+        } else {
+            target
+        };
+        assert_eq!(
+            world.field_camera.as_ref().unwrap().current().actor,
+            expected
+        );
+    }
+}
+
+#[test]
 #[ignore = "requires locally cooked GQSEAF setup scenario/session data; no devices"]
 fn original_setup_initializes_party_and_both_settings_routes_reach_classroom() {
     let root = asset_root();

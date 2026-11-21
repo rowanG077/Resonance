@@ -1636,15 +1636,10 @@ fn start_with_entry(
     let leader = world.party.as_ref().map_or(1, |p| p.field_leader);
     world.controlled_actor = i32::from(leader);
     let initialize_view = entry.kind == EntryKind::Arrival || entry.camera.is_none();
-    let mut camera = resonance_events::camera::CameraRig::following(world.controlled_actor);
-    if let Some(entry) = entry.camera {
-        camera.angles = entry.camera.angles;
-        camera.distance = entry.camera.distance;
-        camera.position_rate = entry.position_rate;
-        camera.target_rate = entry.target_rate;
-        *camera.current_mut() = entry.camera;
-    }
-    world.field_camera = Some(camera);
+    world.field_camera = Some(resonance_events::camera::CameraRig::for_field_entry(
+        world.controlled_actor,
+        entry.camera,
+    ));
     let resource = u32::from(leader);
     let model = resources
         .models

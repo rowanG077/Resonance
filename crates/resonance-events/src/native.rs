@@ -1613,7 +1613,6 @@ impl NativeHost<'_> {
                     | NativeCall::GetActorHeading
                     | NativeCall::IsActorMoving
                     | NativeCall::ActorExists
-                    | NativeCall::SelectActor
                     | NativeCall::MoveActor
                     | NativeCall::MoveActorRelative
                     | NativeCall::SetActorPosition

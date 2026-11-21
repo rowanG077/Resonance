@@ -610,15 +610,7 @@ impl Session {
             available_fields: self.assets.resources.fields.clone(),
             position: request.position,
             heading: request.heading,
-            // The overworld VM has no field actor (its controlled ID is zero).
-            // Rebind the next-field follow camera to that field's party leader.
-            camera: request.camera.clone().map(|mut entry| {
-                if entry.camera.actor == 0 {
-                    entry.camera.actor =
-                        i32::from(self.events.world.party.as_ref().unwrap().field_leader);
-                }
-                entry
-            }),
+            camera: request.camera.clone(),
             ..Default::default()
         })
     }

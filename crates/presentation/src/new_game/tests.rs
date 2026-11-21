@@ -1288,9 +1288,8 @@ fn original_world_landmarks_prepare_and_enter_their_fields() -> Result<()> {
                 let mut entry = scene.field_entry()?;
                 if let Some(camera) = &entry.camera {
                     ensure!(
-                        camera.camera.actor
-                            == i32::from(entry.persistent.party.as_ref().unwrap().field_leader),
-                        "world camera retained a non-field actor for map {map}"
+                        camera.camera.actor == resonance_events::CONTROLLED_ACTOR,
+                        "world camera lost its destination-player selector for map {map}"
                     );
                 }
                 entry.allow_incomplete_scripts = true;
