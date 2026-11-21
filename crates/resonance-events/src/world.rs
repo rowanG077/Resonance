@@ -875,7 +875,8 @@ pub struct GameWorld {
     pub rumble: Option<crate::rumble::Rumble>,
     pub(crate) ambient_voices: [Option<crate::ambient::Voice>; 2],
     pub voice_banks: [Option<u16>; 2],
-    pub emotes: BTreeMap<i32, Emote>,
+    /// Independent emote instances in first-free draw-slot order. Script IDs may repeat.
+    pub emotes: BTreeMap<usize, Emote>,
     pub damage_numbers: crate::field_damage::DamageNumbers,
     pub paralysis: Option<crate::effect::Paralysis>,
     pub billboards: BTreeMap<i32, crate::effect::BillboardEffect>,
@@ -955,7 +956,13 @@ impl GameWorld {
         self.actors.remove(&id);
         self.billboards.retain(|_, p| p.owner != Some(id));
         self.overlays.remove(&id);
-        self.emotes.remove(&id);
+        self.remove_emotes(id);
+    }
+
+    fn remove_emotes(&mut self, script_id: i32) {
+        if crate::emote::SCRIPT_IDS.contains(&script_id) {
+            self.emotes.retain(|_, emote| emote.id != script_id);
+        }
     }
 
     /// Cinematic completion publishes another scene request. The source remains
@@ -1045,7 +1052,7 @@ pub struct EventRecord {
 }
 #[derive(Debug, Clone)]
 pub struct Emote {
-    pub draw_order: usize,
+    pub id: i32,
     pub phase: u32,
     pub actor: i32,
     pub kind: crate::emote::Kind,
@@ -1222,6 +1229,7 @@ impl GameWorld {
     }
 
     pub(crate) fn despawn_scene_actors(&mut self, script: i32, resources: &crate::ResourceLibrary) {
+        self.remove_emotes(script);
         let mut ids = vec![script];
         self.duplicate_actors.retain(|&id, key| {
             if *key == script {
@@ -1275,7 +1283,6 @@ impl GameWorld {
                 self.actors.insert(id, actor);
             }
             self.overlays.remove(&id);
-            self.emotes.remove(&id);
         }
     }
 

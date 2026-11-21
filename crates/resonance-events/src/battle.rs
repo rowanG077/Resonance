@@ -255,11 +255,7 @@ impl crate::GameWorld {
                 continue;
             }
             if outcome == Outcome::Victory {
-                self.actors.remove(&id);
-                self.overlays.remove(&id);
-                self.emotes.remove(&id);
-                self.billboards
-                    .retain(|_, particle| particle.owner != Some(id));
+                self.remove_actor(id);
                 self.refractions
                     .retain(|_, particle| particle.owner != Some(id));
             }

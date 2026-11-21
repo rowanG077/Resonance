@@ -101,6 +101,52 @@ impl Autonomy {
         self.activity = activity;
         self.initialized = false;
     }
+    /// Advance a field actor's decision without moving it. A selection-only
+    /// update retains the current animation until the new activity starts.
+    fn step_decision(
+        &mut self,
+        free_control: bool,
+        position: [f32; 3],
+        target_heading: &mut f32,
+        player: Option<[f32; 3]>,
+        random: &mut impl FnMut() -> u32,
+    ) -> bool {
+        let activity = match self.behavior {
+            Behavior::Stationary | Behavior::Player | Behavior::WatchPlayer => Activity::Idle,
+            Behavior::Wander
+            | Behavior::WanderNearHome
+            | Behavior::ApproachPlayer
+            | Behavior::ChasePlayer => Activity::Walk,
+            _ => return false,
+        };
+        if self.activity == Activity::Select {
+            if self.behavior == Behavior::WatchPlayer
+                && let Some(player) = player
+            {
+                *target_heading = heading(position, player);
+            }
+            self.select(activity);
+            // Free player input selects idle before the actor update. Events
+            // leave selection and initialization to separate actor updates.
+            if self.behavior != Behavior::Player || !free_control {
+                return true;
+            }
+        }
+        if self.activity == Activity::Idle {
+            if !self.initialized {
+                self.remaining = (random() & 63) as i32 + 120;
+                if self.behavior == Behavior::ChasePlayer {
+                    self.remaining = (random() & 63) as i32 + 10;
+                }
+                self.initialized = true;
+            }
+            self.remaining -= 1;
+            if self.remaining < -1 {
+                self.select(Activity::Select);
+            }
+        }
+        false
+    }
     pub fn begin_conversation(&mut self) {
         self.conversing = true;
     }
@@ -136,6 +182,30 @@ pub(crate) struct AmbientMotion {
     pub selecting: bool,
 }
 impl crate::GameWorld {
+    /// Update the actor's activity for an animation command. Return true if
+    /// selection should keep the current pose for this update.
+    pub(crate) fn step_field_animation_decision(&mut self, id: i32) -> bool {
+        if self.battle_event.is_some() || self.skit.is_some() {
+            return false;
+        }
+        let player = self.actors.get(&self.controlled_actor).map(|a| a.position);
+        let actor = self.actors.get_mut(&id).unwrap();
+        let Some(ai) = &mut actor.autonomy else {
+            return false;
+        };
+        actor.motion.is_none()
+            && !actor.pushable
+            && actor.enemy.as_ref().is_none_or(|e| e.pause_ticks == 0)
+            && !ai.conversing
+            && ai.step_decision(
+                false,
+                actor.position,
+                &mut actor.target_heading,
+                player,
+                &mut || crate::world::random(&mut self.random_state),
+            )
+    }
+
     pub(crate) fn anchor_followers_to_player(&mut self) {
         // Cutscenes can direct followers to their own destinations. Block grips
         // also disable ordinary input, but remain player-controlled movement.
@@ -270,37 +340,15 @@ impl Actor {
             }
             return intent;
         }
-        if ai.activity == Activity::Select {
-            ai.select(match ai.behavior {
-                Behavior::Stationary | Behavior::Player => Activity::Idle,
-                Behavior::WatchPlayer => {
-                    if let Some(player) = player {
-                        self.target_heading = heading(self.position, player);
-                    }
-                    Activity::Idle
-                }
-                _ => Activity::Walk,
-            });
-            // Free player input selects idle before the actor update. Events
-            // leave selection and initialization to separate actor updates.
-            if ai.behavior != Behavior::Player || !free_control {
-                intent.selecting = true;
-                return intent;
-            }
-        }
         match ai.activity {
-            Activity::Idle => {
-                if !ai.initialized {
-                    ai.remaining = (random() & 63) as i32 + 120;
-                    if ai.behavior == Behavior::ChasePlayer {
-                        ai.remaining = (random() & 63) as i32 + 10;
-                    }
-                    ai.initialized = true;
-                }
-                ai.remaining -= 1;
-                if ai.remaining < -1 {
-                    ai.select(Activity::Select);
-                }
+            Activity::Select | Activity::Idle => {
+                intent.selecting = ai.step_decision(
+                    free_control,
+                    self.position,
+                    &mut self.target_heading,
+                    player,
+                    random,
+                );
             }
             Activity::Walk => {
                 if !ai.initialized {
@@ -362,7 +410,6 @@ impl Actor {
                     *p += delta;
                 }
             }
-            Activity::Select => unreachable!(),
         }
         intent
     }

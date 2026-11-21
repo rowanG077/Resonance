@@ -195,9 +195,12 @@ fn main() -> Result<()> {
                 w.actors[&w.controlled_actor].position, w.input_enabled
             );
         }
-        for (&id, e) in &w.emotes {
-            if seen.insert(format!("emote:{id}:{}", e.start_tick)) {
-                println!("tick {tick}: emote {id}: {e:?}");
+        for (&instance, emote) in &w.emotes {
+            if seen.insert(format!("emote:{instance}:{}", emote.start_tick)) {
+                println!(
+                    "tick {tick}: emote {} (instance {instance}): {emote:?}",
+                    emote.id
+                );
             }
         }
         for (&id, e) in &w.billboards {
