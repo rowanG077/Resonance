@@ -299,6 +299,14 @@ fn menus_hold_feedback_and_presentation_failure_invalidates_the_encounter() -> R
 fn defeat_plays_music_once_and_finishes_without_constructing_rewards() -> Result<()> {
     let mut fixture = fixture(Some(Side::Party))?;
     let mut display = Display::default();
+    let requests = [
+        Request::DefeatNotice,
+        Request::StopMusic { fade_ms: 1_500 },
+        Request::PlayMusic {
+            track: DEFEAT_MUSIC,
+            fade_ms: 100,
+        },
+    ];
     let mut outcome = None;
     for visit in 0..=222 {
         let frame = fixture.lifecycle.step(
@@ -310,16 +318,12 @@ fn defeat_plays_music_once_and_finishes_without_constructing_rewards() -> Result
             &mut fixture.candidate,
             &mut display,
         )?;
-        assert_eq!(
-            display.requests.iter().any(|request| matches!(
-                request,
-                Request::PlayMusic {
-                    track: DEFEAT_MUSIC,
-                    ..
-                }
-            )),
-            visit >= 91,
-        );
+        let expected = if visit < 91 {
+            &requests[..2]
+        } else {
+            &requests
+        };
+        assert_eq!(display.requests, expected, "defeat update {visit}");
         assert_eq!(fixture.battle.transition().is_some(), visit >= 92);
         assert_eq!(frame.outcome.is_some(), visit == 222);
         if let Some(transition) = fixture.battle.transition() {
@@ -333,20 +337,6 @@ fn defeat_plays_music_once_and_finishes_without_constructing_rewards() -> Result
     }
     let outcome = outcome.expect("defeat must complete through the lifecycle");
     assert_eq!(outcome.result, BattleResult::Defeat);
-    assert_eq!(
-        display
-            .requests
-            .iter()
-            .filter(|event| matches!(
-                event,
-                Request::PlayMusic {
-                    track: DEFEAT_MUSIC,
-                    ..
-                }
-            ))
-            .count(),
-        1
-    );
     assert!(fixture.candidate.pending_results().is_none());
     let completed = fixture.candidate.finish(&fixture.battle, &outcome)?;
     assert_eq!(completed.party.gald, 0);
