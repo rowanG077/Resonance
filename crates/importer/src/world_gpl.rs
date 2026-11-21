@@ -1102,10 +1102,36 @@ fn project(
             };
             let color = (count != 0).then(|| stage(0)).transpose()?;
             let multiply = (count == 2).then(|| stage(1)).transpose()?;
+            let color_has_alpha = color.as_ref().is_some_and(|color| alpha[color.texture]);
+            // Draw these jewels after the costume so their soft edges blend with the body.
+            // Outlines and unskinned rider models reuse some of the same mesh names.
+            let body_accessory = color_has_alpha
+                && mesh.joints.is_some()
+                && matches!(
+                    mesh.name.as_str(),
+                    "llo000_skin"
+                        | "llo001_skin/draw2"
+                        | "llo002_skin/draw2"
+                        | "llo003_skin/draw2"
+                        | "llo004_skin/draw2"
+                        | "col001_skin/draw2"
+                        | "col002_skin/draw2"
+                        | "col004_skin/draw2"
+                        | "col005_skin/draw2"
+                        | "col006_skin/draw2"
+                        | "ref003_org_skin/draw2"
+                        | "zel000_skin/draw2"
+                        | "zel003_skin/draw2"
+                        | "zel004_skin/draw2"
+                        | "pre004_skin"
+                        | "pre005_skin"
+                        | "kra000_skin/draw1"
+                        | "kra001_skin/draw2"
+                );
             Ok(SceneMaterial {
                 image: SceneImage::Palette,
                 vertex_color: matches!(mesh.mode, 1 | 5 | 0x11 | 0x15),
-                blend: color.as_ref().is_some_and(|color| alpha[color.texture])
+                blend: color_has_alpha
                     || multiply.is_some()
                     || vertex_blend(mesh)
                     // A color-only draw shares native material slot zero.
@@ -1114,7 +1140,11 @@ fn project(
                 cull: Default::default(),
                 color,
                 multiply,
-                draw_order: draw_order[index],
+                draw_order: if body_accessory {
+                    meshes.len() as u32
+                } else {
+                    draw_order[index]
+                },
             })
         })
         .collect::<Result<Vec<_>>>()?;
