@@ -40,14 +40,16 @@ impl Battle {
             nominal,
             applied,
         });
-        cues.push(Cue::EffectNotice {
+        cues.push(Cue::CustomLabel {
             actor: owner,
-            text: match kind {
-                RecoveryKind::Hp => "DRAIN HP",
-                RecoveryKind::Tp => "DRAIN TP",
+            position: actor.condition_label_origin(),
+            left: "DRAIN".into(),
+            right: match kind {
+                RecoveryKind::Hp => "HP",
+                RecoveryKind::Tp => "TP",
             }
             .into(),
-            duration: 90,
+            duration: 45,
         });
         Ok(())
     }
@@ -71,6 +73,8 @@ mod tests {
             let mut owner = actor(Side::Party);
             owner.hp = 1;
             owner.tp = 0;
+            owner.position = [20., 0., 30.];
+            owner.body.center_offset = [0., 15., 0.];
             owner.equipment.max_hp = 100;
             owner.equipment.max_tp = 100;
             owner.equipment.recovery.life_drain = hp_bonus;
@@ -87,6 +91,27 @@ mod tests {
                 RecoveryKind::Tp => i32::from(battle.actors[0].tp),
             };
             assert_eq!(recovered, expected);
+            let owner = ActorId(0);
+            let vital = if kind == RecoveryKind::Hp { "HP" } else { "TP" };
+            assert_eq!(
+                cues,
+                [
+                    Cue::Recovered {
+                        actor: owner,
+                        kind,
+                        nominal: expected,
+                        applied: expected,
+                        floating: true
+                    },
+                    Cue::CustomLabel {
+                        actor: owner,
+                        position: [20., 30., 30.],
+                        left: "DRAIN".into(),
+                        right: vital.into(),
+                        duration: 45
+                    },
+                ]
+            );
         }
         Ok(())
     }

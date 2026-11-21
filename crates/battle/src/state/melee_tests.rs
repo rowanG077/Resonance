@@ -128,12 +128,15 @@ fn contact_recovery_respects_success_capacity_and_small_hits() {
         assert!(cues.iter().any(|cue| matches!(cue, Cue::Hit { .. })));
         assert_eq!(battle.actors[0].tp, expected, "{case} arte={arte} tp={tp}");
     }
-    for (kind, percent, hp, tp) in [
-        (crate::RecoveryKind::Hp, 10, 51, 0),
-        (crate::RecoveryKind::Tp, 3, 50, 1),
+    for (kind, percent, hp, tp, vital) in [
+        (crate::RecoveryKind::Hp, 10, 51, 0, "HP"),
+        (crate::RecoveryKind::Tp, 3, 50, 1, "TP"),
     ] {
         let mut owner = actor(Side::Party);
         owner.tp = 0;
+        owner.position = [10., 0., 0.];
+        owner.body.center_offset = [0., 15., 0.];
+        let label_position = owner.condition_label_origin();
         let mut prepared = candidate(vec![owner, actor(Side::Enemy)]);
         let mut hit = definition();
         Arc::make_mut(&mut hit).hit.arte = true;
@@ -143,8 +146,21 @@ fn contact_recovery_respects_success_capacity_and_small_hits() {
             (3, crate::AttackEvent::Drain { kind, percent }),
         ];
         let mut battle = prepared.finish().unwrap();
-        battle.step(request(0)).unwrap();
-        crate::tests::step_idle(&mut battle, 8).unwrap();
+        let mut cues = battle.step(request(0)).unwrap().cues;
+        for _ in 0..8 {
+            cues.extend(battle.step(BattleInput::default()).unwrap().cues);
+        }
+        cues.retain(|cue| matches!(cue, Cue::CustomLabel { .. } | Cue::EffectNotice { .. }));
+        assert_eq!(
+            cues,
+            [Cue::CustomLabel {
+                actor: ActorId(0),
+                position: label_position,
+                left: "DRAIN".into(),
+                right: vital.into(),
+                duration: 45,
+            }]
+        );
         assert_eq!(battle.actors[1].hp, 45);
         assert_eq!((battle.actors[0].hp, battle.actors[0].tp), (hp, tp));
     }
