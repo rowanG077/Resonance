@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "status-transitions-keyboard.json",
-    "sha256": "0a1d172efe11737739b76213109ed2f9630b9f5a6821022e100dfd60a0ffe00b"
+    "sha256": "ef73c8e67e27dd6497b8aeb690b20d6cbd921d07be35859b9ff1db29e0dfcd85"
   },
   "dolphin": {
     "state": {
