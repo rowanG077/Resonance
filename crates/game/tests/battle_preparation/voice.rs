@@ -200,36 +200,52 @@ fn selected_voice_failures_follow_diagnostics_and_leave_other_lines_available() 
 }
 
 #[test]
-fn contact_inventory_prepares_without_audio_packages() -> Result<()> {
+fn contact_inventory_binds_only_eligible_voices_without_audio_packages() -> Result<()> {
     let (files, mut profiles) = snapshot(true);
     profiles.contact_sounds = battle_profile::ContactSounds {
         party: [46, 46, 54, 54, 54, 46, 46, 54, 46],
         elements: [55, 56, 54, 58, 59, 54, 54, 54],
     };
     profiles.records[0].voices.as_mut().unwrap().defeat = Some(Sound::Cue(618));
+    profiles.records[1].voices = Some(Default::default());
     let enemy = profile::profile();
-    let resolver = Resolver::new(&files, &profiles, [(36, &enemy)]);
-    let mut requested = Vec::new();
-    let audio = battle::contact_audio::prepare(
-        &resolver,
-        &[
-            ModelSource::Party(battle::party::Character::Lloyd),
-            ModelSource::Party(battle::party::Character::Colette),
-            ModelSource::Enemy(36),
-        ],
-        |sound| {
-            requested.push(sound);
-            resolve(sound)
-        },
-    )?;
-    assert!(!files.contains_key(resonance_content::battle_audio::document::PATH));
-    assert_eq!(audio.actors[0].neutral, Some(Sound::Cue(46)));
-    assert_eq!(audio.actors[0].voices.defeat, Some(Sound::Cue(618)));
-    assert_eq!(audio.actors[1].voices.hurt, [None; 2]);
-    assert_eq!(audio.actors[1].voices.stunned, None);
-    assert_eq!(audio.actors[2].voices.hurt, [None; 2]);
-    for cue in [46, 54, 55, 56, 58, 59, 65, 66, 618] {
-        assert!(requested.contains(&Sound::Cue(cue)));
+    for (saved_state, voiced) in [
+        (0, true),
+        (300, true),
+        (301, false),
+        (1000, false),
+        (1001, true),
+    ] {
+        let resolver =
+            Resolver::new(&files, &profiles, [(36, &enemy)]).with_colette_state(saved_state.into());
+        let mut requested = Vec::new();
+        let audio = battle::contact_audio::prepare(
+            &resolver,
+            &[
+                ModelSource::Party(battle::party::Character::Lloyd),
+                ModelSource::Party(battle::party::Character::Colette),
+                ModelSource::Enemy(36),
+            ],
+            |sound| {
+                requested.push(sound);
+                resolve(sound)
+            },
+        )?;
+        assert_eq!(audio.actors[0].neutral, Some(Sound::Cue(46)));
+        assert_eq!(audio.actors[0].voices.defeat, Some(Sound::Cue(618)));
+        assert_eq!(audio.actors[1].voices.hurt, [None; 2]);
+        let stunned = Sound::Cue(725);
+        assert_eq!(audio.actors[1].voices.stunned, voiced.then_some(stunned));
+        assert_eq!(
+            requested.contains(&stunned),
+            voiced,
+            "Colette in state {saved_state}"
+        );
+        assert_eq!(audio.actors[2].voices.hurt, [None; 2]);
+        for cue in [46, 54, 55, 56, 58, 59, 65, 66, 618] {
+            assert!(requested.contains(&Sound::Cue(cue)));
+        }
     }
+    assert!(!files.contains_key(resonance_content::battle_audio::document::PATH));
     Ok(())
 }

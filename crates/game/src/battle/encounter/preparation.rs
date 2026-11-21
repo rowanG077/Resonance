@@ -1,6 +1,6 @@
 //! Prepare one complete generation without changing the suspended session.
 use super::{Assets, Prepared, RenderModel, assets::EquipmentKind, render, resources::Resources};
-use crate::battle::lifecycle::victory_selection::VictoryGroupId;
+use crate::battle::lifecycle::victory_selection::{ColetteState, VictoryGroupId};
 use crate::battle::model::MotionRole;
 use crate::battle::party::Character;
 use crate::battle::{self, EffectResource, command, entry, model};
@@ -1545,13 +1545,17 @@ impl Assets {
             common_members.extend(members);
             feedback
         });
+        let colette_state = ColetteState::from(
+            u32::try_from(options.colette_state).context("negative Colette state")?,
+        );
         let voices = battle::voice::Resolver::new(
             &self.files,
             table,
             self.enemy_definitions
                 .iter()
                 .map(|(&id, enemy)| (id, &enemy.profile)),
-        );
+        )
+        .with_colette_state(colette_state);
         let mut resources = Resources {
             files: &self.files,
             recoil: &self.recoil,
@@ -1869,7 +1873,6 @@ impl Assets {
                     character,
                     model: row.model.as_deref()?,
                     null_motions: &self.party_actors[slot].source.null_motions,
-                    profile: row.profile,
                     techniques: &row.actions.as_ref()?.techniques,
                     temporary_weapons: unison_weapons.get(&slot).unwrap_or(&empty_weapons),
                     short_weapon: row.actor.equipment.dagger_reach,
@@ -2023,6 +2026,11 @@ impl Assets {
                         opening.sound = voices.absolute(source, opening.sound, &mut sound)?;
                     }
                     Some(Opening::Entrance(entrance)) => {
+                        if speaker_source.is_some_and(|speaker| voices.muted(speaker)) {
+                            entrance
+                                .cues
+                                .retain(|(_, cue)| !matches!(cue, EntranceCue::PartyVoice(_)));
+                        }
                         for (_, cue) in &mut entrance.cues {
                             match cue {
                                 EntranceCue::Voice(line) => {
@@ -2402,7 +2410,11 @@ impl Assets {
             {
                 continue;
             }
-            if let Some(voice) = voices.absolute(sources[actor], group.voice, &mut sound)? {
+            // The anchor plays a shared recording. Victory selection checks its participants.
+            if voices.profile(sources[actor])?.voices.is_some()
+                && let Some(voice) = group.voice
+                && let Some(voice) = sound(voice)?
+            {
                 groups.push(battle::results::PreparedGroup {
                     id: VictoryGroupId(group.id),
                     leader: Character::try_from(group.character)?,
@@ -2433,9 +2445,7 @@ impl Assets {
                 .story
                 .try_into()
                 .context("negative battle story progress")?,
-            colette_state: u32::try_from(options.colette_state)
-                .context("negative Colette state")?
-                .into(),
+            colette_state,
             victory_story_flags: options.victory_story_flags,
             devils_arms_unlocked: options.devils_arms_unlocked,
             groups,

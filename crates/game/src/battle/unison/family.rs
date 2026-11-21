@@ -362,7 +362,11 @@ fn decorate(
         _ => None,
     };
     if let Some(voice) = voice
-        && let Some(sound) = (resources.sound)(Sound::Stream(voice & 0x7fff))?
+        && let Some(sound) = resources.voices.absolute(
+            crate::battle::model::ModelSource::Party(actor.character),
+            Some(Sound::Stream(voice & 0x7fff)),
+            &mut resources.sound,
+        )?
     {
         attack.events.insert(
             0,
