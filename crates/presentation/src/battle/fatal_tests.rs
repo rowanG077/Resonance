@@ -172,6 +172,7 @@ impl Fixture {
         .init_asset::<crate::field_ui::Surface>()
         .init_resource::<crate::field_ui::Resident>()
         .init_asset::<crate::materials::TitleOutput>()
+        .init_asset::<crate::materials::TitleSurface>()
         .init_asset::<crate::audio::GameAudio>()
         .init_asset::<crate::field_audio::FieldSource>()
         .init_resource::<crate::scene::FieldAssets>()

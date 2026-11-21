@@ -160,6 +160,18 @@ impl Locals {
     pub fn translate(&mut self, entity: Entity, delta: Vec3) {
         *self.translations.entry(entity).or_default() += delta;
     }
+
+    fn clear(&mut self, mut changed: impl FnMut(Entity)) {
+        let worlds = std::mem::take(&mut self.worlds);
+        let translations = std::mem::take(&mut self.translations);
+        for entity in std::mem::take(&mut self.poses)
+            .into_keys()
+            .chain(worlds.into_keys())
+            .chain(translations.into_keys())
+        {
+            changed(entity);
+        }
+    }
 }
 
 /// The same current local pose feeds attachment queries and final propagation.
@@ -284,7 +296,11 @@ impl Helper<'_, '_> {
 
 pub(crate) fn install(app: &mut App) {
     app.init_resource::<Locals>()
-        .add_systems(PreUpdate, clear)
+        .add_systems(
+            PreUpdate,
+            // Keep the outgoing pose until the battle transition hides the field.
+            clear.run_if(crate::battle::field_presenting.or_else(field_camera_hidden)),
+        )
         .add_systems(
             PostUpdate,
             propagate
@@ -295,19 +311,31 @@ pub(crate) fn install(app: &mut App) {
         );
 }
 
+fn field_camera_hidden(cameras: Query<&Camera, With<crate::FieldCamera>>) -> bool {
+    !cameras.iter().any(|camera| camera.is_active)
+}
+
 fn clear(mut affine: ResMut<Locals>, mut transforms: Query<&mut Transform>) {
-    let worlds = std::mem::take(&mut affine.worlds);
-    let translations = std::mem::take(&mut affine.translations);
-    for entity in std::mem::take(&mut affine.poses)
-        .into_keys()
-        .chain(worlds.into_keys())
-        .chain(translations.into_keys())
-    {
+    affine.clear(|entity| {
         if let Ok(mut transform) = transforms.get_mut(entity) {
             // A dropped matrix clip must restore ordinary descendant globals too.
             transform.set_changed();
         }
+    });
+}
+
+/// Battle disposal can resume field publication after this frame's PreUpdate.
+pub(crate) fn reset(world: &mut World) {
+    if !world.contains_resource::<Locals>() {
+        return;
     }
+    world.resource_scope(|world, mut affine: Mut<Locals>| {
+        affine.clear(|entity| {
+            if let Some(mut transform) = world.get_mut::<Transform>(entity) {
+                transform.set_changed();
+            }
+        });
+    });
 }
 
 pub(crate) fn propagate(
@@ -348,6 +376,103 @@ mod tests {
 
     #[derive(Resource)]
     struct Playback(Option<f32>);
+
+    #[test]
+    fn battle_holds_the_outgoing_pose_until_the_field_camera_is_hidden() {
+        let mut app = App::new();
+        app.add_plugins(bevy::transform::TransformPlugin)
+            .init_resource::<crate::loading::Resident>();
+        install(&mut app);
+        let camera = app
+            .world_mut()
+            .spawn((crate::FieldCamera, Camera::default()))
+            .id();
+        let bone = app.world_mut().spawn(Transform::IDENTITY).id();
+        app.update();
+
+        let last_pose = GlobalTransform::from_translation(Vec3::Y);
+        app.world_mut()
+            .resource_mut::<Locals>()
+            .set_world(bone, last_pose);
+        app.world_mut().run_schedule(PostUpdate);
+        app.world()
+            .resource::<crate::loading::Resident>()
+            .battle
+            .store(true, std::sync::atomic::Ordering::Release);
+        app.update();
+        assert_eq!(
+            *app.world().get::<GlobalTransform>(bone).unwrap(),
+            last_pose
+        );
+
+        app.world_mut().get_mut::<Camera>(camera).unwrap().is_active = false;
+        app.update();
+        assert_eq!(
+            *app.world().get::<GlobalTransform>(bone).unwrap(),
+            GlobalTransform::IDENTITY
+        );
+    }
+
+    #[test]
+    fn reset_restores_all_overrides_before_same_frame_actor_retirement() {
+        let mut app = App::new();
+        app.add_plugins(bevy::transform::TransformPlugin);
+        install(&mut app);
+        let matrix_bone = app.world_mut().spawn(Transform::IDENTITY).id();
+        let world_bone = app
+            .world_mut()
+            .spawn(Transform::from_scale(Vec3::ZERO))
+            .id();
+        let translated_bone = app.world_mut().spawn(Transform::IDENTITY).id();
+        app.update();
+        let matrix = bevy::math::Affine3A::from_mat4(Mat4::from_cols(
+            Vec4::X,
+            Vec4::new(0.5, 1., 0., 0.),
+            Vec4::Z,
+            Vec4::new(1., 2., 3., 1.),
+        ));
+        let held_world = GlobalTransform::from_translation(Vec3::new(10., 20., 30.));
+        let translation = Vec3::new(40., 50., 60.);
+        app.world_mut()
+            .resource_scope(|world, mut locals: Mut<Locals>| {
+                locals.set(
+                    matrix_bone,
+                    &mut world.get_mut::<Transform>(matrix_bone).unwrap(),
+                    Pose::Affine(matrix),
+                );
+                locals.set_world(world_bone, held_world);
+                locals.translate(translated_bone, translation);
+            });
+        app.world_mut().run_schedule(PostUpdate);
+        for (bone, expected) in [
+            (matrix_bone, matrix),
+            (world_bone, held_world.affine()),
+            (
+                translated_bone,
+                Transform::from_translation(translation).compute_affine(),
+            ),
+        ] {
+            assert!(
+                app.world()
+                    .get::<GlobalTransform>(bone)
+                    .unwrap()
+                    .affine()
+                    .abs_diff_eq(expected, 0.0001)
+            );
+        }
+        reset(app.world_mut());
+        // Field return can retire actors before the next pose propagation.
+        app.world_mut().despawn(world_bone);
+        // Disposal resumes this frame without another PreUpdate clear.
+        app.world_mut().run_schedule(PostUpdate);
+        for bone in [matrix_bone, translated_bone] {
+            assert_eq!(
+                *app.world().get::<GlobalTransform>(bone).unwrap(),
+                GlobalTransform::IDENTITY
+            );
+        }
+        reset(&mut World::new());
+    }
 
     #[test]
     fn platform_and_child_effect_receive_independent_world_translations() {
