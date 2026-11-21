@@ -1,5 +1,6 @@
 //! A field's scrolling background, drawn behind its scenery without depth writes.
 use super::{Art, State};
+use crate::native::MeshMaterial3d;
 use crate::{
     draw_order::{DrawOrder, Layer},
     loading::LoadTasks,
@@ -112,12 +113,11 @@ impl Draw {
                 Vec3::new(-1., -1., 0.5),
                 Vec3::new(1., -1., 0.5),
             ];
-            meshes.get_mut(&self.mesh).unwrap().insert_attribute(
-                Mesh::ATTRIBUTE_POSITION,
-                corners
-                    .map(|p| from_clip.project_point3(p).to_array())
-                    .to_vec(),
-            );
+            let positions = corners.map(|p| from_clip.project_point3(p).to_array());
+            meshes
+                .get_mut(&self.mesh)
+                .unwrap()
+                .insert_attribute(Mesh::ATTRIBUTE_POSITION, positions.to_vec());
             self.from_clip = Some(from_clip);
         }
         let surface = materials.get(&self.material).unwrap();
@@ -129,9 +129,11 @@ impl Draw {
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Independent Bevy resources and queries for visual publication.
 pub(super) fn render(
     mut commands: Commands,
     state: State,
+    prediction: Res<crate::field_view::Prediction>,
     mut art: ResMut<Art>,
     views: Query<(&Transform, &Projection), With<crate::FieldCamera>>,
     display: Res<crate::display::Display>,
@@ -159,7 +161,14 @@ pub(super) fn render(
     draw.show(RenderLayers::layer(0), &mut commands);
     let from_clip = view.to_matrix() * projection.get_clip_from_view().inverse();
     let horizontal_span = display.0.aspect() / (4. / 3.);
-    let vertical = -camera.angles[0] / 90.;
+    let mut angles = camera.angles;
+    if let Some(next) = prediction.camera(camera) {
+        angles = std::array::from_fn(|i| {
+            angles[i]
+                + ((next.angles[i] - angles[i] + 180.).rem_euclid(360.) - 180.) * prediction.alpha
+        });
+    }
+    let vertical = -angles[0] / 90.;
     let vertical = if vertical < -0.6 {
         0.
     } else {
@@ -167,7 +176,7 @@ pub(super) fn render(
     };
     let scales = Vec4::new(horizontal_span, 0.5, 1., 1.);
     let offsets = Vec4::new(
-        -camera.angles[2] / 90. + (1. - horizontal_span) * 0.5,
+        -angles[2] / 90. + (1. - horizontal_span) * 0.5,
         0.5 + vertical,
         0.,
         0.,

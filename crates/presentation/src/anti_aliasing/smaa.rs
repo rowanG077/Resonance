@@ -4,36 +4,27 @@
 use super::AntiAliasing;
 use bevy::{
     asset::{RenderAssetUsages, embedded_asset, load_embedded_asset},
-    camera::{MainPassResolutionOverride, Viewport},
     core_pipeline::{
         FullscreenShader,
         blit::{BlitPipeline, BlitPipelineKey},
-        core_3d::{AlphaMask3d, Opaque3d, Transparent3d},
-        schedule::{Core3d, Core3dSystems},
     },
     image::{ImageLoaderSettings, ToExtents},
     prelude::*,
     render::{
-        Render, RenderApp, RenderStartup, RenderSystems,
-        camera::ExtractedCamera,
-        extract_component::{ExtractComponent, ExtractComponentPlugin},
+        RenderApp, RenderStartup,
         render_asset::RenderAssets,
-        render_phase::{ViewBinnedRenderPhases, ViewSortedRenderPhases},
         render_resource::{
             binding_types::{sampler, texture_2d, texture_2d_multisampled, uniform_buffer},
             *,
         },
-        renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
+        renderer::{RenderDevice, RenderQueue},
         texture::GpuImage,
-        view::{ExtractedView, ViewDepthStencilTexture, ViewTarget},
     },
 };
 use std::collections::HashMap;
 
-#[derive(Component, Clone, Copy, PartialEq, Eq, ExtractComponent)]
-#[extract_app(bevy::render::RenderApp)]
-#[extract_component_sync_target((Self, ViewResources))]
-pub(super) struct Smaa(pub AntiAliasing);
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Smaa(pub AntiAliasing);
 impl Smaa {
     pub(super) fn new(mode: AntiAliasing) -> Option<Self> {
         matches!(
@@ -63,7 +54,6 @@ pub(super) fn install(app: &mut App) {
     embedded_asset!(app, "SMAAAreaLUT.ktx2");
     embedded_asset!(app, "SMAASearchLUT.ktx2");
     embedded_asset!(app, "spatial_io.wesl");
-    app.add_plugins(ExtractComponentPlugin::<Smaa>::default());
     let server = app.world().resource::<AssetServer>();
     let load_lut = |name: &str| {
         server
@@ -83,25 +73,7 @@ pub(super) fn install(app: &mut App) {
     if let Some(render) = app.get_sub_app_mut(RenderApp) {
         render
             .insert_resource(luts)
-            .add_systems(RenderStartup, initialize)
-            .add_systems(Render, prepare.in_set(RenderSystems::PrepareBindGroups))
-            // S2x needs a readable MSAA attachment. Bevy's default attachment
-            // has RENDER_ATTACHMENT usage only. Reuse its queued draw phases
-            // and depth, replacing just the main color attachment for this mode.
-            .configure_sets(Core3d, Core3dSystems::MainPass.run_if(regular_main_pass))
-            .add_systems(
-                Core3d,
-                render_regular
-                    .in_set(Core3dSystems::PostProcess)
-                    .after(bevy::core_pipeline::tonemapping::tonemapping)
-                    .after(crate::field_dissolve::Pass),
-            )
-            .add_systems(
-                Core3d,
-                render_s2x
-                    .after(Core3dSystems::MainPass)
-                    .before(Core3dSystems::EarlyPostProcess),
-            );
+            .add_systems(RenderStartup, initialize);
     }
 }
 #[derive(Resource)]
@@ -173,41 +145,6 @@ fn color_view(texture: &Texture, format: TextureFormat) -> TextureView {
 struct Inputs {
     edges: BindGroup,
     neighborhood: BindGroup,
-}
-#[derive(Component)]
-pub(super) struct ViewResources {
-    size: UVec2,
-    format: TextureFormat,
-    mode: Smaa,
-    spatial: Option<SpatialSamples>,
-    edges: Surface,
-    stencil: Surface,
-    weights: Surface,
-    common: [Inputs; 2],
-    srgb_outputs: [(TextureId, TextureView); 2],
-    edge: BindGroup,
-    weight: BindGroup,
-    neighborhood: BindGroup,
-    pipelines: Pipelines,
-}
-#[cfg(test)]
-pub(crate) fn test_smaa_ready(app: &mut App, mode: AntiAliasing, size: UVec2) -> bool {
-    let Some(mode) = Smaa::new(mode) else {
-        return true;
-    };
-    let render = app.sub_app_mut(RenderApp).world_mut();
-    let mut resources = render.query::<&ViewResources>();
-    let cache = render.resource::<PipelineCache>();
-    resources.iter(render).any(|resources| {
-        resources.size == size
-            && resources.mode == mode
-            && resources.pipelines.ready(cache)
-            && resources.spatial.as_ref().is_none_or(|spatial| {
-                spatial
-                    .calibrated
-                    .load(std::sync::atomic::Ordering::Relaxed)
-            })
-    })
 }
 struct SpatialSamples {
     calibrated: std::sync::atomic::AtomicBool,
@@ -333,9 +270,6 @@ fn queue_pipelines(
         }
         if format.is_srgb() {
             defs.push("SMAA_INPUT_SRGB".into());
-        }
-        if format == TextureFormat::Rgba16Unorm {
-            defs.push("SMAA_MANUAL_SRGB".into());
         }
         let stencil_face = StencilFaceState {
             compare: if phase == 0 {
@@ -467,214 +401,6 @@ fn queue_pipelines(
         }),
     }
 }
-#[allow(clippy::too_many_arguments)]
-fn prepare(
-    mut commands: Commands,
-    device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
-    cache: Res<PipelineCache>,
-    mut state: ResMut<State>,
-    luts: Res<Luts>,
-    images: Res<RenderAssets<GpuImage>>,
-    blit: Res<BlitPipeline>,
-    mut specialized: ResMut<SpecializedRenderPipelines<BlitPipeline>>,
-    views: Query<
-        (
-            Entity,
-            &ExtractedCamera,
-            &ViewTarget,
-            &Msaa,
-            &Smaa,
-            Option<&ViewResources>,
-        ),
-        With<Smaa>,
-    >,
-) {
-    let (Some(area), Some(search)) = (images.get(&luts.area), images.get(&luts.search)) else {
-        return;
-    };
-    for (entity, camera, target, msaa, mode, existing) in &views {
-        let Some(size) = camera.physical_target_size else {
-            continue;
-        };
-        if msaa.samples() != mode.0.samples() {
-            continue;
-        }
-        let format = target.main_texture_format();
-        let output_textures = [target.main_texture(), target.main_texture_other()];
-        let output_ids = output_textures.map(Texture::id);
-        if existing.is_some_and(|existing| {
-            existing.size == size
-                && existing.format == format
-                && existing.mode == *mode
-                && existing
-                    .srgb_outputs
-                    .iter()
-                    .all(|(id, _)| output_ids.contains(id))
-        }) {
-            continue;
-        }
-        let pipelines = if let Some(pipelines) = state.pipelines.get(&(format, mode.0)) {
-            *pipelines
-        } else {
-            let pipelines = queue_pipelines(&state, &cache, format, *mode, &blit, &mut specialized);
-            state.pipelines.insert((format, mode.0), pipelines);
-            pipelines
-        };
-        // Never suppress Bevy's main pass while shader/LUT compilation is pending.
-        if !pipelines.ready(&cache) {
-            commands.entity(entity).remove::<ViewResources>();
-            continue;
-        }
-        // These attachments persist with the view. TextureCache is for
-        // frame-local borrows and could hand a retained texture to another view.
-        let texture = |label, dimensions: UVec2, format: TextureFormat, samples| {
-            let alternate_format = format.add_srgb_suffix();
-            let texture = device.create_texture(&TextureDescriptor {
-                label: Some(label),
-                size: dimensions.to_extents(),
-                mip_level_count: 1,
-                sample_count: samples,
-                dimension: TextureDimension::D2,
-                format,
-                usage: TextureUsages::RENDER_ATTACHMENT
-                    | if format == TextureFormat::Stencil8 {
-                        TextureUsages::empty()
-                    } else {
-                        TextureUsages::TEXTURE_BINDING
-                    },
-                view_formats: if format == target.main_texture_format()
-                    && alternate_format != format
-                {
-                    std::slice::from_ref(&alternate_format)
-                } else {
-                    &[]
-                },
-            });
-            let default_view = texture.create_view(&TextureViewDescriptor::default());
-            Surface {
-                texture,
-                default_view,
-            }
-        };
-        let spatial = mode.s2x().then(|| {
-            let msaa = texture("S2x readable MSAA", size, format, 2);
-            let calibration = texture("S2x measured positions", UVec2::ONE, format, 2);
-            let colors = [
-                texture("S2x sample 0", size, format, 1),
-                texture("S2x sample 1", size, format, 1),
-            ];
-            let split = device.create_bind_group(
-                "S2x split",
-                &cache.get_bind_group_layout(&state.layouts.split),
-                &BindGroupEntries::sequential((&msaa.default_view,)),
-            );
-            SpatialSamples {
-                calibrated: std::sync::atomic::AtomicBool::new(false),
-                msaa,
-                calibration,
-                colors,
-                split,
-            }
-        });
-        let edges = texture("SMAA edges", size, TextureFormat::Rg8Unorm, 1);
-        let stencil = texture("SMAA stencil", size, TextureFormat::Stencil8, 1);
-        let weights = texture("SMAA weights", size, TextureFormat::Rgba8Unorm, 1);
-        let layouts = &state.layouts;
-        let common = std::array::from_fn(|sample| {
-            let mut uniform = UniformBuffer::from(Info {
-                rt_metrics: Vec4::new(
-                    1. / size.x as f32,
-                    1. / size.y as f32,
-                    size.x as f32,
-                    size.y as f32,
-                ),
-                sample: sample as u32,
-            });
-            uniform.write_buffer(&device, &queue);
-            let bind = |view_format| {
-                let source = spatial.as_ref().map_or(output_textures[sample], |spatial| {
-                    &spatial.colors[sample].texture
-                });
-                let color = color_view(source, view_format);
-                let mut entries = vec![
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: BindingResource::TextureView(&color),
-                    },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: uniform.binding().unwrap(),
-                    },
-                ];
-                if let Some(spatial) = &spatial {
-                    entries.push(BindGroupEntry {
-                        binding: 2,
-                        resource: BindingResource::TextureView(&spatial.calibration.default_view),
-                    });
-                }
-                device.create_bind_group(
-                    "SMAA input",
-                    &cache.get_bind_group_layout(&layouts.common[usize::from(mode.s2x())]),
-                    &entries,
-                )
-            };
-            // Native views feed luma thresholds (the shader re-encodes sRGB
-            // reads). sRGB views provide linear interpolation and averaging.
-            Inputs {
-                edges: bind(format),
-                neighborhood: bind(format.add_srgb_suffix()),
-            }
-        });
-        let edge = device.create_bind_group(
-            "SMAA edge",
-            &cache.get_bind_group_layout(&layouts.edge),
-            &BindGroupEntries::sequential((&state.sampler,)),
-        );
-        let weight = device.create_bind_group(
-            "SMAA weights",
-            &cache.get_bind_group_layout(&layouts.weight),
-            &BindGroupEntries::sequential((
-                &edges.default_view,
-                &state.sampler,
-                &search.texture_view,
-                &area.texture_view,
-            )),
-        );
-        let neighborhood = device.create_bind_group(
-            "SMAA neighborhood",
-            &cache.get_bind_group_layout(&layouts.neighborhood),
-            &BindGroupEntries::sequential((&weights.default_view, &state.sampler)),
-        );
-        commands.entity(entity).insert(ViewResources {
-            size,
-            format,
-            mode: *mode,
-            spatial,
-            edges,
-            stencil,
-            weights,
-            common,
-            srgb_outputs: output_textures.map(|texture| {
-                (
-                    texture.id(),
-                    texture.create_view(&TextureViewDescriptor {
-                        format: Some(format.add_srgb_suffix()),
-                        ..default()
-                    }),
-                )
-            }),
-            edge,
-            weight,
-            neighborhood,
-            pipelines,
-        });
-    }
-}
-fn regular_main_pass(view: ViewQuery<Option<&ViewResources>>, cache: Res<PipelineCache>) -> bool {
-    view.into_inner()
-        .is_none_or(|resources| resources.spatial.is_none() || !resources.pipelines.ready(&cache))
-}
 fn attachment(view: &TextureView, load: LoadOp<LinearRgba>) -> RenderPassColorAttachment<'_> {
     RenderPassColorAttachment {
         view,
@@ -690,194 +416,37 @@ fn attachment(view: &TextureView, load: LoadOp<LinearRgba>) -> RenderPassColorAt
         },
     }
 }
-#[allow(clippy::too_many_arguments)]
-fn render_s2x(
-    world: &World,
-    view: ViewQuery<(
-        &ExtractedCamera,
-        &ExtractedView,
-        &ViewTarget,
-        &ViewDepthStencilTexture,
-        Option<&ViewResources>,
-        Option<&MainPassResolutionOverride>,
-    )>,
-    opaque: Res<ViewBinnedRenderPhases<Opaque3d>>,
-    mask: Res<ViewBinnedRenderPhases<AlphaMask3d>>,
-    transparent: Res<ViewSortedRenderPhases<Transparent3d>>,
-    cache: Res<PipelineCache>,
-    device: Res<RenderDevice>,
-    blit: Res<BlitPipeline>,
-    mut ctx: RenderContext,
-) {
-    let entity = view.entity();
-    let (camera, extracted, target, depth, Some(resources), resolution_override) =
-        view.into_inner()
-    else {
-        return;
-    };
-    let Some(spatial) = &resources.spatial else {
-        return;
-    };
-    let pipelines = &resources.pipelines;
-    let raster = pipelines.raster.unwrap();
-    if !pipelines.ready(&cache) {
-        return;
-    }
-    let msaa = &spatial.msaa;
-    let calibration = &spatial.calibration;
-    let original = target.get_color_attachment();
-    let load = original.ops.load;
-    // A camera which loads an existing scene (previews, warmup views) must
-    // preserve it in both spatial samples before adding its own geometry.
-    if matches!(load, LoadOp::Load) {
-        let bind = blit.create_bind_group(&device, target.main_texture_view(), &cache);
-        let mut pass = ctx.begin_tracked_render_pass(RenderPassDescriptor {
-            label: Some("S2x load scene"),
-            color_attachments: &[Some(attachment(
-                &msaa.default_view,
-                LoadOp::Clear(LinearRgba::BLACK),
-            ))],
-            ..default()
-        });
-        pass.set_render_pipeline(cache.get_render_pipeline(raster.copy).unwrap());
-        pass.set_bind_group(0, &bind, &[]);
-        pass.draw(0..3, 0..1);
-    }
-    {
-        // Reconstruction reads both samples directly. Resolving here would
-        // create an unused intermediate scene and spend extra bandwidth.
-        let mut color = attachment(&msaa.default_view, LoadOp::Load);
-        color.ops.load = load;
-        let mut pass = ctx.begin_tracked_render_pass(RenderPassDescriptor {
-            label: Some("S2x main scene"),
-            color_attachments: &[Some(color)],
-            depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
-            ..default()
-        });
-        if let Some(viewport) =
-            Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution_override)
-        {
-            pass.set_camera_viewport(&viewport);
-        }
-        let key = &extracted.retained_view_entity;
-        if let Some(phase) = opaque.get(key)
-            && let Err(error) = phase.render(&mut pass, world, entity)
-        {
-            error!("S2x opaque draw failed: {error:?}");
-        }
-        if let Some(phase) = mask.get(key)
-            && let Err(error) = phase.render(&mut pass, world, entity)
-        {
-            error!("S2x alpha mask draw failed: {error:?}");
-        }
-        if let Some(phase) = transparent.get(key)
-            && let Err(error) = phase.render(&mut pass, world, entity)
-        {
-            error!("S2x transparent draw failed: {error:?}");
-        }
-    }
-    if !spatial
-        .calibrated
-        .swap(true, std::sync::atomic::Ordering::Relaxed)
-    {
-        let mut pass = ctx.begin_tracked_render_pass(RenderPassDescriptor {
-            label: Some("S2x calibrate sample order"),
-            color_attachments: &[Some(attachment(
-                &calibration.default_view,
-                LoadOp::Clear(LinearRgba::BLACK),
-            ))],
-            ..default()
-        });
-        pass.set_render_pipeline(cache.get_render_pipeline(raster.calibrate).unwrap());
-        pass.draw(0..3, 0..1);
-    }
-    {
-        let mut pass = ctx.begin_tracked_render_pass(RenderPassDescriptor {
-            label: Some("S2x separate samples"),
-            color_attachments: &spatial.colors.each_ref().map(|t| {
-                Some(attachment(
-                    &t.default_view,
-                    LoadOp::Clear(LinearRgba::BLACK),
-                ))
-            }),
-            ..default()
-        });
-        pass.set_render_pipeline(cache.get_render_pipeline(raster.split).unwrap());
-        pass.set_bind_group(0, &spatial.split, &[]);
-        pass.draw(0..3, 0..1);
-    }
-    let output = target.post_process_write();
-    reconstruct(
-        &mut ctx,
-        resources,
-        pipelines,
-        &cache,
-        output.destination_texture.id(),
-        &[0, 1],
-    );
+struct Passes<'a> {
+    edges: &'a TextureView,
+    weights: &'a TextureView,
+    stencil: &'a TextureView,
+    edge: &'a BindGroup,
+    weight: &'a BindGroup,
+    neighborhood: &'a BindGroup,
 }
 
-fn render_regular(
-    view: ViewQuery<(&ViewTarget, &ViewResources)>,
-    cache: Res<PipelineCache>,
-    mut ctx: RenderContext,
-) {
-    let (target, resources) = view.into_inner();
-    if resources.spatial.is_some() || !resources.pipelines.ready(&cache) {
-        return;
-    }
-    let output = target.post_process_write();
-    let source = resources
-        .srgb_outputs
-        .iter()
-        .position(|(id, _)| *id == output.source_texture.id())
-        .unwrap();
-    reconstruct(
-        &mut ctx,
-        resources,
-        &resources.pipelines,
-        &cache,
-        output.destination_texture.id(),
-        &[source],
-    );
-}
-
-fn reconstruct(
-    ctx: &mut RenderContext,
-    resources: &ViewResources,
+/// Edge detection, blending weights and neighborhood blending of each input
+/// into `destination`, an sRGB view; a second (S2x) input adds half.
+fn passes(
+    encoder: &mut CommandEncoder,
+    resources: &Passes,
     pipelines: &Pipelines,
     cache: &PipelineCache,
-    destination_id: TextureId,
-    samples: &[usize],
+    destination: &TextureView,
+    inputs: &[&Inputs],
 ) {
-    // sRGB attachment views store encoded scene bytes. The second S2x
-    // pass also decodes the first result before averaging in linear light.
-    let destination = &resources
-        .srgb_outputs
-        .iter()
-        .find(|(id, _)| *id == destination_id)
-        .unwrap()
-        .1;
-    for (sample, &input_index) in samples.iter().enumerate() {
+    for (sample, input) in inputs.iter().enumerate() {
         for phase in 0..3 {
             let (destination, pipeline, group) = match phase {
-                0 => (
-                    &resources.edges.default_view,
-                    pipelines.edge,
-                    &resources.edge,
-                ),
-                1 => (
-                    &resources.weights.default_view,
-                    pipelines.weight,
-                    &resources.weight,
-                ),
+                0 => (resources.edges, pipelines.edge, resources.edge),
+                1 => (resources.weights, pipelines.weight, resources.weight),
                 _ => (
                     destination,
                     pipelines.neighborhood[sample],
-                    &resources.neighborhood,
+                    resources.neighborhood,
                 ),
             };
-            let mut pass = ctx.begin_tracked_render_pass(RenderPassDescriptor {
+            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("SMAA reconstruction"),
                 color_attachments: &[Some(attachment(
                     destination,
@@ -888,7 +457,7 @@ fn reconstruct(
                     },
                 ))],
                 depth_stencil_attachment: (phase < 2).then_some(RenderPassDepthStencilAttachment {
-                    view: &resources.stencil.default_view,
+                    view: resources.stencil,
                     depth_ops: None,
                     stencil_ops: Some(Operations {
                         load: if phase == 0 {
@@ -901,11 +470,11 @@ fn reconstruct(
                 }),
                 ..default()
             });
-            pass.set_render_pipeline(cache.get_render_pipeline(pipeline).unwrap());
+            pass.set_pipeline(cache.get_render_pipeline(pipeline).unwrap());
             let input = if phase == 2 {
-                &resources.common[input_index].neighborhood
+                &input.neighborhood
             } else {
-                &resources.common[input_index].edges
+                &input.edges
             };
             pass.set_bind_group(0, input, &[]);
             pass.set_bind_group(1, group, &[]);
@@ -913,9 +482,508 @@ fn reconstruct(
                 pass.set_stencil_reference(1);
             }
             if phase == 2 && sample == 1 {
-                pass.set_blend_constant(LinearRgba::new(0.5, 0.5, 0.5, 0.5).into());
+                pass.set_blend_constant(wgpu::Color {
+                    r: 0.5,
+                    g: 0.5,
+                    b: 0.5,
+                    a: 0.5,
+                });
             }
             pass.draw(0..3, 0..1);
+        }
+    }
+}
+
+/// A single-mip 2D texture SMAA renders to or samples. An image of the scene
+/// format can also be viewed as sRGB, where reconstruction blends.
+fn surface(
+    device: &RenderDevice,
+    label: &'static str,
+    size: UVec2,
+    format: TextureFormat,
+    samples: u32,
+    srgb_view: bool,
+) -> Surface {
+    let alternate_format = format.add_srgb_suffix();
+    let texture = device.create_texture(&TextureDescriptor {
+        label: Some(label),
+        size: size.to_extents(),
+        mip_level_count: 1,
+        sample_count: samples,
+        dimension: TextureDimension::D2,
+        format,
+        usage: TextureUsages::RENDER_ATTACHMENT
+            | if format == TextureFormat::Stencil8 {
+                TextureUsages::empty()
+            } else {
+                TextureUsages::TEXTURE_BINDING
+            },
+        view_formats: if srgb_view && alternate_format != format {
+            std::slice::from_ref(&alternate_format)
+        } else {
+            &[]
+        },
+    });
+    let default_view = texture.create_view(&TextureViewDescriptor::default());
+    Surface {
+        texture,
+        default_view,
+    }
+}
+
+/// An input image's bind groups. Native views feed luma thresholds (the
+/// shader re-encodes sRGB reads); sRGB views provide linear interpolation and
+/// averaging.
+fn inputs(
+    device: &RenderDevice,
+    cache: &PipelineCache,
+    layout: &BindGroupLayoutDescriptor,
+    source: &Texture,
+    uniform: &UniformBuffer<Info>,
+    calibration: Option<&TextureView>,
+) -> Inputs {
+    let format = source.format();
+    let bind = |view_format| {
+        let color = color_view(source, view_format);
+        let mut entries = vec![
+            BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::TextureView(&color),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: uniform.binding().unwrap(),
+            },
+        ];
+        if let Some(calibration) = calibration {
+            entries.push(BindGroupEntry {
+                binding: 2,
+                resource: BindingResource::TextureView(calibration),
+            });
+        }
+        device.create_bind_group("SMAA input", &cache.get_bind_group_layout(layout), &entries)
+    };
+    Inputs {
+        edges: bind(format),
+        neighborhood: bind(format.add_srgb_suffix()),
+    }
+}
+
+/// The edge, weight and neighborhood passes' own bind groups.
+fn pass_groups(
+    device: &RenderDevice,
+    cache: &PipelineCache,
+    state: &State,
+    area: &GpuImage,
+    search: &GpuImage,
+    edges: &Surface,
+    weights: &Surface,
+) -> [BindGroup; 3] {
+    let layouts = &state.layouts;
+    [
+        device.create_bind_group(
+            "SMAA edge",
+            &cache.get_bind_group_layout(&layouts.edge),
+            &BindGroupEntries::sequential((&state.sampler,)),
+        ),
+        device.create_bind_group(
+            "SMAA weights",
+            &cache.get_bind_group_layout(&layouts.weight),
+            &BindGroupEntries::sequential((
+                &edges.default_view,
+                &state.sampler,
+                &search.texture_view,
+                &area.texture_view,
+            )),
+        ),
+        device.create_bind_group(
+            "SMAA neighborhood",
+            &cache.get_bind_group_layout(&layouts.neighborhood),
+            &BindGroupEntries::sequential((&weights.default_view, &state.sampler)),
+        ),
+    ]
+}
+
+/// What the native frame needs to run SMAA: its pipelines, layouts and lookup
+/// tables.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct NativeContext<'w> {
+    state: Option<ResMut<'w, State>>,
+    luts: Option<Res<'w, Luts>>,
+    blit: Option<Res<'w, BlitPipeline>>,
+    specialized: Option<ResMut<'w, SpecializedRenderPipelines<BlitPipeline>>>,
+}
+
+/// SMAA for the native frame renderer, on textures it owns: one set per view
+/// size, since the model preview and reflection images need not match the scene's.
+#[derive(Default)]
+pub(crate) struct Native(Vec<NativeView>);
+struct NativeView {
+    size: UVec2,
+    format: TextureFormat,
+    mode: Smaa,
+    pipelines: Pipelines,
+    edges: Surface,
+    stencil: Surface,
+    weights: Surface,
+    uniform: UniformBuffer<Info>,
+    groups: [BindGroup; 3],
+    /// S2x: the readable two-sample scene image, its separated samples and
+    /// their input bind groups.
+    spatial: Option<(SpatialSamples, [Inputs; 2])>,
+    /// Input bind groups and sRGB destination views of the few textures the
+    /// native frame alternates between.
+    inputs: Vec<(TextureId, Inputs)>,
+    outputs: Vec<(TextureId, TextureView)>,
+}
+
+impl NativeView {
+    fn output(&mut self, destination: &Texture) -> &TextureView {
+        if !self.outputs.iter().any(|(id, _)| *id == destination.id()) {
+            if self.outputs.len() >= 6 {
+                self.outputs.remove(0);
+            }
+            self.outputs.push((
+                destination.id(),
+                color_view(destination, self.format.add_srgb_suffix()),
+            ));
+        }
+        &self
+            .outputs
+            .iter()
+            .find(|(id, _)| *id == destination.id())
+            .unwrap()
+            .1
+    }
+}
+
+fn info(size: UVec2, sample: u32) -> Info {
+    Info {
+        rt_metrics: Vec4::new(
+            1. / size.x as f32,
+            1. / size.y as f32,
+            size.x as f32,
+            size.y as f32,
+        ),
+        sample,
+    }
+}
+
+impl Native {
+    /// Whether SMAA is set up to draw `mode` at `size`, S2x calibrated; modes
+    /// without SMAA always are.
+    #[cfg(test)]
+    pub(crate) fn ready(&self, mode: AntiAliasing, size: UVec2, cache: &PipelineCache) -> bool {
+        let Some(mode) = Smaa::new(mode) else {
+            return true;
+        };
+        self.0.iter().any(|view| {
+            view.size == size
+                && view.mode == mode
+                && view.pipelines.ready(cache)
+                && view.spatial.as_ref().is_none_or(|(spatial, _)| {
+                    spatial
+                        .calibrated
+                        .load(std::sync::atomic::Ordering::Relaxed)
+                })
+        })
+    }
+
+    /// This size's resources for `mode`, once its pipelines and lookup tables
+    /// are ready. Until then the caller draws without SMAA (S2x as plain
+    /// MSAA).
+    #[allow(clippy::too_many_arguments)]
+    fn view(
+        &mut self,
+        context: &mut NativeContext,
+        mode: Smaa,
+        images: &RenderAssets<GpuImage>,
+        cache: &PipelineCache,
+        device: &RenderDevice,
+        queue: &RenderQueue,
+        size: UVec2,
+        format: TextureFormat,
+    ) -> Option<usize> {
+        let NativeContext {
+            state: Some(state),
+            luts: Some(luts),
+            blit: Some(blit),
+            specialized: Some(specialized),
+        } = context
+        else {
+            return None;
+        };
+        let (area, search) = (images.get(&luts.area)?, images.get(&luts.search)?);
+        let pipelines = match state.pipelines.get(&(format, mode.0)) {
+            Some(pipelines) => *pipelines,
+            None => {
+                let pipelines = queue_pipelines(state, cache, format, mode, blit, specialized);
+                state.pipelines.insert((format, mode.0), pipelines);
+                pipelines
+            }
+        };
+        if !pipelines.ready(cache) {
+            return None;
+        }
+        if let Some(index) = self
+            .0
+            .iter()
+            .position(|view| view.size == size && view.format == format && view.mode == mode)
+        {
+            return Some(index);
+        }
+        // A resized scene, the preview's startup size and the field reflection
+        // can all draw in one frame. Retain all three to avoid cache thrashing.
+        if self.0.len() >= 3 {
+            self.0.remove(0);
+        }
+        let edges = surface(
+            device,
+            "SMAA edges",
+            size,
+            TextureFormat::Rg8Unorm,
+            1,
+            false,
+        );
+        let stencil = surface(
+            device,
+            "SMAA stencil",
+            size,
+            TextureFormat::Stencil8,
+            1,
+            false,
+        );
+        let weights = surface(
+            device,
+            "SMAA weights",
+            size,
+            TextureFormat::Rgba8Unorm,
+            1,
+            false,
+        );
+        let mut uniform = UniformBuffer::from(info(size, 0));
+        uniform.write_buffer(device, queue);
+        let groups = pass_groups(device, cache, state, area, search, &edges, &weights);
+        let spatial = mode.s2x().then(|| {
+            let msaa = surface(device, "S2x readable MSAA", size, format, 2, true);
+            let calibration = surface(
+                device,
+                "S2x measured positions",
+                UVec2::ONE,
+                format,
+                2,
+                true,
+            );
+            let colors = [
+                surface(device, "S2x sample 0", size, format, 1, true),
+                surface(device, "S2x sample 1", size, format, 1, true),
+            ];
+            let split = device.create_bind_group(
+                "S2x split",
+                &cache.get_bind_group_layout(&state.layouts.split),
+                &BindGroupEntries::sequential((&msaa.default_view,)),
+            );
+            let inputs = std::array::from_fn(|sample| {
+                let mut uniform = UniformBuffer::from(info(size, sample as u32));
+                uniform.write_buffer(device, queue);
+                inputs(
+                    device,
+                    cache,
+                    &state.layouts.common[1],
+                    &colors[sample].texture,
+                    &uniform,
+                    Some(&calibration.default_view),
+                )
+            });
+            (
+                SpatialSamples {
+                    calibrated: std::sync::atomic::AtomicBool::new(false),
+                    msaa,
+                    calibration,
+                    colors,
+                    split,
+                },
+                inputs,
+            )
+        });
+        self.0.push(NativeView {
+            size,
+            format,
+            mode,
+            pipelines,
+            edges,
+            stencil,
+            weights,
+            uniform,
+            groups,
+            spatial,
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+        });
+        Some(self.0.len() - 1)
+    }
+
+    /// Reconstruct `input` into `destination` with a regular preset, as
+    /// Bevy's SMAA pass does at the end of a camera. False, with nothing
+    /// recorded, while the pipelines or lookup tables are not ready.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn encode(
+        &mut self,
+        context: &mut NativeContext,
+        mode: AntiAliasing,
+        images: &RenderAssets<GpuImage>,
+        cache: &PipelineCache,
+        device: &RenderDevice,
+        queue: &RenderQueue,
+        encoder: &mut CommandEncoder,
+        input: &Texture,
+        destination: &Texture,
+    ) -> bool {
+        let Some(mode) = Smaa::new(mode).filter(|mode| !mode.s2x()) else {
+            return false;
+        };
+        let size = UVec2::new(input.width(), input.height());
+        let Some(index) = self.view(
+            context,
+            mode,
+            images,
+            cache,
+            device,
+            queue,
+            size,
+            input.format(),
+        ) else {
+            return false;
+        };
+        let layout = &context.state.as_ref().unwrap().layouts.common[0];
+        let view = &mut self.0[index];
+        if !view.inputs.iter().any(|(id, _)| *id == input.id()) {
+            if view.inputs.len() >= 6 {
+                view.inputs.remove(0);
+            }
+            let group = inputs(device, cache, layout, input, &view.uniform, None);
+            view.inputs.push((input.id(), group));
+        }
+        view.output(destination);
+        let view = &self.0[index];
+        let input = &view
+            .inputs
+            .iter()
+            .find(|(id, _)| *id == input.id())
+            .unwrap()
+            .1;
+        let destination = &view
+            .outputs
+            .iter()
+            .find(|(id, _)| *id == destination.id())
+            .unwrap()
+            .1;
+        passes(
+            encoder,
+            &view.passes(),
+            &view.pipelines,
+            cache,
+            destination,
+            &[input],
+        );
+        true
+    }
+
+    /// S2x: the readable two-sample image the scene part draws into instead
+    /// of a resolving one, or nothing while S2x is not ready; Bevy then draws
+    /// plain MSAA as well.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn s2x_target(
+        &mut self,
+        context: &mut NativeContext,
+        images: &RenderAssets<GpuImage>,
+        cache: &PipelineCache,
+        device: &RenderDevice,
+        queue: &RenderQueue,
+        size: UVec2,
+        format: TextureFormat,
+    ) -> Option<TextureView> {
+        let mode = Smaa::new(AntiAliasing::SmaaS2x)?;
+        let index = self.view(context, mode, images, cache, device, queue, size, format)?;
+        let (spatial, _) = self.0[index].spatial.as_ref()?;
+        Some(spatial.msaa.default_view.clone())
+    }
+
+    /// S2x, after the scene part drew into [`Self::s2x_target`]: measure the
+    /// sample order once, separate both samples and reconstruct each into
+    /// `destination`, the second blended at half, as `render_s2x` does.
+    pub(crate) fn s2x_reconstruct(
+        &mut self,
+        cache: &PipelineCache,
+        encoder: &mut CommandEncoder,
+        destination: &Texture,
+    ) {
+        let size = UVec2::new(destination.width(), destination.height());
+        let Some(view) = self.0.iter_mut().find(|view| {
+            view.size == size && view.format == destination.format() && view.mode.s2x()
+        }) else {
+            return;
+        };
+        view.output(destination);
+        let view = &*view;
+        let (spatial, inputs) = view.spatial.as_ref().unwrap();
+        let raster = view.pipelines.raster.unwrap();
+        if !spatial
+            .calibrated
+            .swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("S2x calibrate sample order"),
+                color_attachments: &[Some(attachment(
+                    &spatial.calibration.default_view,
+                    LoadOp::Clear(LinearRgba::BLACK),
+                ))],
+                ..default()
+            });
+            pass.set_pipeline(cache.get_render_pipeline(raster.calibrate).unwrap());
+            pass.draw(0..3, 0..1);
+        }
+        {
+            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("S2x separate samples"),
+                color_attachments: &spatial.colors.each_ref().map(|t| {
+                    Some(attachment(
+                        &t.default_view,
+                        LoadOp::Clear(LinearRgba::BLACK),
+                    ))
+                }),
+                ..default()
+            });
+            pass.set_pipeline(cache.get_render_pipeline(raster.split).unwrap());
+            pass.set_bind_group(0, &spatial.split, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        let destination = &view
+            .outputs
+            .iter()
+            .find(|(id, _)| *id == destination.id())
+            .unwrap()
+            .1;
+        passes(
+            encoder,
+            &view.passes(),
+            &view.pipelines,
+            cache,
+            destination,
+            &[&inputs[0], &inputs[1]],
+        );
+    }
+}
+
+impl NativeView {
+    fn passes(&self) -> Passes<'_> {
+        Passes {
+            edges: &self.edges.default_view,
+            weights: &self.weights.default_view,
+            stencil: &self.stencil.default_view,
+            edge: &self.groups[0],
+            weight: &self.groups[1],
+            neighborhood: &self.groups[2],
         }
     }
 }

@@ -288,7 +288,7 @@ fn battle_menu_stats_merge_uncommitted_kills_by_character() -> Result<()> {
     ledger.kills[0] = 20;
     ledger.kills[1] = 7;
     for unlocked in [false, true] {
-        f.candidate.setup.devils_arms_unlocked = unlocked;
+        Arc::make_mut(&mut f.candidate.setup).devils_arms_unlocked = unlocked;
         let stats = f.candidate.menu_stats(&ledger);
         for (character, total) in [(0, 107), (8, 5000)] {
             let member = &f.candidate.party.members[character];

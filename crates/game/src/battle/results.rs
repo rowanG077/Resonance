@@ -80,6 +80,7 @@ pub struct PreparedGroup {
 }
 
 /// One admitted enemy instance. Scanning and rewards share its species identity.
+#[derive(Clone)]
 pub struct PreparedEnemy {
     pub actor: ActorId,
     pub level: u8,
@@ -89,6 +90,7 @@ pub struct PreparedEnemy {
     pub reward: EnemyReward,
 }
 
+#[derive(Clone)]
 pub struct Setup {
     /// Saved event flag 0x3FA, immutable while the field is suspended.
     pub devils_arms_unlocked: bool,
@@ -220,8 +222,9 @@ fn saved_control_mode(control: Control) -> Result<u8> {
     }
 }
 
+#[derive(Clone)]
 pub struct Candidate {
-    setup: Setup,
+    setup: Arc<Setup>,
     party: Party,
     active_order: QuickOrder,
     /// Shared menu pages see only actors currently present in battle.
@@ -678,7 +681,7 @@ impl Candidate {
         }
         let menu_actors = setup.actors.clone();
         Ok(Self {
-            setup,
+            setup: Arc::new(setup),
             party,
             active_order: QuickOrder::Cancel,
             menu_party: None,

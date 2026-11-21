@@ -112,28 +112,34 @@ impl Artwork {
         self.images.iter().all(|image| images.contains(image.id()))
     }
 
-    pub fn prepare(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
+    pub fn prepare(&mut self, commands: &mut Commands) {
         if !self.layers.is_empty() {
             return;
         }
         for (i, draw) in self.draws.iter().enumerate() {
-            self.layers.push(Layer::with_mesh(
+            self.layers.push(Layer::with_batch(
                 draw.material.clone(),
                 UI_DEPTH + i as f32,
-                draw.batch.clone().mesh(draw.size),
+                draw.batch.clone(),
+                draw.size,
                 commands,
-                meshes,
             ));
         }
     }
 
-    pub fn render(&mut self, request: Option<&Request>, commands: &mut Commands) {
+    pub fn render(&mut self, request: Option<&Request>, alpha: f32, commands: &mut Commands) {
         let progress = request
             .filter(|r| r.target == Target::Credits)
             .map(|r| r.operation.progress());
         let scroll = &self.manifest.program.scroll;
         let offset = progress.map_or(0., |p| {
-            (p.position as f64 * f64::from(scroll.height_pixels)
+            ((p.position as f64
+                + if p.ready && p.outcome.is_none() {
+                    f64::from(alpha)
+                } else {
+                    0.
+                })
+                * f64::from(scroll.height_pixels)
                 / f64::from(scroll.speed_divisor_ticks))
             .min(f64::from(
                 scroll.height_pixels - i32::from(scroll.stop_margin_pixels),
@@ -290,9 +296,11 @@ pub(crate) struct Playback {
     final_hold: u32,
 }
 impl Playback {
-    pub fn brightness(&self) -> f32 {
+    pub fn brightness(&self, alpha: f32) -> f32 {
         self.tail
-            .map_or(1., |age| 1. - age as f32 / self.final_hold.max(1) as f32)
+            .map_or(1., |age| {
+                1. - (age as f32 + alpha) / self.final_hold.max(1) as f32
+            })
             .clamp(0., 1.)
     }
 }

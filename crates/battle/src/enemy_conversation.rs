@@ -23,12 +23,13 @@ pub struct EnemyConversationLine {
     pub ticks: u16,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct State {
     pending: Vec<EnemyConversation>,
     playing: Option<Playing>,
 }
 
+#[derive(Clone)]
 struct Playing {
     definition: EnemyConversation,
     next: usize,

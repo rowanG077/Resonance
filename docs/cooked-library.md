@@ -2180,11 +2180,12 @@ mastery, chef selection and fullness, and use the current recipe rules.
 
 ## Options and preferences
 
-`game/options.json` owns all 21 option names/descriptions, editor labels, themes,
+`game/options.json` owns all 23 option names/descriptions, editor labels, themes,
 reset defaults and arte-forgetting confirmations. Both field and title menus read
 this document through the active library, including enabled mods. Option keys are
 engine meanings, such as `message_speed`, `combined_battles`, `learn_both_arte_paths`,
-`display_mode`, `resolution`, `anti_aliasing` and `graphics_backend`; their menu order
+`display_mode`, `resolution`, `anti_aliasing`, `graphics_backend`, `vsync` and
+`experimental_high_fps`; their menu order
 is fixed by the engine.
 
 Defaults use names: `difficulty` is `normal`, `hard` or `mania`, and `window` is
@@ -2235,17 +2236,22 @@ Sizes exceeding the GPU or saved-settings limits are omitted. Changing monitors
 refreshes the choices without changing the selected resolution automatically.
 The current valid custom config/CLI size remains selectable, so accepting it
 without navigation preserves the size and does not open another confirmation.
-`defaults.graphics_backend` is `automatic` (the default), `dx12`, `vulkan`,
-`metal` or `opengl`. The selector offers Automatic plus compatible backends
+`defaults.graphics_backend` is `automatic` (the default), `dx12`, `vulkan` or
+`metal`; `opengl`, from before OpenGL was removed, reads as `automatic`. The selector offers Automatic plus compatible backends
 detected on the active GPU with the renderer's required features and limits.
 Software adapters on a different GPU are not offered. Automatic prefers DirectX 12 on
 Windows, Metal on macOS and Vulkan on Linux; a missing saved backend falls back
-to an available backend, including OpenGL. OpenGL falls back from MSAA/S2x to
-SMAA Ultra. Backend changes save when you exit Customize
+to an available backend. Backend changes save when you exit Customize
 and take effect after restarting the game. The menu shows the current
 backend and whether `WGPU_BACKEND` overrides the saved choice. Discovery preserves
 the saved preference even when it is unavailable on the current GPU. Existing libraries
 may omit this option and default; the loader supplies them without re-cooking.
+
+`defaults.experimental_high_fps` is a boolean, false by default. Customize shows
+it as **Enable experimental high FPS**. It smooths movement above 60 FPS, applies
+immediately, and saves when leaving Customize. `--speculative` forces it on for
+the current run; replays and deterministic captures disable it. Existing options
+documents and saved preferences may omit it; no re-cook is needed.
 
 `defaults.anti_aliasing` is `off`, `smaa_low`, `smaa_medium`, `smaa_high`,
 `smaa_ultra`, `msaa2`, `msaa4` (the engine default), `msaa8` or `smaa_s2x`.
@@ -2256,8 +2262,8 @@ The renderer uses spatial [SMAA](https://www.iryoku.com/smaa/) with real
 area/search lookup textures. All presets and S2x share one reconstruction pipeline. S2x preserves the two MSAA samples, calibrates
 hardware sample ordering, reconstructs each using its subpixel area tables,
 and averages the results in linear light. Edge detection uses encoded color; sRGB input reads are re-encoded for its thresholds.
-SMAA decodes filtering inputs and encodes the reconstructed output, using sRGB views
-or explicit conversion on OpenGL. S2x runs before scene effects;
+SMAA decodes filtering inputs and encodes the reconstructed output through sRGB
+views. S2x runs before scene effects;
 regular SMAA runs after those effects. No AA mode uses frame history or jitter.
 UI and movie cameras never run the morphological pass; shared scene/UI targets
 use matching MSAA counts to preserve composition. Refraction preserves

@@ -187,8 +187,8 @@ impl Numbers {
     }
 }
 
-fn alpha(age: u32, hold: u32) -> u8 {
-    255_u32.saturating_sub(age.saturating_sub(hold) * FADE_STEP) as u8
+fn alpha(age: f32, hold: u32) -> u8 {
+    (255. - (age - hold as f32).max(0.) * FADE_STEP as f32).round() as u8
 }
 
 fn draw_floating(
@@ -197,9 +197,11 @@ fn draw_floating(
     hit: &FloatingNumber,
     side: Side,
     projected: [f32; 2],
+    fraction: f32,
 ) -> Result<()> {
     // Expand on contact, settle in six updates, then drift right while fading.
-    let pulse = 12_u32.saturating_sub(hit.age * 2);
+    let age = hit.age as f32 + fraction;
+    let pulse = (12. - age * 2.).max(0.);
     let (size, mut colors) = match hit.style {
         NumberStyle::Recovery(kind) => (art.damage.sizes[0], art.recovery_colors[kind as usize]),
         style => (
@@ -211,14 +213,14 @@ fn draw_floating(
             art.damage.colors[usize::from(side == Side::Enemy)],
         ),
     };
-    let size = size.map(|value| f32::from(value) + 2. * pulse as f32);
+    let size = size.map(|value| f32::from(value) + 2. * pulse);
     for color in &mut colors {
-        color[3] = alpha(hit.age, FLOATING_HOLD).saturating_sub((pulse * 16) as u8);
+        color[3] = alpha(age, FLOATING_HOLD).saturating_sub((pulse * 16.).round() as u8);
     }
     let trailing_digits = hit.value.checked_ilog10().unwrap_or(0);
     let slot = hit.slot as f32;
     let position = [
-        projected[0] + 8. - slot * 8. + hit.age.saturating_sub(FLOATING_HOLD) as f32
+        projected[0] + 8. - slot * 8. + (age - FLOATING_HOLD as f32).max(0.)
             - trailing_digits as f32 * 14.,
         projected[1] - slot * 12. - 32.,
     ];
@@ -229,7 +231,7 @@ fn draw_floating(
         position,
         size,
         size[0],
-        10. + pulse as f32,
+        10. + pulse,
         colors,
     )
 }
@@ -240,14 +242,17 @@ fn recovery(
     number: &RecoveryNumber,
     slot: usize,
     row: usize,
+    fraction: f32,
 ) -> Result<()> {
     let [right, y] = party::recovery_position(slot, row);
     let age = number.age as f32;
-    // Horizontal arc with an initial speed of 1.5 pixels per update.
-    let drift = ((24. * age - age * (age - 1.) / 2.) / 16.).floor();
+    // Blend the authored, pixel-rounded positions of the recovery arc.
+    let offset = |age: f32| ((24. * age - age * (age - 1.) / 2.) / 16.).floor();
+    let start = offset(age);
+    let drift = start + (offset(age + 1.) - start) * fraction;
     let mut colors = art.recovery_colors[row];
     for color in &mut colors {
-        color[3] = alpha(number.age, RECOVERY_HOLD);
+        color[3] = alpha(age + fraction, RECOVERY_HOLD);
     }
     // Draw right to left so italic digits overlap in the correct order.
     let mut value = number.value.max(0) as u32;
@@ -276,8 +281,8 @@ impl super::Artwork {
     pub(super) fn render_numbers(
         &mut self,
         frame: &BattleFrame,
+        fraction: f32,
         commands: &mut super::Commands,
-        meshes: &mut super::Assets<super::Mesh>,
     ) -> Result<()> {
         let mut floating = Batch::default();
         let mut recovered = Batch::default();
@@ -293,7 +298,14 @@ impl super::Artwork {
                     scene_y * resonance_content::HEIGHT as f32
                         / resonance_content::SCENE_HEIGHT as f32,
                 ];
-                draw_floating(&mut floating, &self.art, hit, actor.side, projected)?;
+                draw_floating(
+                    &mut floating,
+                    &self.art,
+                    hit,
+                    actor.side,
+                    projected,
+                    fraction,
+                )?;
             }
             if actor.side == Side::Party {
                 for (row, number) in numbers.recovery.iter().enumerate() {
@@ -304,13 +316,14 @@ impl super::Artwork {
                             number,
                             actor.control_slot.index(),
                             row,
+                            fraction,
                         )?;
                     }
                 }
             }
         }
-        self.ui.floating.upload(floating, commands, meshes)?;
-        self.ui.recovery.upload(recovered, commands, meshes)?;
+        self.ui.floating.upload(floating, commands)?;
+        self.ui.recovery.upload(recovered, commands)?;
         Ok(())
     }
 }
@@ -333,8 +346,8 @@ mod tests {
         numbers.advance([50, 25], 0);
         assert!(numbers.floating.iter().all(|n| n.age == 0));
         numbers.advance([50, 25], FLOATING_HOLD);
-        assert_eq!(alpha(FLOATING_HOLD, FLOATING_HOLD), 255);
-        assert_eq!(alpha(FLOATING_HOLD + 1, FLOATING_HOLD), 247);
+        assert_eq!(alpha(FLOATING_HOLD as f32, FLOATING_HOLD), 255);
+        assert_eq!(alpha(FLOATING_HOLD as f32 + 0.5, FLOATING_HOLD), 251);
         numbers.float(6, NumberStyle::Normal, [10., 50., 0.]);
         assert_eq!(numbers.floating.last().unwrap().slot, 0);
         numbers.advance([50, 25], FLOATING_LIFETIME);

@@ -1509,6 +1509,17 @@ fn flush_commands(world: &mut World) -> Result<()> {
             "field audio evidence limit exceeded"
         );
     }
+    // Polling an empty queue must not mark the whole simulation as changed:
+    // field and world predictions retain endpoints between committed updates.
+    if world
+        .resource::<super::new_game::Session>()
+        .events()
+        .world
+        .audio_commands
+        .is_empty()
+    {
+        return Ok(());
+    }
     let mut commands = std::mem::take(
         &mut world
             .resource_mut::<super::new_game::Session>()

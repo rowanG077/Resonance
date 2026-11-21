@@ -12,17 +12,13 @@ pub(super) struct Artwork {
     sprites: Vec<[u32; 4]>,
 }
 impl Artwork {
-    pub fn prepare(
-        menu: &menu::MenuArtwork,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<Self> {
+    pub fn prepare(menu: &menu::MenuArtwork, commands: &mut Commands) -> Result<Self> {
         // Validate the complete recipe before allocating any optional canvases.
         let art = [menu.world_map_art(0)?, menu.world_map_art(1)?];
         let (material, atlas_size, sprites) = menu.world_hud_art()?;
         anyhow::ensure!(sprites.len() == 7, "world HUD artwork is incomplete");
         let map_sizes = art.clone().map(|(_, size)| size);
-        let mut layer = |material, depth| Layer::new(material, depth, commands, meshes);
+        let mut layer = |material, depth| Layer::new(material, depth, commands);
         let maps = art.map(|(material, _)| layer(material, 2.));
         Ok(Self {
             maps,
@@ -43,12 +39,21 @@ impl Artwork {
     pub fn render(
         &mut self,
         session: &resonance_game::overworld::Session,
+        future: Option<(&resonance_game::overworld::Session, f32)>,
         overlay: &mut Batch,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let state = session.travel.state();
         let world = state.world.index();
+        let future = future.filter(|(next, _)| {
+            next.travel.state().world == state.world
+                && next.cinematic.is_none() == session.cinematic.is_none()
+        });
+        let blend = |from: f32, to: f32| from + (to - from) * future.map_or(0., |(_, alpha)| alpha);
+        let position = future.map_or(state.position, |(next, alpha)| {
+            crate::overworld::travel_center(state.position, next.travel.state().position, alpha)
+        });
+
         let visible = session.cinematic.is_none()
             && session.active_skit.is_none()
             && session.menu.is_none()
@@ -57,18 +62,30 @@ impl Artwork {
         let mut map = Batch::default();
         let mut decoration = Batch::default();
         if visible {
-            self.compass(
-                &mut decoration,
-                state.camera_yaw,
-                session.travel.camera_turn_input(),
-            );
-            let [x, y, _] = state.position.map();
+            let compass = |session: &resonance_game::overworld::Session| {
+                Compass::at(
+                    session.travel.state().camera_yaw,
+                    session.travel.camera_turn_input(),
+                )
+            };
+            let mut heading = compass(session);
+            if let Some((next, alpha)) = future {
+                heading = heading.interpolate(compass(next), alpha);
+            }
+            self.compass(&mut decoration, &heading);
+            let [x, y, _] = position.map();
             for (index, opacity) in session.travel.map_opacity().into_iter().enumerate() {
-                if opacity == 0 {
+                let opacity = future.map_or(f32::from(opacity), |(next, _)| {
+                    blend(
+                        f32::from(opacity),
+                        f32::from(next.travel.map_opacity()[index]),
+                    )
+                });
+                if opacity <= 0. {
                     continue;
                 }
-                let alpha = f32::from(opacity) / 255.;
-                let slide = f32::from(255 - opacity) / 2.;
+                let alpha = opacity / 255.;
+                let slide = (255. - opacity) / 2.;
                 let layout = Layout::new(index == 0, [x, y], slide);
                 layout.map(&mut map, self.map_sizes[world], alpha);
                 if let Some(party) = &session.events.world.party {
@@ -94,7 +111,7 @@ impl Artwork {
                         );
                     }
                 }
-                draw_direction(overlay, layout.point([x, y]), state.camera_yaw, alpha);
+                draw_direction(overlay, layout.point([x, y]), heading.yaw, alpha);
                 if index == 0 {
                     sprite(
                         &mut decoration,
@@ -117,23 +134,21 @@ impl Artwork {
         for (index, layer) in self.maps.iter_mut().enumerate() {
             let shown = index == world && !map.indices.is_empty();
             if shown {
-                layer.update_mesh(map.clone(), self.map_sizes[world], meshes)?;
+                layer.update(map.clone(), self.map_sizes[world]);
             }
             layer.show(shown, commands);
         }
         let shown = !decoration.indices.is_empty();
         if shown {
-            self.decorations
-                .update_mesh(decoration, self.atlas_size, meshes)?;
+            self.decorations.update(decoration, self.atlas_size);
         }
         self.decorations.show(shown, commands);
         Ok(())
     }
-    fn compass(&self, batch: &mut Batch, yaw: f32, steering: f32) {
+    fn compass(&self, batch: &mut Batch, heading: &Compass) {
         let center = [80., 64.];
         // The centre tilts with steering; the directional layer follows yaw.
-        let tilt = (steering / 8.).trunc().to_radians();
-        for (index, angle) in [(1, tilt), (2, yaw)] {
+        for (index, angle) in [(1, heading.tilt), (2, heading.yaw)] {
             let start = batch.positions.len();
             sprite(
                 batch,
@@ -151,17 +166,41 @@ impl Artwork {
                 ];
             }
         }
-        for (index, angle) in [(3, PI), (4, FRAC_PI_2), (5, -FRAC_PI_2), (6, 0.)] {
-            let (s, c) = (yaw + angle).sin_cos();
-            sprite(
-                batch,
-                self.sprites[index],
-                [68. + (48. * s).trunc(), 52. + (32. * c).trunc()],
-                1.,
-            );
+        for (index, offset) in heading.labels.iter().enumerate() {
+            let position = Vec2::new(68., 52.) + offset;
+            sprite(batch, self.sprites[index + 3], position.to_array(), 1.);
         }
     }
 }
+
+struct Compass {
+    yaw: f32,
+    tilt: f32,
+    labels: [Vec2; 4],
+}
+
+impl Compass {
+    fn at(yaw: f32, steering: f32) -> Self {
+        Self {
+            yaw,
+            tilt: (steering / 8.).trunc().to_radians(),
+            labels: [PI, FRAC_PI_2, -FRAC_PI_2, 0.].map(|angle| {
+                let (s, c) = (yaw + angle).sin_cos();
+                Vec2::new(48. * s, 32. * c).trunc()
+            }),
+        }
+    }
+
+    fn interpolate(self, next: Self, alpha: f32) -> Self {
+        let turn = next.yaw - self.yaw;
+        Self {
+            yaw: self.yaw + turn.sin().atan2(turn.cos()) * alpha,
+            tilt: self.tilt.lerp(next.tilt, alpha),
+            labels: std::array::from_fn(|i| self.labels[i].lerp(next.labels[i], alpha)),
+        }
+    }
+}
+
 fn sprite(batch: &mut Batch, rect: [u32; 4], [x, y]: [f32; 2], alpha: f32) {
     batch.quad(
         [x, y, x + rect[2] as f32, y + rect[3] as f32],
@@ -278,6 +317,16 @@ mod tests {
     use super::*;
     #[test]
     fn local_map_wraps_both_seams_and_keeps_player_centered() {
+        use crate::overworld::travel_center;
+        use resonance_content::overworld::Position;
+
+        let from = Position::from_map([WORLD_WIDTH - 10., WORLD_DEPTH - 20., 0.]).unwrap();
+        let to = Position::from_map([30., 40., 0.]).unwrap();
+        for (start, end) in [(from, to), (to, from)] {
+            assert_eq!(travel_center(start, end, 0.), start);
+            assert_eq!(travel_center(start, end, 0.5).map(), [10., 10., 0.]);
+            assert_eq!(travel_center(start, end, 1.), end);
+        }
         let layout = Layout::new(true, [30., 50.], 0.);
         assert_eq!(layout.point([30., 50.]), [540., 358.]);
         let mut map = Batch::default();
@@ -292,7 +341,11 @@ mod tests {
         assert!(!layout.contains(layout.point([WORLD_WIDTH / 2., WORLD_DEPTH / 2.])));
     }
     #[test]
-    fn viewing_cone_tracks_camera_cardinals_and_fades_away_from_player() {
+    fn compass_and_viewing_cone_follow_the_camera() {
+        let middle = Compass::at(-0.01, 0.).interpolate(Compass::at(0.03, 8.), 0.5);
+        assert_eq!(middle.labels[3], Vec2::new(0.5, 31.));
+        assert!((middle.tilt.to_degrees() - 0.5).abs() < 1e-5);
+        assert!((middle.yaw - 0.01).abs() < 1e-5);
         for (yaw, direction) in [
             (0., [0., 1.]),
             (std::f32::consts::FRAC_PI_2, [1., 0.]),

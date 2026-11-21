@@ -1,7 +1,11 @@
+@if(NATIVE_SCENE && MULTISAMPLED_DEPTH)
+@group(2) @binding(4) var scene_depth: texture_multisampled_2d<f32>;
+@if(NATIVE_SCENE && !MULTISAMPLED_DEPTH)
+@group(2) @binding(4) var scene_depth: texture_2d<f32>;
 
-@if(MULTISAMPLED_DEPTH)
+@if(MULTISAMPLED_DEPTH && !NATIVE_SCENE)
 @group(0) @binding(4) var scene_depth: texture_multisampled_2d<f32>;
-@if(!(MULTISAMPLED_DEPTH))
+@if(!(MULTISAMPLED_DEPTH) && !NATIVE_SCENE)
 @group(0) @binding(4) var scene_depth: texture_2d<f32>;
 
 // Depth formats may bind as unfilterable float textures. This preserves exact

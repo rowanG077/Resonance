@@ -32,7 +32,7 @@ use resonance_battle::{
     item::{Effect, Release},
 };
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(super) struct Memory {
     pub slot: usize,
     row: usize,
@@ -51,13 +51,13 @@ impl Memory {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct Owner {
     phase: Phase,
     user: Option<ActorId>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Phase {
     User(ActorSelection),
     Inventory(List),
@@ -314,7 +314,7 @@ fn selection(
     })
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct List {
     rows: Vec<ItemRow>,
     row: usize,

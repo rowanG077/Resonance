@@ -5,7 +5,10 @@ use bevy::prelude::*;
 use resonance_playback::Decodable;
 use resonance_playback::{Control, Handle as PlaybackHandle, Mixer, Output, Suspended, Worker};
 use std::{
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -45,6 +48,7 @@ impl Drop for Sink {
 // CPAL's platform stream need not be Sync. It belongs to Bevy's main thread.
 pub(super) struct Device {
     stream: Option<resonance_audio_device::Stream>,
+    clocked_sink: Option<ClockedSink>,
     worker: Option<Worker>,
     suspended: Option<Suspended>,
     pending_device: Option<resonance_audio_device::Device>,
@@ -85,6 +89,7 @@ pub(super) fn install(app: &mut App, silent: bool) -> Result<()> {
     info!("Audio output: {:?}; silent={silent}", device.description);
     app.insert_non_send(Device {
         stream: Some(stream),
+        clocked_sink: None,
         worker: Some(worker),
         suspended: None,
         pending_device: None,
@@ -98,6 +103,84 @@ pub(super) fn install(app: &mut App, silent: bool) -> Result<()> {
     });
     app.add_systems(Last, (update, super::movie::pacing::update).chain());
     Ok(())
+}
+
+/// Consume the real mixer output at wall-clock cadence without opening a host
+/// device. Voice/service completion still follows the playback clock.
+pub(super) fn install_offscreen(app: &mut App) -> Result<()> {
+    const RATE: u32 = 48_000;
+    const PERIOD: usize = 512;
+    let output = Output::new(Arc::new(resonance_playback::Clock::new(RATE)), PERIOD);
+    let (control, mixer) = Mixer::new(output.clock.clone());
+    let converter = resonance_media::output::Resampler::new(RATE)?;
+    let worker = Worker::start(mixer, Box::new(converter), output.clone())?;
+    let start = Instant::now();
+    while !output.ready() {
+        output.check()?;
+        ensure!(
+            start.elapsed() < Duration::from_secs(10),
+            "offscreen audio priming timed out"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let clocked_sink = ClockedSink::start(output.clone(), RATE, PERIOD)?;
+    app.insert_non_send(Device {
+        stream: None,
+        clocked_sink: Some(clocked_sink),
+        worker: Some(worker),
+        suspended: None,
+        pending_device: None,
+        retry: Instant::now(),
+        resume_game: false,
+        recovering: false,
+        silent: true,
+        control,
+        output,
+        report: Instant::now(),
+    });
+    app.add_systems(Last, (update, super::movie::pacing::update).chain());
+    info!("Offscreen audio uses a clocked muted sink at {RATE} Hz; no host device");
+    Ok(())
+}
+
+struct ClockedSink {
+    stopped: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+impl ClockedSink {
+    fn start(output: Arc<Output>, rate: u32, period: usize) -> Result<Self> {
+        let stopped = Arc::new(AtomicBool::new(false));
+        let stop = stopped.clone();
+        let thread = std::thread::Builder::new()
+            .name("resonance-muted-clock".into())
+            .spawn(move || {
+                let mut callback = resonance_playback::Callback::new(output, true);
+                let mut samples = vec![0_f32; period * 2];
+                let start = Instant::now();
+                let mut frames = 0_u64;
+                while !stop.load(Ordering::Acquire) {
+                    let deadline = start + Duration::from_secs_f64(frames as f64 / f64::from(rate));
+                    std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+                    if stop.load(Ordering::Acquire) {
+                        break;
+                    }
+                    callback.render(&mut samples, 2, Duration::ZERO, |v| v);
+                    frames += period as u64;
+                }
+            })?;
+        Ok(Self {
+            stopped,
+            thread: Some(thread),
+        })
+    }
+}
+impl Drop for ClockedSink {
+    fn drop(&mut self) {
+        self.stopped.store(true, Ordering::Release);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
 }
 pub(super) fn attach<T: Asset + Decodable + Clone>(
     world: &mut World,
@@ -130,6 +213,9 @@ pub(super) fn attach<T: Asset + Decodable + Clone>(
 }
 impl Device {
     fn poll(&mut self, world: &mut World) -> Result<()> {
+        if self.clocked_sink.is_some() {
+            return self.output.check();
+        }
         let lost = self.output.diagnostics().device_lost > 0;
         if lost && !self.recovering {
             warn!(
@@ -244,6 +330,30 @@ mod tests {
         fn sample_rate(&self) -> resonance_playback::SampleRate {
             resonance_playback::SampleRate::new(resonance_playback::SOURCE_RATE).unwrap()
         }
+    }
+
+    #[test]
+    fn clocked_muted_output_advances_sources_without_a_host_device() {
+        let mut app = App::new();
+        install_offscreen(&mut app).unwrap();
+        let device = app.world().non_send::<Device>();
+        assert!(device.stream.is_none() && device.pending_device.is_none());
+        assert!(device.clocked_sink.is_some());
+        let handle = device
+            .control
+            .play(false, || Ok(Box::new(Constant)))
+            .unwrap();
+        let started = Instant::now();
+        while handle.position() < Duration::from_millis(40) {
+            assert!(
+                started.elapsed() < Duration::from_secs(3),
+                "muted playback clock stalled"
+            );
+            device.output.check().unwrap();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(device.output.diagnostics().submitted_frames > 0);
+        assert_eq!(device.output.diagnostics().device_errors, 0);
     }
     #[test]
     #[ignore = "opens a real output device with mandatory mute; injects a device-loss notification"]

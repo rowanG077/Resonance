@@ -149,54 +149,6 @@ impl ResidentModels {
         }
         Ok(())
     }
-
-    /// Audit the owning pool independently of the startup draw report. Most
-    /// resident materials deliberately have no temporary warm draw entity.
-    #[cfg(test)]
-    pub(crate) fn install_upload_audit(app: &mut App) {
-        use bevy::render::{Render, RenderApp, RenderSystems};
-        app.sub_app_mut(RenderApp).add_systems(
-            Render,
-            (|pool: Res<Self>, observer: gpu::Observer, mut checked: Local<bool>| {
-                if !*checked && pool.0.lock().unwrap().ready {
-                    pool.check_uploaded(&observer.materials, &observer.allocators)
-                        .expect("common model binding audit");
-                    *checked = true;
-                }
-            })
-            .in_set(RenderSystems::Cleanup),
-        );
-    }
-
-    #[cfg(test)]
-    fn check_uploaded(
-        &self,
-        materials: &bevy::render::erased_render_asset::ErasedRenderAssets<
-            bevy::pbr::PreparedMaterial,
-        >,
-        allocators: &bevy::render::material_bind_groups::MaterialBindGroupAllocators,
-    ) -> Result<()> {
-        let allocator = allocators.get(&std::any::TypeId::of::<TitleSurface>());
-        let pool = self.0.lock().unwrap();
-        for slot in pool.entries.values().flatten() {
-            let handle = slot
-                .free
-                .as_ref()
-                .context("resident material still leased")?;
-            let material = materials
-                .get(handle.id())
-                .with_context(|| format!("resident material {:?} not uploaded", handle.id()))?;
-            ensure!(
-                allocator
-                    .and_then(|a| a.get(material.binding.group))
-                    .and_then(|slab| slab.bind_group())
-                    .is_some(),
-                "resident material {:?} has no GPU bind group",
-                handle.id()
-            );
-        }
-        Ok(())
-    }
 }
 
 #[cfg(test)]

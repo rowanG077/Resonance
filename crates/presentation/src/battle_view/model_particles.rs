@@ -1,5 +1,6 @@
 //! Shared model recipes and reusable render objects for live particles.
 use super::*;
+use crate::native::MeshMaterial3d;
 use resonance_battle::ParticleFrame;
 use resonance_battle::ResourceId;
 
@@ -95,9 +96,6 @@ pub(super) struct Pool {
     joints: Vec<Entity>,
     free_draws: Vec<usize>,
     free_joints: Vec<usize>,
-    // The admission report stores IDs, so the scene must retain these bindings
-    // through asynchronous pipeline preparation and its completion fence.
-    warm_materials: Vec<Handle<TitleSurface>>,
     held_pose: Vec<(Entity, GlobalTransform)>,
 }
 
@@ -163,7 +161,6 @@ impl Pool {
     #[allow(clippy::too_many_arguments)]
     pub fn prepare(
         &mut self,
-        view: Entity,
         report: &mut gpu::Report,
         server: &AssetServer,
         assets: &mut AssetsForView,
@@ -184,23 +181,9 @@ impl Pool {
                 None => TemplateState::Disabled,
                 Some(false) => continue,
                 Some(true) => {
-                    let mut variants = std::collections::HashMap::new();
                     for draw in &template.draws {
                         for surface in std::iter::once(&draw.base).chain(draw.styles.values()) {
-                            let material = variants
-                                .entry(crate::materials::SurfaceKey::from(surface))
-                                .or_insert_with(|| {
-                                    let material = assets.surfaces.add(surface.clone());
-                                    self.warm_materials.push(material.clone());
-                                    material
-                                });
-                            report.prepare(
-                                view,
-                                draw.mesh.id(),
-                                material.id().untyped(),
-                                false,
-                                None,
-                            );
+                            report.prepare(gpu::View::Battle, draw.mesh.id(), surface, false, None);
                         }
                     }
                     TemplateState::Ready
@@ -577,7 +560,7 @@ fn appearance(
             Vec4::ZERO,
         )
     };
-    let uv = model_uv(particle.state.uv);
+    let uv = model_uv(particle.state.uv, particle.uv_offset);
     let uv_offsets = base.uv_offsets + Vec4::new(uv[0], uv[1], uv[0], uv[1]);
     let surface = surfaces
         .get(handle)
@@ -698,14 +681,17 @@ mod tests {
         let mut particles = particles(2)?;
         for (index, particle) in particles.iter_mut().enumerate() {
             particle.model = Some(resonance_battle::EffectModelFrame {
+                attachment: None,
                 resource: ResourceId(10),
                 clip: None,
                 frame: 0.,
                 world: Mat4::IDENTITY.to_cols_array_2d(),
-                bones: Arc::new(vec![
-                    Mat4::from_translation(Vec3::new(index as f32 * 20., 0., 0.))
-                        .to_cols_array_2d(),
-                ]),
+                bones: Arc::new(resonance_content::animation::pose::Palette::independent(
+                    vec![
+                        Mat4::from_translation(Vec3::new(index as f32 * 20., 0., 0.))
+                            .to_cols_array_2d(),
+                    ],
+                )),
             });
             particle.state.colors[0] = [64, 64, 64, 100 + index as i16];
             particle.state.uv = [index as i16, 0, 2, 2];
@@ -768,7 +754,9 @@ mod tests {
         // Rebind a previous skin draw to an unrelated rigid model in the same
         // update as retirement. Neither the draw pool nor materials grow.
         particles[0].model.as_mut().unwrap().resource = ResourceId(11);
-        particles[0].model.as_mut().unwrap().bones = Arc::new(vec![]);
+        particles[0].model.as_mut().unwrap().bones = Arc::new(
+            resonance_content::animation::pose::Palette::independent(vec![]),
+        );
         particles[0].state.uv = [0; 4];
         pool.clear_pose();
         pool.apply(

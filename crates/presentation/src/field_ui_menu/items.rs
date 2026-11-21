@@ -25,9 +25,7 @@ struct InventoryLayout {
     list_offset: f32,
     description_offset: f32,
     heading_offset: f32,
-    first: usize,
-    visible: usize,
-    scroll_offset: i32,
+    rows: scroll::Rows,
     anchor: [f32; 2],
 }
 
@@ -43,7 +41,7 @@ struct InventoryList<'a> {
     description_opacity: u8,
 }
 
-fn inventory_layout(list: &InventoryList<'_>) -> Result<InventoryLayout> {
+fn inventory_layout(list: &InventoryList<'_>, scroll: ListScroll) -> Result<InventoryLayout> {
     ensure!(
         list.selected
             .is_none_or(|selected| selected < list.rows.len() && list.first <= selected),
@@ -53,10 +51,10 @@ fn inventory_layout(list: &InventoryList<'_>) -> Result<InventoryLayout> {
         list.first.is_multiple_of(2) && (-4..=4).contains(&list.scroll),
         "invalid inventory scroll"
     );
-    let first = list
-        .first
-        .checked_sub(usize::from(list.scroll > 0) * 2)
-        .context("inventory scroll precedes first row")?;
+    ensure!(
+        list.scroll <= 0 || list.first >= 2,
+        "inventory scroll precedes first row"
+    );
     let fade = u32::from(list.fade);
     let list_offset = (fade * 628 / 256) as f32;
     let cell = list
@@ -67,9 +65,7 @@ fn inventory_layout(list: &InventoryList<'_>) -> Result<InventoryLayout> {
         list_offset,
         description_offset: (fade * 120 / 256) as f32,
         heading_offset: -((fade * 76 / 256) as f32),
-        first,
-        visible: VISIBLE_ITEMS + usize::from(list.scroll != 0) * 2,
-        scroll_offset: scroll_offset(list.scroll, 26),
+        rows: scroll.rows(list.first, list.scroll, VISIBLE_ITEMS, 2, 26),
         anchor: [
             48. + (cell % 2) as f32 * 296. + list_offset,
             96. + (cell / 2) as f32 * 26.,
@@ -77,23 +73,14 @@ fn inventory_layout(list: &InventoryList<'_>) -> Result<InventoryLayout> {
     })
 }
 
-impl MenuArtwork {
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn render_battle_items(
+impl Drawing<'_> {
+    pub(super) fn battle_items(
         &mut self,
         frame: &ListFrame,
         data: &resonance_content::menu_data::MenuData,
-        font: &BitmapFont,
-        dialogue: &DialogueArt,
-        preferences: &resonance_content::menu_data::CustomizeSettings,
-        tick: u32,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
-        self.set_page(Some(ActivePage::Menu(Page::Items)));
-        let mut draw = self.begin_drawing(font, dialogue, Some(preferences), tick)?;
-        draw.opacity = 255 - frame.fade;
-        draw.shade(draw.screen);
+        self.opacity = 255 - frame.fade;
+        self.shade(self.screen);
         let selected = (!frame.rows.is_empty()).then_some(frame.selected);
         let list = InventoryList {
             rows: &frame.rows,
@@ -113,13 +100,10 @@ impl MenuArtwork {
             },
             description_opacity: 255 - frame.description_blend,
         };
-        if let Some(anchor) = draw.inventory_list(&list, data, None)? {
-            draw.cursor(anchor, 255);
+        if let Some(anchor) = self.inventory_list(&list, data, None)? {
+            self.cursor(anchor, 255);
         }
-        let trail = draw.trail;
-        let drawing = draw.batches;
-        self.trail = trail;
-        self.submit_drawing(drawing, commands, meshes)
+        Ok(())
     }
 }
 
@@ -147,7 +131,7 @@ impl Drawing<'_> {
         data: &resonance_content::menu_data::MenuData,
         statistics: Option<&resonance_content::session::SessionData>,
     ) -> Result<Option<[f32; 2]>> {
-        let layout = inventory_layout(list)?;
+        let layout = inventory_layout(list, self.scroll.primary)?;
         let opacity = 255 - list.fade;
         self.opacity = opacity;
         self.offset = [0., layout.heading_offset];
@@ -181,8 +165,8 @@ impl Drawing<'_> {
         for (row, entry) in list
             .rows
             .iter()
-            .skip(layout.first)
-            .take(layout.visible)
+            .skip(layout.rows.first)
+            .take(layout.rows.count)
             .enumerate()
         {
             let item = data
@@ -191,7 +175,7 @@ impl Drawing<'_> {
                 .context("inventory item was not prepared")?;
             let item_text = data.item_text(entry.id)?;
             let x = 48. + (row % 2) as f32 * 296.;
-            let y = 88. + (row / 2) as f32 * 26. - layout.scroll_offset as f32;
+            let y = 88. + (row / 2) as f32 * 26. - layout.rows.offset;
             if item.category != 0 {
                 let rect = self
                     .spec
@@ -763,28 +747,43 @@ mod tests {
             previous_description: Description::None,
             description_opacity: 255,
         };
-        assert_eq!(inventory_layout(&list)?.anchor, [344., 304.]);
-        list.selected = Some(18);
-        list.first = 2;
-        for scroll in [-4, -1, 1, 4] {
-            list.scroll = scroll;
-            let layout = inventory_layout(&list)?;
+        assert_eq!(
+            inventory_layout(&list, ListScroll::default())?.anchor,
+            [344., 304.]
+        );
+        // At either edge the grid keeps the incoming row through the whole scroll.
+        for (from, to, offset) in [
+            ((0, 0), (2, 1), 2.5),
+            ((2, 1), (2, 2), 7.5),
+            ((2, 4), (2, 0), 23.),
+            ((2, 0), (0, -1), 23.5),
+            ((0, -1), (0, -2), 18.5),
+            ((0, -4), (0, 0), 3.),
+        ] {
+            (list.first, list.scroll) = from;
+            list.selected = Some(list.first + 16);
+            let layout = inventory_layout(&list, ListScroll::between(from, to, 0.5))?;
             assert_eq!(layout.anchor, [48., 304.]);
-            assert_eq!(layout.visible, VISIBLE_ITEMS + 2);
-            assert_eq!(layout.first, if scroll > 0 { 0 } else { 2 });
-            assert!((1..26).contains(&layout.scroll_offset));
+            assert_eq!(
+                layout.rows,
+                scroll::Rows {
+                    first: 0,
+                    count: VISIBLE_ITEMS + 2,
+                    offset
+                }
+            );
         }
         list.scroll = 0;
         list.fade = 255;
-        let closed = inventory_layout(&list)?;
+        let closed = inventory_layout(&list, ListScroll::default())?;
         assert!(closed.heading_offset < 0. && closed.description_offset > 0.);
         assert!(closed.list_offset > 600.);
         list.selected = None;
         list.rows = &[];
         list.first = 0;
-        assert!(inventory_layout(&list).is_ok());
+        assert!(inventory_layout(&list, ListScroll::default()).is_ok());
         list.selected = Some(0);
-        assert!(inventory_layout(&list).is_err());
+        assert!(inventory_layout(&list, ListScroll::default()).is_err());
         Ok(())
     }
 }

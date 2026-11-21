@@ -3,7 +3,7 @@ use anyhow::{Context, Result};
 use resonance_events::EventRuntime;
 use std::sync::Arc;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(super) struct Treasures {
     pub event: Option<Arc<crate::authored::PreparedEvent>>,
 }

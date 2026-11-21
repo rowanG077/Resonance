@@ -745,6 +745,7 @@ fn advance_contact(
 
 /// A captured endpoint keeps the pass readable even while the victim recoils.
 /// Integration still belongs to ordinary actor movement, collision and hit-stop.
+#[derive(Clone)]
 pub(crate) struct Traversal {
     started_at: u32,
     duration: u16,

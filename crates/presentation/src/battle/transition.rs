@@ -1,16 +1,9 @@
 //! Hold the retained field image until the battle is ready, then shatter it.
 use super::*;
 use crate::gpu_prepare as gpu;
-use bevy::{
-    asset::RenderAssetUsages,
-    image::ImageSampler,
-    mesh::PrimitiveTopology,
-    render::{Render, RenderApp, RenderSystems},
-};
-use std::{
-    hash::{DefaultHasher, Hash, Hasher},
-    sync::Mutex,
-};
+use crate::native::MeshMaterial2d;
+use bevy::{asset::RenderAssetUsages, image::ImageSampler, mesh::PrimitiveTopology};
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 const LAYER: usize = 25;
 const HOLD_TICKS: u16 = 22;
@@ -30,23 +23,16 @@ const ROLL_MULTIPLIER: f32 = 1.5;
 #[derive(Resource)]
 pub(super) struct SkipMinimumDuration;
 
-#[cfg(test)]
-mod gpu_tests;
-
 struct Piece {
     corners: [Vec2; 3],
     center: Vec2,
     spin: f32,
 }
 
-#[derive(Resource, Clone, Default)]
-struct Warmup(Arc<Mutex<gpu::Report>>);
-
 #[derive(Resource)]
 pub(super) struct State {
     capture: crate::menu_backdrop::Capture,
-    warmup: Warmup,
-    target: Handle<Image>,
+    warmup: gpu::Shared,
     capture_camera: Entity,
     camera: Entity,
     entity: Entity,
@@ -54,7 +40,7 @@ pub(super) struct State {
     pieces: Vec<Piece>,
     size: Vec2,
     age: Option<u16>,
-    mesh_age: u16,
+    mesh_age: f32,
     crack_color: Color,
     battle_ready: bool,
     #[cfg(all(test, feature = "preparation-trace"))]
@@ -73,6 +59,15 @@ impl State {
 
     pub(super) fn finished(&self) -> bool {
         self.age == Some(END_TICK)
+    }
+
+    fn fragment_age(&self, fraction: f32) -> f32 {
+        let hold = f32::from(HOLD_TICKS);
+        if self.battle_ready {
+            (f32::from(self.age.unwrap_or_default()) + fraction).clamp(hold, f32::from(END_TICK))
+        } else {
+            hold
+        }
     }
 
     pub(super) fn entry_voice_ready(&self) -> bool {
@@ -97,8 +92,6 @@ impl State {
 }
 
 pub(super) fn install(app: &mut App) {
-    let warmup = Warmup::default();
-    app.insert_resource(warmup.clone());
     app.add_systems(FixedUpdate, advance.after(super::advance))
         .add_systems(
             PostUpdate,
@@ -106,13 +99,6 @@ pub(super) fn install(app: &mut App) {
                 .in_set(PublishBattle)
                 .before(bevy::camera::CameraUpdateSystems),
         );
-    app.sub_app_mut(RenderApp)
-        .insert_resource(warmup)
-        .add_systems(Render, rendered.in_set(RenderSystems::Cleanup));
-}
-
-fn rendered(warmup: Res<Warmup>, observer: gpu::Observer) {
-    observer.render(&mut warmup.0.lock().unwrap(), None);
 }
 
 fn crack_color(formations: usize) -> Color {
@@ -175,14 +161,12 @@ pub(super) fn begin(world: &mut World, seed: u64, request: &Request) -> Result<(
         camera_active,
         "Battle transition retains the field and its active fade cover"
     );
-    let capture_format = crate::renderer::scene_color_format(
-        world.get_resource::<bevy::render::renderer::RenderAdapterInfo>(),
-    );
+    let capture_format = crate::renderer::SCENE_COLOR_FORMAT;
     let mut image =
         Image::new_target_texture(descriptor.width, descriptor.height, capture_format, None);
     image.sampler = ImageSampler::linear();
     let image = world.resource_mut::<Assets<Image>>().add(image);
-    let capture = crate::menu_backdrop::Capture::once(source.clone(), image.clone());
+    let capture = crate::menu_backdrop::Capture::once(image.clone());
     world
         .entity_mut(capture_camera)
         .insert(crate::menu_backdrop::SceneCapture(capture.clone()));
@@ -191,10 +175,22 @@ pub(super) fn begin(world: &mut World, seed: u64, request: &Request) -> Result<(
     // Warm the cracked pose used at activation and preserve it through the hold.
     let mesh = world
         .resource_mut::<Assets<Mesh>>()
-        .add(mesh(&pieces, size, 0));
+        .add(mesh(&pieces, size, f32::from(HOLD_TICKS)));
     let material = world
         .resource_mut::<Assets<crate::menu_backdrop::Material>>()
         .add(crate::menu_backdrop::Material::visible(image).with_cover(cover));
+    let mut report = gpu::Report {
+        armed: true,
+        ..default()
+    };
+    // The shatter draws in the scene pass once the field image is captured.
+    report.prepare(
+        gpu::View::Field,
+        mesh.id(),
+        crate::native::Prepare::Backdrop,
+        false,
+        None,
+    );
     let entity = world
         .spawn((
             Mesh2d(mesh.clone()),
@@ -205,19 +201,28 @@ pub(super) fn begin(world: &mut World, seed: u64, request: &Request) -> Result<(
         ))
         .id();
     let projection = overlay_projection(world.resource::<crate::display::Display>().0);
-    let camera = warm_camera(world, projection);
-    let warmup = world.resource::<Warmup>().clone();
-    *warmup.0.lock().unwrap() = gpu::Report {
-        armed: true,
-        expected: [entity.into()].into(),
-        ..default()
-    };
+    let camera = world
+        .spawn((
+            Camera2d,
+            Msaa::Off,
+            Camera {
+                order: -2,
+                is_active: false,
+                clear_color: ClearColorConfig::None,
+                ..default()
+            },
+            RenderTarget::Image(source.into()),
+            RenderLayers::layer(LAYER),
+            projection,
+        ))
+        .id();
+    let warmup = gpu::Shared::new(world);
+    *warmup.0.lock().unwrap() = report;
     #[cfg(all(test, feature = "preparation-trace"))]
     let skip_minimum_duration = world.contains_resource::<SkipMinimumDuration>();
     world.insert_resource(State {
         capture,
         warmup,
-        target: source,
         capture_camera,
         camera,
         entity,
@@ -225,40 +230,13 @@ pub(super) fn begin(world: &mut World, seed: u64, request: &Request) -> Result<(
         pieces,
         size,
         age: None,
-        mesh_age: 0,
+        mesh_age: f32::from(HOLD_TICKS),
         crack_color: crack_color(request.formation_count()),
         battle_ready: false,
         #[cfg(all(test, feature = "preparation-trace"))]
         skip_minimum_duration,
     });
     Ok(())
-}
-
-fn warm_camera(world: &mut World, projection: Projection) -> Entity {
-    // Match the live format and samples so activation reuses the warmed pipeline.
-    let format = crate::renderer::scene_color_format(
-        world.get_resource::<bevy::render::renderer::RenderAdapterInfo>(),
-    );
-    let target = world
-        .resource_mut::<Assets<Image>>()
-        .add(Image::new_target_texture(1, 1, format, None));
-    world
-        .spawn((
-            Camera2d,
-            Msaa::Off,
-            crate::anti_aliasing::SceneMsaa,
-            Tonemapping::Linear,
-            Camera {
-                order: -2,
-                clear_color: ClearColorConfig::None,
-                output_mode: crate::renderer::COMPOSITED_OUTPUT,
-                ..default()
-            },
-            RenderTarget::Image(target.into()),
-            RenderLayers::layer(LAYER),
-            projection,
-        ))
-        .id()
 }
 
 pub(super) fn dispose(world: &mut World) {
@@ -295,23 +273,28 @@ fn advance(
     }
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Bevy injects each independently accessed resource and query as a system parameter."
-)]
 fn render(
     mut commands: Commands,
     state: Option<ResMut<State>>,
     owner: Option<Res<Owner>>,
-    display: Res<crate::display::Display>,
-    mut cameras: Query<&mut Camera>,
-    field_cameras: Query<Entity, crate::FieldCameraFilter>,
+    prediction: Res<crate::field_view::Prediction>,
+    (mut cameras, field_cameras): (Query<&mut Camera>, Query<Entity, crate::FieldCameraFilter>),
     mut meshes: ResMut<Assets<Mesh>>,
+    targets: Option<Res<crate::display::Targets>>,
+    mut images: ResMut<Assets<Image>>,
     mut exit: crate::diagnostics::Fatal,
 ) {
     let Some(mut state) = state else {
         return;
     };
+    if !state.capture.ready()
+        && let Some(targets) = targets
+        && state.capture.fit_source(&targets.source, &mut images)
+    {
+        commands
+            .entity(state.capture_camera)
+            .insert(crate::menu_backdrop::SceneCapture(state.capture.clone()));
+    }
     match state.ready() {
         Ok(true) => {}
         Ok(false) => return,
@@ -332,11 +315,9 @@ fn render(
         return;
     }
     if state.age.is_none() {
-        // Retargeting also refreshes the computed viewport and projection.
-        commands.entity(state.camera).insert((
-            RenderTarget::Image(state.target.clone().into()),
-            overlay_projection(display.0),
-        ));
+        if let Ok(mut camera) = cameras.get_mut(state.camera) {
+            camera.is_active = true;
+        }
         // The GPU copy now owns the outgoing image; the field no longer needs
         // to render while the battle warms behind the shatter.
         for entity in &field_cameras {
@@ -352,17 +333,21 @@ fn render(
         );
     }
     if let Ok(mut camera) = cameras.get_mut(state.camera) {
-        camera.clear_color = if state.age.is_some_and(|age| age <= HOLD_TICKS) {
+        let battle_frame = owner.as_ref().is_some_and(|owner| {
+            matches!(&owner.phase, Phase::Scene(scene) if scene.state != SceneState::Warming)
+        });
+        camera.clear_color = if !battle_frame || state.age.is_some_and(|age| age < HOLD_TICKS) {
             // Only the narrow cracks expose this backing; motion reveals battle.
             ClearColorConfig::Custom(state.crack_color)
         } else {
+            // Draw the held battle pose so its first-frame fence can complete
+            // before the shatter is allowed to move past HOLD_TICKS.
             ClearColorConfig::None
         };
     }
     // Rebuild only once the pieces start moving.
-    if let Some(age) = state.age
-        && age > HOLD_TICKS
-        && age != state.mesh_age
+    let age = state.fragment_age(prediction.alpha);
+    if age != state.mesh_age
         && let Some(mut target) = meshes.get_mut(&state.mesh)
     {
         *target = mesh(&state.pieces, state.size, age);
@@ -418,13 +403,9 @@ fn pieces(seed: u64) -> Vec<Piece> {
     result
 }
 
-fn mesh(pieces: &[Piece], size: Vec2, age: u16) -> Mesh {
-    let motion = age.saturating_sub(HOLD_TICKS) as f32 * 90. / (END_TICK - HOLD_TICKS) as f32;
-    let alpha = if age >= END_TICK {
-        0.
-    } else {
-        1. - age.saturating_sub(FADE_START) as f32 * FADE_STEP
-    };
+fn mesh(pieces: &[Piece], size: Vec2, age: f32) -> Mesh {
+    let motion = (age - f32::from(HOLD_TICKS)).max(0.) * 90. / f32::from(END_TICK - HOLD_TICKS);
+    let alpha = ((f32::from(END_TICK) - age) * FADE_STEP).clamp(0., 1.);
     let mut positions = Vec::with_capacity(pieces.len() * 3);
     let mut uv = Vec::with_capacity(positions.capacity());
     for piece in pieces {
@@ -466,12 +447,8 @@ mod tests {
             app.add_message::<AppExit>()
                 .add_systems(FixedUpdate, advance)
                 .insert_resource(State {
-                    capture: crate::menu_backdrop::Capture::once(
-                        Handle::default(),
-                        Handle::default(),
-                    ),
-                    warmup: Warmup::default(),
-                    target: Handle::default(),
+                    capture: crate::menu_backdrop::Capture::once(Handle::default()),
+                    warmup: gpu::Shared::default(),
                     capture_camera: Entity::PLACEHOLDER,
                     camera: Entity::PLACEHOLDER,
                     entity: Entity::PLACEHOLDER,
@@ -479,7 +456,7 @@ mod tests {
                     pieces: Vec::new(),
                     size: Vec2::ZERO,
                     age: Some(0),
-                    mesh_age: 0,
+                    mesh_age: f32::from(HOLD_TICKS),
                     crack_color: Color::WHITE,
                     battle_ready: false,
                     #[cfg(feature = "preparation-trace")]
@@ -491,7 +468,9 @@ mod tests {
                     app.world().resource::<State>().age,
                     Some((tick + 1).min(HOLD_TICKS)),
                 );
-                assert!(!app.world().resource::<State>().entry_voice_ready());
+                let state = app.world().resource::<State>();
+                assert_eq!(state.fragment_age(0.5), f32::from(HOLD_TICKS));
+                assert!(!state.entry_voice_ready());
             }
             app.world_mut().resource_mut::<State>().start_shatter();
             let age = app.world().resource::<State>().age.unwrap();
@@ -499,6 +478,9 @@ mod tests {
                 app.world_mut().run_schedule(FixedUpdate);
                 let state = app.world().resource::<State>();
                 assert_eq!(state.age, Some(next));
+                if next == HOLD_TICKS + 1 {
+                    assert_eq!(state.fragment_age(0.5), f32::from(next) + 0.5);
+                }
                 assert_eq!(state.finished(), next == END_TICK);
                 assert_eq!(state.entry_voice_ready(), next >= 56);
             }
@@ -562,7 +544,7 @@ mod tests {
             .sum();
         assert!((area - 1.).abs() < 0.00001);
         let size = Vec2::new(640., 480.);
-        let held = mesh(&pieces, size, 0);
+        let held = mesh(&pieces, size, 0.);
         let Some(VertexAttributeValues::Float32x3(positions)) =
             held.attribute(Mesh::ATTRIBUTE_POSITION)
         else {
@@ -578,8 +560,8 @@ mod tests {
             let expected = (Vec2::from_array(*uv) - Vec2::splat(0.5)) * Vec2::new(size.x, -size.y);
             assert!(Vec2::new(position[0], position[1]).distance(expected) < 0.0001);
         }
-        let before = mesh(&pieces, size, HOLD_TICKS);
-        let moving = mesh(&pieces, size, HOLD_TICKS + 1);
+        let before = mesh(&pieces, size, f32::from(HOLD_TICKS));
+        let moving = mesh(&pieces, size, f32::from(HOLD_TICKS) + 0.5);
         assert_eq!(
             held.attribute(Mesh::ATTRIBUTE_POSITION),
             before.attribute(Mesh::ATTRIBUTE_POSITION)
@@ -592,7 +574,7 @@ mod tests {
             held.attribute(Mesh::ATTRIBUTE_UV_0),
             moving.attribute(Mesh::ATTRIBUTE_UV_0)
         );
-        let end = mesh(&pieces, size, END_TICK);
+        let end = mesh(&pieces, size, f32::from(END_TICK));
         let Some(VertexAttributeValues::Float32x4(colors)) = end.attribute(Mesh::ATTRIBUTE_COLOR)
         else {
             panic!("fragment colors");

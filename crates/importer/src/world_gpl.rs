@@ -1175,6 +1175,11 @@ pub(crate) fn visual(
                 };
                 Some(resonance_content::TextureAnimation {
                     texture,
+                    interpolation: if slot < 2 {
+                        resonance_content::TextureInterpolation::Scroll
+                    } else {
+                        resonance_content::TextureInterpolation::Step
+                    },
                     delay_ticks: 0,
                     loop_start: 0,
                     offsets,

@@ -26,7 +26,7 @@ pub enum Description {
     Skill(u8),
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub struct ExSkills {
     #[serde(flatten)]
     pub transition: super::Transition,

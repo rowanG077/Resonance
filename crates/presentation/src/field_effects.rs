@@ -7,6 +7,7 @@ use super::{
     field_view::{ActorPart, State},
     materials::TitleSurface,
 };
+use crate::native::MeshMaterial3d;
 use anyhow::{Context as ContextExt, Result};
 use bevy::{
     asset::RenderAssetUsages,
@@ -81,6 +82,13 @@ fn merge_particles(
 #[derive(Component)]
 pub(super) struct EffectDraw;
 
+struct Draw {
+    entity: Entity,
+    mesh: Handle<Mesh>,
+    order: DrawOrder,
+    visible: bool,
+}
+
 #[derive(Resource)]
 pub(super) struct Artwork {
     drawn: std::collections::BTreeSet<Request>,
@@ -90,7 +98,7 @@ pub(super) struct Artwork {
     materials: Vec<Handle<TitleSurface>>,
     bindings: Bindings,
     warm_mesh: Handle<Mesh>,
-    draws: Vec<Vec<(Entity, Handle<Mesh>)>>,
+    draws: Vec<Vec<Draw>>,
     sprite_materials: BTreeMap<u16, SpriteMaterials>,
     overlay_materials: BTreeMap<u32, Vec<Option<SpriteMaterials>>>,
     refraction_texture: [Handle<Image>; 2],
@@ -312,8 +320,8 @@ impl Artwork {
     }
     pub fn despawn(&mut self, world: &mut World) {
         self.ambient.reset();
-        for (entity, _) in self.draws.drain(..).flatten() {
-            world.despawn(entity);
+        for draw in self.draws.drain(..).flatten() {
+            world.despawn(draw.entity);
         }
     }
     pub(super) fn prepared_bindings(
@@ -345,11 +353,70 @@ fn load_image(server: &AssetServer, path: &str, nearest: bool) -> Handle<Image> 
 }
 
 pub(super) struct Quad {
-    positions: [[f32; 3]; 4],
+    center: Vec3,
+    rotation: Quat,
+    extents: Vec3,
     uv: [f32; 4],
     color: [f32; 4],
 }
+
+pub(super) struct ParticlePair<'a> {
+    pub id: i32,
+    pub current: Option<&'a resonance_events::effect::BillboardEffect>,
+    pub next: Option<&'a resonance_events::effect::BillboardEffect>,
+}
+pub(super) fn particle_pairs<'a>(
+    current: &'a BTreeMap<i32, resonance_events::effect::BillboardEffect>,
+    next: Option<&'a BTreeMap<i32, resonance_events::effect::BillboardEffect>>,
+) -> impl Iterator<Item = ParticlePair<'a>> {
+    let matches = |a: &resonance_events::effect::BillboardEffect,
+                   b: &resonance_events::effect::BillboardEffect| {
+        (a.born, a.recipe, a.texture, a.uv) == (b.born, b.recipe, b.texture, b.uv)
+    };
+    current
+        .iter()
+        .map(move |(&id, p)| ParticlePair {
+            id,
+            current: Some(p),
+            next: next.and_then(|n| n.get(&id)).filter(|n| matches(p, n)),
+        })
+        .chain(
+            next.into_iter()
+                .flat_map(|n| n.iter())
+                .filter_map(move |(&id, p)| {
+                    (!current.get(&id).is_some_and(|c| matches(c, p))).then_some(ParticlePair {
+                        id,
+                        current: None,
+                        next: Some(p),
+                    })
+                }),
+        )
+}
 impl Quad {
+    /// Interpolate rotation separately from the quantized endpoint dimensions.
+    /// Births/deaths fade without changing the surviving endpoint's geometry.
+    pub(super) fn between(current: Option<Self>, next: Option<Self>, alpha: f32) -> Self {
+        match (current, next) {
+            (Some(mut a), Some(b)) => {
+                a.center = a.center.lerp(b.center, alpha);
+                a.rotation = a.rotation.slerp(b.rotation, alpha);
+                a.extents = a.extents.lerp(b.extents, alpha);
+                for (c, to) in a.color.iter_mut().zip(b.color) {
+                    *c += (to - *c) * alpha;
+                }
+                a
+            }
+            (Some(mut a), None) => {
+                a.color[3] *= 1. - alpha;
+                a
+            }
+            (None, Some(mut b)) => {
+                b.color[3] *= alpha;
+                b
+            }
+            (None, None) => unreachable!("particle pair contains an endpoint"),
+        }
+    }
     pub(super) fn new(
         center: Vec3,
         rotation: Quat,
@@ -358,32 +425,37 @@ impl Quad {
         color: [f32; 4],
         anchor: VerticalAnchor,
     ) -> Self {
-        let right = rotation * Vec3::X * (size[0] / 2.).trunc();
+        let half_width = (size[0] / 2.).trunc();
         let [above, below] = match anchor {
             VerticalAnchor::Center => [(size[1] / 2.).trunc(); 2],
             VerticalAnchor::Bottom => [size[1], 0.],
             VerticalAnchor::Top => [0., size[1]],
         };
-        let up = rotation * Vec3::Y * above;
-        let down = rotation * Vec3::Y * below;
         Self {
-            positions: [
-                center - right + up,
-                center + right + up,
-                center + right - down,
-                center - right - down,
-            ]
-            .map(|v| v.to_array()),
+            center,
+            rotation,
+            extents: Vec3::new(half_width, above, below),
             uv,
             color,
         }
     }
+    pub(super) fn positions(&self) -> [[f32; 3]; 4] {
+        let center = self.center;
+        let right = self.rotation * Vec3::X * self.extents.x;
+        let up = self.rotation * Vec3::Y * self.extents.y;
+        let down = self.rotation * Vec3::Y * self.extents.z;
+        [
+            center - right + up,
+            center + right + up,
+            center + right - down,
+            center - right - down,
+        ]
+        .map(|v| v.to_array())
+    }
     fn visible(&self) -> bool {
         self.color[3] > 0.
-            && Vec3::from_array(self.positions[0]).distance(Vec3::from_array(self.positions[1]))
-                > 1.
-            && Vec3::from_array(self.positions[0]).distance(Vec3::from_array(self.positions[3]))
-                > 1.
+            && self.extents.x.abs() * 2. > 1.
+            && (self.extents.y + self.extents.z).abs() > 1.
     }
     pub(super) fn mesh<'a>(quads: impl IntoIterator<Item = &'a Self>) -> Mesh {
         let mut positions = Vec::new();
@@ -392,7 +464,7 @@ impl Quad {
         let mut indices = Vec::new();
         for quad in quads {
             let base = positions.len() as u32;
-            positions.extend(quad.positions);
+            positions.extend(quad.positions());
             let [left, top, right, bottom] = quad.uv;
             uv.extend([[left, top], [right, top], [right, bottom], [left, bottom]]);
             colors.extend([quad.color; 4]);
@@ -433,6 +505,7 @@ pub(super) fn effect_rotation(
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn render(
+    mut prediction: Option<ResMut<crate::field_view::Prediction>>,
     mut commands: Commands,
     state: State,
     mut art: ResMut<Artwork>,
@@ -464,30 +537,75 @@ pub(super) fn render(
         }
         return;
     }
-    let camera = super::field_view::camera_transform(camera);
+    let future_emotes = prediction.as_deref_mut().and_then(|p| {
+        p.scratch(|n, alpha| {
+            let next = &n.events.world;
+            let sprites = world
+                .emotes
+                .iter()
+                .filter_map(|(&id, e)| {
+                    let target = next.emotes.get(&id)?;
+                    if (target.actor, target.kind, target.start_tick)
+                        != (e.actor, e.kind, e.start_tick)
+                    {
+                        return None;
+                    }
+                    Some((
+                        id,
+                        (
+                            target.kind.next_sprites(
+                                world.tick.saturating_sub(e.start_tick),
+                                next.tick.saturating_sub(target.start_tick),
+                                target.phase,
+                            )?,
+                            target.offset,
+                        ),
+                    ))
+                })
+                .collect::<BTreeMap<_, _>>();
+            (sprites, alpha)
+        })
+    });
+    let camera = prediction.as_ref().map_or_else(
+        || super::field_view::camera_transform(camera),
+        |p| p.camera_transform(camera),
+    );
     let side = Vec3::new(camera.right().x, camera.right().y, 0.).normalize_or_zero();
     let forward = Vec3::Z.cross(side);
     let brightness = world.brightness();
+    let future = prediction
+        .as_ref()
+        .and_then(|p| p.field().map(|f| (&f.events.world, p.alpha)));
     let mut quads = Vec::new();
-    art.ambient.render(world, camera.rotation, &mut quads);
-    let mut particles: Vec<_> = world.billboards.iter().collect();
-    particles.sort_unstable_by_key(|(_, effect)| effect.draw_order);
+    art.ambient.render(
+        world,
+        future.map(|(world, alpha)| (world, alpha, prediction.as_ref().unwrap().counts()[0])),
+        camera.rotation,
+        &mut quads,
+    );
+    let mut particles: Vec<_> =
+        particle_pairs(&world.billboards, future.map(|(w, _)| &w.billboards)).collect();
+    particles.sort_unstable_by_key(|p| {
+        (
+            p.current.or(p.next).unwrap().draw_order,
+            p.current.is_none(),
+            p.id,
+        )
+    });
     let mut previous_blend = Blend::Additive;
-    for (&id, effect) in particles {
-        if world.tick < effect.born {
+    for pair in particles {
+        let effect = pair.current.or(pair.next).unwrap();
+        let tick = if pair.current.is_some() {
+            world.tick
+        } else {
+            future.unwrap().0.tick
+        };
+        if tick < effect.born {
             continue;
         }
         let Some(recipe) = art.spec.sprites.get(&effect.recipe) else {
             continue;
         };
-        let rotation = effect_rotation(
-            effect.orientation,
-            effect.rotation,
-            effect.rotation_order,
-            camera.rotation,
-        );
-        let rgba = effect.rgba;
-        let rgb = rgba.map(|v| f32::from(v) * 4. / 255. * brightness);
         let mut mode = effect.blend.unwrap_or(if recipe.additive {
             Blend::Additive
         } else {
@@ -505,34 +623,43 @@ pub(super) fn render(
         } else {
             (
                 &art.sprite_materials[&effect.recipe],
-                recipe.uv_at(world.tick.saturating_sub(effect.born) + effect.texture_phase),
+                recipe.uv_at(tick.saturating_sub(effect.born) + effect.texture_phase),
             )
         };
         let layer = materials[mode as usize][usize::from(effect.field_fog)];
-        let quad = Quad::new(
-            Vec3::from_array(effect.position),
-            rotation,
-            effect.size,
-            effect.uv.unwrap_or(uv),
-            [
-                rgb[0],
-                rgb[1],
-                rgb[2],
-                effect.alpha(world.tick).clamp(0., 255.) / 255.,
-            ],
-            effect.anchor,
-        );
-        if quad.visible() {
-            art.drawn.insert(Request::Billboard(id));
+        let endpoint = |p: &resonance_events::effect::BillboardEffect, tick, brightness| {
+            let rgb = p.rgba.map(|v| f32::from(v) * 4. / 255. * brightness);
+            Quad::new(
+                Vec3::from_array(p.position),
+                effect_rotation(p.orientation, p.rotation, p.rotation_order, camera.rotation),
+                p.size,
+                effect.uv.unwrap_or(uv),
+                [rgb[0], rgb[1], rgb[2], p.alpha(tick).clamp(0., 255.) / 255.],
+                p.anchor,
+            )
+        };
+        let current = pair.current.map(|p| endpoint(p, world.tick, brightness));
+        let next = pair.next.map(|p| {
+            let (w, _) = future.unwrap();
+            endpoint(p, w.tick, w.brightness())
+        });
+        let quad = Quad::between(current, next, future.map_or(0., |(_, a)| a));
+        if quad.visible() && pair.current.is_some() {
+            art.drawn.insert(Request::Billboard(pair.id));
         }
         quads.push((Layer::Effects, layer, quad));
-        applied.ack(Request::Billboard(id));
+        if pair.current.is_some() {
+            applied.ack(Request::Billboard(pair.id));
+        }
     }
     let roots: BTreeMap<_, _> = actors
         .iter()
         .filter(|(p, _)| p.part == 0)
         .map(|(p, rig)| (p.actor, (p, rig)))
         .collect();
+    let brightness = future.map_or(brightness, |(w, a)| {
+        brightness + (w.brightness() - brightness) * a
+    });
     let emotes = world.emotes.iter().map(|(&id, emote)| {
         (
             Request::Emote(id),
@@ -557,46 +684,69 @@ pub(super) fn render(
             STATUS,
         )
     });
-    for (request, actor, (anchor_name, fallback), sprites, offset, layer) in emotes.chain(paralysis)
+    for (request, actor_id, (anchor_name, fallback), sprites, offset, layer) in
+        emotes.chain(paralysis)
     {
         if sprites.is_empty() {
             applied.ack(request);
             continue;
         }
-        let Some((part, rig)) = roots.get(&actor) else {
+        let Some((part, rig)) = roots.get(&actor_id) else {
             continue;
         };
         let Some(rig) = rig.filter(|_| part.prepared) else {
             applied.loading(request);
             continue;
         };
-        let Some(actor) = world.field_model_actor(actor) else {
+        let Some(actor) = world.field_model_actor(actor_id) else {
             continue;
         };
-        let Some(anchor) = anchor_position(rig, anchor_name, fallback, actor, &names, &helper)
+        let position = future
+            .and_then(|(w, a)| {
+                let next = w.field_model_actor(actor_id)?;
+                crate::field_view::prediction::continuous_actor(actor, next).then(|| {
+                    Vec3::from_array(actor.field_model_pose().position)
+                        .lerp(Vec3::from_array(next.field_model_pose().position), a)
+                        .to_array()
+                })
+            })
+            .unwrap_or(actor.field_model_pose().position);
+        let Some(anchor) = anchor_position(rig, anchor_name, fallback, position, &names, &helper)
         else {
             continue;
         };
-        for sprite in sprites.iter() {
-            let [x, y, z] = std::array::from_fn(|i| sprite.offset[i] + offset[i]);
-            let center = (anchor + side * x + forward * y + Vec3::Z * z).trunc();
-            let rotation = Quat::from_rotation_z(sprite.rotation.to_radians());
-            let mut quad = Quad::new(
-                Vec3::ZERO,
-                rotation,
-                sprite.size,
-                sprite.uv,
-                [
-                    brightness,
-                    brightness,
-                    brightness,
-                    f32::from(sprite.alpha) / 255.,
-                ],
-                sprite.vertical_anchor,
-            );
-            for vertex in &mut quad.positions {
-                *vertex = (center + camera.rotation * Vec3::from_array(*vertex)).to_array();
-            }
+        for (index, sprite) in sprites.iter().enumerate() {
+            let future = future_emotes.as_ref().and_then(|(sprites, a)| {
+                let Request::Emote(id) = request else {
+                    return None;
+                };
+                let (sprites, offset) = sprites.get(&id)?;
+                let next = sprites.get(index)?;
+                Some((next, offset, *a))
+            });
+            let endpoint = |sprite: &resonance_content::effect::Sprite, offset: [f32; 3]| {
+                let [x, y, z] = std::array::from_fn(|i| sprite.offset[i] + offset[i]);
+                Quad::new(
+                    (anchor + side * x + forward * y + Vec3::Z * z).trunc(),
+                    camera.rotation * Quat::from_rotation_z(sprite.rotation.to_radians()),
+                    sprite.size,
+                    sprite.uv,
+                    [
+                        brightness,
+                        brightness,
+                        brightness,
+                        f32::from(sprite.alpha) / 255.,
+                    ],
+                    sprite.vertical_anchor,
+                )
+            };
+            let current = endpoint(sprite, offset);
+            let quad = match future {
+                Some((sprite, offset, alpha)) => {
+                    Quad::between(Some(current), Some(endpoint(sprite, *offset)), alpha)
+                }
+                None => current,
+            };
             if quad.visible() {
                 art.drawn.insert(request.clone());
             }
@@ -618,7 +768,7 @@ fn sync_draws(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &[Handle<TitleSurface>],
-    draws: &mut Vec<Vec<(Entity, Handle<Mesh>)>>,
+    draws: &mut Vec<Vec<Draw>>,
     quads: &[(Layer, usize, Quad)],
 ) {
     // field_warm prepares every binding offscreen. Live draws only need meshes
@@ -629,29 +779,51 @@ fn sync_draws(
     let mut used = vec![0; materials.len()];
     for (order, run) in quads.chunk_by(|a, b| (a.0, a.1) == (b.0, b.1)).enumerate() {
         let (pass, layer, _) = run[0];
-        let batch = Quad::mesh(run.iter().map(|(_, _, quad)| quad));
-        let (entity, mesh) = if let Some((entity, mesh)) = draws[layer].get(used[layer]) {
-            *meshes.get_mut(mesh).unwrap() = batch;
-            (*entity, mesh.clone())
+        let order = DrawOrder(pass, order, 0);
+        let mesh = if let Some(draw) = draws[layer].get(used[layer]) {
+            *meshes.get_mut(&draw.mesh).unwrap() = Quad::mesh(run.iter().map(|(_, _, quad)| quad));
+            draw.mesh.clone()
         } else {
-            let mesh = meshes.add(batch);
-            let entity = commands
-                .spawn((Transform::default(), NoFrustumCulling, EffectDraw))
-                .id();
-            draws[layer].push((entity, mesh.clone()));
-            (entity, mesh)
+            meshes.add(Quad::mesh(run.iter().map(|(_, _, quad)| quad)))
         };
-        commands.entity(entity).insert((
-            Mesh3d(mesh),
-            MeshMaterial3d(materials[layer].clone()),
-            Visibility::Inherited,
-            DrawOrder(pass, order, 0),
-        ));
+        if draws[layer].len() == used[layer] {
+            let entity = commands
+                .spawn((
+                    Transform::default(),
+                    NoFrustumCulling,
+                    EffectDraw,
+                    Mesh3d(mesh.clone()),
+                    MeshMaterial3d(materials[layer].clone()),
+                    Visibility::Inherited,
+                    order,
+                ))
+                .id();
+            draws[layer].push(Draw {
+                entity,
+                mesh: mesh.clone(),
+                order,
+                visible: true,
+            });
+        }
+        let draw = &mut draws[layer][used[layer]];
+        // The mesh asset changed in place; reinserting it marks the draw.
+        draw.mesh = mesh.clone();
+        commands.entity(draw.entity).insert(Mesh3d(mesh));
+        if !draw.visible || draw.order != order {
+            commands
+                .entity(draw.entity)
+                .insert((Visibility::Inherited, order));
+            draw.visible = true;
+            draw.order = order;
+        }
         used[layer] += 1;
     }
-    for (draws, used) in draws.iter().zip(used) {
-        for (entity, _) in draws.iter().skip(used) {
-            commands.entity(*entity).insert(Visibility::Hidden);
+    for (draws, used) in draws.iter_mut().zip(used) {
+        for draw in draws.iter_mut().skip(used) {
+            if draw.visible {
+                commands.entity(draw.entity).insert(Visibility::Hidden);
+                draw.visible = false;
+            }
         }
     }
 }
@@ -660,7 +832,7 @@ fn anchor_position(
     rig: &Rig,
     anchor: &str,
     fallback: [f32; 3],
-    actor: &resonance_events::Actor,
+    position: [f32; 3],
     names: &Query<&Name>,
     helper: &TransformHelper,
 ) -> Option<Vec3> {
@@ -669,9 +841,7 @@ fn anchor_position(
             .compute_global_transform(bone)
             .ok()
             .map(|t| t.translation()),
-        None => {
-            Some(Vec3::from_array(actor.field_model_pose().position) + Vec3::from_array(fallback))
-        }
+        None => Some(Vec3::from_array(position) + Vec3::from_array(fallback)),
     }
 }
 
@@ -751,15 +921,60 @@ mod tests {
             "a local variant enlarged the startup inventory"
         );
         assert_eq!(shared.0.materials.len(), counts.1);
-        first.draws.push(vec![(
-            app.world_mut().spawn_empty().id(),
-            meshes.add(Mesh::from(Rectangle::new(1., 1.))),
-        )]);
+        first.draws.push(vec![Draw {
+            entity: app.world_mut().spawn_empty().id(),
+            mesh: meshes.add(Mesh::from(Rectangle::new(1., 1.))),
+            order: DrawOrder(Layer::Effects, 0, 0),
+            visible: true,
+        }]);
         first.spec.palette[0] = [0; 4];
         assert!(second.draws.is_empty() && shared.0.draws.is_empty());
         assert_eq!(second.spec.palette[0], [255; 4]);
         assert_eq!(shared.0.spec.palette[0], [255; 4]);
         Ok(())
+    }
+
+    #[test]
+    fn rotating_quads_keep_quantized_dimensions_and_anchor_offsets() {
+        for anchor in [
+            VerticalAnchor::Center,
+            VerticalAnchor::Bottom,
+            VerticalAnchor::Top,
+        ] {
+            for degrees in [6_f32, 90., 180.] {
+                for alpha in [0., 0.25, 0.5, 0.75, 1.] {
+                    let quad = |rotation| {
+                        Quad::new(
+                            Vec3::new(10., 20., 30.),
+                            rotation,
+                            [101., 51.],
+                            [0., 0., 1., 1.],
+                            [1.; 4],
+                            anchor,
+                        )
+                    };
+                    let a = quad(Quat::IDENTITY);
+                    let mut b = quad(Quat::from_rotation_z(degrees.to_radians()));
+                    b.uv = [0.5, 0., 1., 1.];
+                    let expected_height = if matches!(anchor, VerticalAnchor::Center) {
+                        50.
+                    } else {
+                        51.
+                    };
+                    let result = Quad::between(Some(a), Some(b), alpha);
+                    assert_eq!(result.uv, [0., 0., 1., 1.]);
+                    let vertices = result.positions().map(Vec3::from_array);
+                    assert!((vertices[0].distance(vertices[1]) - 100.).abs() < 0.0001);
+                    assert!((vertices[0].distance(vertices[3]) - expected_height).abs() < 0.0001);
+                    let anchored = match anchor {
+                        VerticalAnchor::Center => (vertices[0] + vertices[2]) * 0.5,
+                        VerticalAnchor::Bottom => (vertices[2] + vertices[3]) * 0.5,
+                        VerticalAnchor::Top => (vertices[0] + vertices[1]) * 0.5,
+                    };
+                    assert!(anchored.abs_diff_eq(result.center, 0.0001));
+                }
+            }
+        }
     }
 
     #[test]
@@ -911,7 +1126,14 @@ mod tests {
             actor.position = [40., 50., 60.];
             world
                 .run_system_once(move |names: Query<&Name>, helper: TransformHelper| {
-                    anchor_position(&rig, "head", offset, &actor, &names, &helper)
+                    anchor_position(
+                        &rig,
+                        "head",
+                        offset,
+                        actor.field_model_pose().position,
+                        &names,
+                        &helper,
+                    )
                 })
                 .unwrap()
         };
@@ -944,11 +1166,11 @@ mod tests {
                 anchor,
             );
             assert_eq!(
-                quad.positions.iter().map(|p| p[1]).collect::<Vec<_>>(),
+                quad.positions().iter().map(|p| p[1]).collect::<Vec<_>>(),
                 expected
             );
             assert_eq!(
-                quad.positions.iter().map(|p| p[0]).collect::<Vec<_>>(),
+                quad.positions().iter().map(|p| p[0]).collect::<Vec<_>>(),
                 [-1., 1., 1., -1.]
             );
         }

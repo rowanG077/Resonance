@@ -1,11 +1,12 @@
 //! Replace opted-in equipment placeholders on playable characters' KK joints.
 //! The original prop still owns choreography, visibility, flight and lifetime.
+use crate::native::MeshMaterial3d;
 mod choreography;
 mod equipment;
 use equipment::Equipment;
-pub(super) use equipment::{EquipmentCache, prepare};
 #[cfg(test)]
-use equipment::{Layer, capture};
+use equipment::capture;
+pub(super) use equipment::{EquipmentCache, prepare};
 mod publication;
 mod ropes;
 use super::{
@@ -14,9 +15,13 @@ use super::{
     materials::TitleSurface,
     sparse_animation::{Binding, affine::Locals},
 };
+use crate::sparse_animation::affine::{PoseEndpoint, PoseWorkspace};
 use anyhow::{Context as ContextExt, Result};
-use bevy::prelude::*;
-pub(super) use choreography::apply as choreograph;
+use bevy::{
+    ecs::{schedule::ScheduleConfigs, system::ScheduleSystem},
+    prelude::*,
+};
+use choreography::apply as choreograph;
 pub(super) use publication::publish;
 use resonance_content::battle_model::AttachmentTextureAnimation;
 use resonance_events::effect::Blend;
@@ -136,6 +141,16 @@ struct LayerState {
 }
 
 impl Equipment {
+    fn has_dynamics(&self, layer: usize) -> bool {
+        let layer = &self.layers[layer];
+        !layer.art.spec.secondary_motion.is_empty()
+            && !self.layers[layer.rig_layer]
+                .art
+                .spec
+                .secondary_motion
+                .is_empty()
+    }
+
     fn part(&self, binding: resonance_events::FieldWeapon) -> Option<u8> {
         let part = if self.shield {
             binding.slot.checked_sub(1)?
@@ -184,10 +199,14 @@ pub(super) struct Instance {
     layer: usize,
     birth: u32,
     binding: Option<Binding>,
+    clip_ages: Option<[u32; 2]>,
+    clip_poses: Vec<PoseEndpoint>,
     camera_facing: Vec<Entity>,
     materials: Vec<Handle<TitleSurface>>,
+    winding: super::field_pose::Winding,
     geometry: Vec<(usize, Entity)>,
     dynamics: Option<super::secondary_motion::Rig>,
+    future: Option<(u64, Vec<PoseEndpoint>)>,
     choreography: Option<choreography::Mapping>,
     prepared: bool,
     sampled: bool,
@@ -195,6 +214,11 @@ pub(super) struct Instance {
     rope: Option<(Entity, Handle<Mesh>, Handle<TitleSurface>)>,
 }
 impl Instance {
+    fn rig_key(&self, cache: &EquipmentCache) -> (Entity, u16, u8, usize) {
+        let rig = cache.equipment[&self.item].layers[self.layer].rig_layer;
+        (self.owner, self.item, self.slot, rig)
+    }
+
     fn state(&self) -> LayerState {
         LayerState {
             key: (self.owner, self.item, self.slot, self.layer),
@@ -273,10 +297,14 @@ pub(super) fn instances(
                         layer: index,
                         birth: field.effect_clock.tick(),
                         binding: None,
+                        clip_ages: None,
+                        clip_poses: vec![],
                         camera_facing: Vec::new(),
                         materials,
+                        winding: Default::default(),
                         geometry: Vec::new(),
                         dynamics: None,
+                        future: None,
                         choreography: None,
                         prepared: false,
                         sampled: false,
@@ -297,7 +325,11 @@ pub(super) fn instances(
     }
 }
 
-fn texture_offset(animation: &AttachmentTextureAnimation, age: u32) -> (usize, [f32; 2]) {
+fn texture_offset(
+    animation: &AttachmentTextureAnimation,
+    age: u32,
+    fraction: f32,
+) -> (usize, [f32; 2]) {
     match animation {
         AttachmentTextureAnimation::Scroll {
             texture,
@@ -310,6 +342,7 @@ fn texture_offset(animation: &AttachmentTextureAnimation, age: u32) -> (usize, [
                     + i64::from(step_milli_uv[axis]) * i64::from(age))
                     % 1000) as f32
                     / 1000.
+                    + f32::from(step_milli_uv[axis]) * fraction / 1000.
             }),
         ),
         AttachmentTextureAnimation::Atlas {
@@ -334,6 +367,7 @@ fn texture_offset(animation: &AttachmentTextureAnimation, age: u32) -> (usize, [
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)] // Read bind poses before writing sampled transforms.
 pub(super) fn render(
+    prediction: Res<super::field_view::Prediction>,
     mut commands: Commands,
     state: State,
     cache: Res<EquipmentCache>,
@@ -342,10 +376,8 @@ pub(super) fn render(
         (Entity, &mut Instance, &crate::model_asset::Instance),
         With<crate::model_asset::Instance>,
     >,
-    mut transforms: Query<&mut Transform>,
     mut orders: Query<&mut DrawOrder>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
-    mut affine: ResMut<Locals>,
     mut failures: Failures,
 ) {
     let field = state.get();
@@ -378,38 +410,16 @@ pub(super) fn render(
                 }
             }
             let age = field.effect_clock.tick().wrapping_sub(root.birth);
-            if let Some((index, clip)) = layer.preview.selected_clip()? {
-                let motion = &layer.art.motions[index];
-                let duration = motion.duration_frames * resonance_content::ANIMATION_HZ
-                    / resonance_content::animation::FRAME_HZ;
-                let clock = resonance_events::Animation::new(
-                    u32::from(layer.art.spec.resource),
-                    clip.resource_slot,
-                    duration.ceil() as u32,
-                    0,
-                );
-                root.binding.as_ref().unwrap().sample(
-                    motion,
-                    clock.sample(age, 0, duration) / resonance_content::ANIMATION_HZ,
-                    &mut transforms,
-                    &mut affine,
-                )?;
-            } else {
-                for &(entity, rest) in &root.binding.as_ref().unwrap().0 {
-                    affine.set(entity, &mut *transforms.get_mut(entity)?, rest.into());
-                }
-            }
-            if let Some(camera) = &world.field_camera {
-                let rotation = super::field_view::camera_transform(camera).rotation;
-                for &entity in &root.camera_facing {
-                    affine.face_camera(entity, &mut *transforms.get_mut(entity)?, rotation);
-                }
-            }
+            let fraction = effect_fraction(field, &prediction, root.actor);
             let body_material = owner
                 .materials
                 .first()
                 .and_then(|handle| surfaces.get(handle))
                 .cloned();
+            let tint = body_material.as_ref().map_or_else(
+                || Vec3::ONE.extend(f32::from(pose.opacity) / 255.),
+                |body| body.tint,
+            );
             let order = owner
                 .geometry
                 .first()
@@ -434,8 +444,8 @@ pub(super) fn render(
                 let mut surface = surfaces
                     .get_mut(&root.materials[index])
                     .context("missing field weapon material")?;
+                surface.tint = tint;
                 if let Some(body) = &body_material {
-                    surface.tint = body.tint;
                     surface.field_light = body.field_light;
                     surface.shade_colors = body.shade_colors;
                     surface.ambient_color = body.ambient_color;
@@ -455,19 +465,10 @@ pub(super) fn render(
                     Some(Blend::Additive)
                 } else {
                     pose.blend
-                        .or((spec.blend || pose.opacity < 255).then_some(Blend::Alpha))
+                        .or((spec.blend || surface.tint.w < 1.).then_some(Blend::Alpha))
                 };
                 surface.depth_write =
                     spec.depth_write && pose.depth_write && !layer.preview.additive;
-                surface.cull = if actor.model_scale().iter().product::<f32>() < 0. {
-                    match spec.cull {
-                        resonance_content::CullFace::Back => resonance_content::CullFace::Front,
-                        resonance_content::CullFace::Front => resonance_content::CullFace::Back,
-                        cull => cull,
-                    }
-                } else {
-                    spec.cull
-                };
                 surface.uv_offsets = layer
                     .preview
                     .uv_offsets
@@ -476,7 +477,7 @@ pub(super) fn render(
                     .map(Vec4::from_array)
                     .unwrap_or_default();
                 if let Some(animation) = &layer.animation {
-                    let (texture, uv) = texture_offset(animation, age);
+                    let (texture, uv) = texture_offset(animation, age, fraction);
                     for (stage, binding) in [&spec.color, &spec.multiply].into_iter().enumerate() {
                         if binding
                             .as_ref()
@@ -499,8 +500,164 @@ pub(super) fn render(
     }
 }
 
+const COMMITTED: u8 = 0;
+const FUTURE: u8 = 1;
+const DRAW: u8 = 2;
+
+fn next_actor<'a>(
+    field: &resonance_game::field::FieldSession,
+    prediction: &'a super::field_view::Prediction,
+    id: i32,
+) -> Option<&'a resonance_game::field::FieldSession> {
+    let next = prediction.field()?;
+    let current = field.events.world.field_model_actor(id)?;
+    let future = next.events.world.field_model_actor(id)?;
+    (super::field_view::prediction::continuous_pose(current, future)
+        && selection(current, &field.events.world) == selection(future, &next.events.world))
+    .then_some(next)
+}
+
+fn effect_fraction(
+    field: &resonance_game::field::FieldSession,
+    prediction: &super::field_view::Prediction,
+    id: i32,
+) -> f32 {
+    next_actor(field, prediction, id)
+        .filter(|next| next.effect_clock.tick() == field.effect_clock.tick().wrapping_add(1))
+        .map_or(0., |_| prediction.alpha)
+}
+
+/// Only equipment with a secondary chain needs exact physics visits. Cache the
+/// solved poses for all draws that share this pair of actor endpoints.
+pub(super) fn physics_endpoints() -> ScheduleConfigs<ScheduleSystem> {
+    (
+        visit::<COMMITTED>(),
+        super::field_animation::present::<true>,
+        visit::<FUTURE>(),
+    )
+        .chain()
+        .run_if(needs_physics_endpoints)
+}
+
+fn needs_physics_endpoints(
+    prediction: Res<super::field_view::Prediction>,
+    cache: Res<EquipmentCache>,
+    roots: Query<&Instance>,
+) -> bool {
+    prediction.poses().is_some()
+        && roots.iter().filter(|root| root.sampled).any(|root| {
+            cache.equipment[&root.item].has_dynamics(root.layer)
+                && root
+                    .future
+                    .as_ref()
+                    .is_none_or(|(key, _)| *key != prediction.counts()[0])
+        })
+}
+
+fn visit<const VISIT: u8>() -> ScheduleConfigs<ScheduleSystem> {
+    (sample::<VISIT>, choreograph::<VISIT>, dynamics::<VISIT>).chain()
+}
+
+pub(super) fn present() -> ScheduleConfigs<ScheduleSystem> {
+    visit::<DRAW>()
+}
+
+fn sample<const VISIT: u8>(
+    state: State,
+    prediction: Res<super::field_view::Prediction>,
+    cache: Res<EquipmentCache>,
+    mut roots: Query<&mut Instance>,
+    mut transforms: Query<&mut Transform>,
+    mut affine: ResMut<Locals>,
+    mut failures: Failures,
+) {
+    let current = state.get();
+    for mut root in &mut roots {
+        if !root.sampled {
+            continue;
+        }
+        let model = &cache.equipment[&root.item];
+        if VISIT != DRAW && !model.has_dynamics(root.layer) {
+            continue;
+        }
+        let layer = &model.layers[root.layer];
+        let root = &mut *root;
+        let age = current.effect_clock.tick().wrapping_sub(root.birth);
+        let next_age = next_actor(current, &prediction, root.actor).map_or(age, |next| {
+            next.effect_clock.tick().wrapping_sub(root.birth)
+        });
+        let fraction = match VISIT {
+            FUTURE => 1.,
+            DRAW => prediction.alpha,
+            _ => 0.,
+        };
+        let result = (|| -> Result<()> {
+            let binding = root.binding.as_ref().unwrap();
+            if let Some((index, clip)) = layer.preview.selected_clip()? {
+                let motion = layer.art.motions[index].as_ref();
+                let ages = [age, next_age];
+                if root.clip_ages != Some(ages) {
+                    let duration = motion.duration_frames * resonance_content::ANIMATION_HZ
+                        / resonance_content::animation::FRAME_HZ;
+                    let clock = resonance_events::Animation::new(
+                        u32::from(layer.art.spec.resource),
+                        clip.resource_slot,
+                        duration.ceil() as u32,
+                        0,
+                    );
+                    let endpoint = |tick| {
+                        (
+                            motion,
+                            clock.sample(tick, 0, duration) / resonance_content::ANIMATION_HZ,
+                        )
+                    };
+                    binding.sample_endpoints(
+                        endpoint(age),
+                        endpoint(next_age),
+                        &mut root.clip_poses,
+                    )?;
+                    root.clip_ages = Some(ages);
+                }
+                for &endpoint in &root.clip_poses {
+                    endpoint.apply(fraction, &mut transforms, &mut affine);
+                }
+            } else {
+                for &(entity, rest) in &binding.0 {
+                    affine.replace_for_render(
+                        entity,
+                        &mut *transforms.get_mut(entity)?,
+                        rest.into(),
+                    );
+                }
+            }
+            if let Some(camera) = &current.events.world.field_camera {
+                let rotation = match VISIT {
+                    DRAW => prediction.camera_transform(camera).rotation,
+                    FUTURE => {
+                        super::field_view::camera_transform(
+                            prediction.camera(camera).unwrap_or(camera),
+                        )
+                        .rotation
+                    }
+                    _ => super::field_view::camera_transform(camera).rotation,
+                };
+                for &entity in &root.camera_facing {
+                    affine.face_camera(entity, &mut *transforms.get_mut(entity)?, rotation);
+                }
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            root.sampled = false;
+            failures.skip("field equipment pose", error);
+        }
+    }
+}
+
 #[allow(clippy::type_complexity)]
-pub(super) fn dynamics(
+fn dynamics<const VISIT: u8>(
+    (mut overlays, mut workspace): (Local<Vec<PoseEndpoint>>, Local<PoseWorkspace>),
+    prediction: Res<super::field_view::Prediction>,
     state: State,
     cache: Res<EquipmentCache>,
     parents: Query<&ChildOf>,
@@ -513,12 +670,17 @@ pub(super) fn dynamics(
     let field = state.get();
     let mut poses = BTreeMap::new();
     let mut locals = Vec::new();
+    let mut future = BTreeMap::new();
+    overlays.clear();
     {
         let helper = transforms.p0();
         for (entity, mut root) in &mut roots {
+            if !root.prepared {
+                continue;
+            }
             let model = &cache.equipment[&root.item];
             let layer = &model.layers[root.layer];
-            if layer.art.spec.secondary_motion.is_empty() {
+            if !model.has_dynamics(root.layer) {
                 continue;
             }
             if root.dynamics.is_none() {
@@ -537,17 +699,33 @@ pub(super) fn dynamics(
                     .collect();
                 root.dynamics = super::secondary_motion::Rig::new(entity, &layer.art.spec, &names);
             }
-            // Inverted hulls consume the primary layer's solved joints.
-            if model.layers[..root.layer]
-                .iter()
-                .any(|other| other.part == layer.part)
-            {
+            let root = &mut *root;
+            let key = root.rig_key(&cache);
+            let Some(live) = &mut root.dynamics else {
+                continue;
+            };
+            if VISIT == DRAW && prediction.poses().is_some() {
+                if let Some((_, cached)) = root
+                    .future
+                    .as_ref()
+                    .filter(|(key, _)| *key == prediction.counts()[0])
+                {
+                    overlays.extend_from_slice(cached);
+                }
+                continue;
+            }
+            // Shared layers consume their rig's solved joints.
+            if layer.rig_layer != root.layer {
                 continue;
             }
             let actor_id = root.actor;
-            let Some(rig) = &mut root.dynamics else {
-                continue;
+            let field = if VISIT == FUTURE {
+                next_actor(field, &prediction, actor_id).unwrap_or(field)
+            } else {
+                field
             };
+            let mut branch = (VISIT == FUTURE).then(|| live.clone());
+            let rig = branch.as_mut().unwrap_or(live);
             if let Some(actor) = field.events.world.field_model_actor(actor_id) {
                 rig.controls(actor, &field.events.world);
             }
@@ -560,29 +738,59 @@ pub(super) fn dynamics(
                         .to_degrees()
                 })
                 .unwrap_or_default();
-            if let Some(pose) = rig.advance(
-                &helper,
-                yaw,
-                field.events.tick(),
-                state.checkpoint.is_some(),
-                layer
-                    .preview
-                    .selected_clip()
-                    .ok()
-                    .flatten()
-                    .map(|(_, clip)| clip.pose_chains.as_slice())
-                    .unwrap_or_default(),
-            ) {
-                poses.insert((root.owner, root.item, root.slot), pose);
+            if rig
+                .advance(
+                    &helper,
+                    yaw,
+                    field.events.tick(),
+                    state.checkpoint.is_some(),
+                    layer
+                        .preview
+                        .selected_clip()
+                        .ok()
+                        .flatten()
+                        .map(|(_, clip)| clip.pose_chains.as_slice())
+                        .unwrap_or_default(),
+                )
+                .is_none()
+            {
+                continue;
             }
+            if VISIT == DRAW {
+                poses.insert(key, entity);
+            }
+            if let Some(branch) = branch {
+                future.insert(key, live.equipment_endpoints(&branch));
+            }
+        }
+        if VISIT == FUTURE {
+            for (_, mut root) in &mut roots {
+                if let Some(rig) = &root.dynamics
+                    && let Some(pose) = future.get(&root.rig_key(&cache))
+                {
+                    root.future = Some((prediction.counts()[0], rig.bind_equipment(pose)));
+                }
+            }
+        }
+        if VISIT != DRAW {
+            return;
         }
         for (_, root) in &roots {
             if let Some(rig) = &root.dynamics
-                && let Some(pose) = poses.get(&(root.owner, root.item, root.slot))
+                && let Some(&primary) = poses.get(&root.rig_key(&cache))
             {
-                locals.extend(rig.locals(&helper, pose));
+                let primary = roots.get(primary).unwrap().1.dynamics.as_ref().unwrap();
+                locals.extend(rig.locals(&helper, &primary.pose));
             }
         }
+    }
+    if !overlays.is_empty() {
+        super::sparse_animation::affine::apply_poses(
+            &overlays,
+            prediction.alpha,
+            &mut transforms,
+            &mut workspace,
+        );
     }
     let (mut nodes, mut affine) = transforms.p1();
     for (entity, local) in locals {

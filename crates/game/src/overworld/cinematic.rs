@@ -10,6 +10,7 @@ use std::sync::Arc;
 #[cfg(test)]
 mod tests;
 
+#[derive(Clone)]
 pub struct Playback {
     pub id: u16,
     pub definition: Arc<Cinematic>,

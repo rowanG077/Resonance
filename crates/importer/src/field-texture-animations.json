@@ -85,14 +85,14 @@
   {
     "fields": [16],
     "tracks": [
-      {"actor":999998,"clock":{"effect_pulse":{"interval":4,"phase":0}},"motion":{"kind":"timeline","sequence":[{"kind":"scroll","step":[0.0,0.25],"ticks":4},{"kind":"scroll","origin":[0.25,0.0],"step":[0.0,0.25],"ticks":4},{"kind":"scroll","origin":[0.5,0.0],"step":[0.0,0.25],"ticks":4},{"kind":"scroll","origin":[0.75,0.0],"step":[0.0,0.25],"ticks":4}]},"texture":{"setting":0}},
-      {"actor":999998,"clock":{"effect_pulse":{"interval":2,"phase":1}},"motion":{"kind":"timeline","sequence":[{"kind":"scroll","step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.125,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.25,0.0],"step":[0.0,0.125],"ticks":4}]},"texture":{"setting":1}}
+      {"actor":999998,"clock":{"effect_pulse":{"interval":4,"phase":0}},"motion":{"kind":"timeline","sequence":[{"kind":"scroll","step":[0.0,0.25],"ticks":4},{"kind":"scroll","origin":[0.25,0.0],"step":[0.0,0.25],"ticks":4},{"kind":"scroll","origin":[0.5,0.0],"step":[0.0,0.25],"ticks":4},{"kind":"scroll","origin":[0.75,0.0],"step":[0.0,0.25],"ticks":4}],"interpolation":"step"},"texture":{"setting":0}},
+      {"actor":999998,"clock":{"effect_pulse":{"interval":2,"phase":1}},"motion":{"kind":"timeline","sequence":[{"kind":"scroll","step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.125,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.25,0.0],"step":[0.0,0.125],"ticks":4}],"interpolation":"step"},"texture":{"setting":1}}
     ]
   },
   {
     "fields": [17],
     "tracks": [
-      {"actor":999998,"clock":{"effect_pulse":{"interval":2,"phase":0}},"motion":{"kind":"timeline","sequence":[{"kind":"scroll","step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.125,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.25,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.375,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.5,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.625,0.0],"step":[0.0,0.125],"ticks":8}]},"texture":{"setting":0}}
+      {"actor":999998,"clock":{"effect_pulse":{"interval":2,"phase":0}},"motion":{"kind":"timeline","sequence":[{"kind":"scroll","step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.125,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.25,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.375,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.5,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.625,0.0],"step":[0.0,0.125],"ticks":8}],"interpolation":"step"},"texture":{"setting":0}}
     ]
   },
   {
@@ -219,14 +219,14 @@
       {"actor":"scenery","clock":"field","motion":{"kind":"scroll","restart_ticks":501,"velocity":[0.0,0.002]},"texture":{"setting":1}},
       {"actor":{"setting":4},"clock":"field","motion":{"kind":"scroll","restart_ticks":13,"velocity":[0.0,0.08]},"texture":2},
       {"actor":{"setting":5},"clock":"field","motion":{"kind":"scroll","restart_ticks":84,"velocity":[0.0,-0.012]},"texture":0},
-      {"actor":{"setting":6},"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.75],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4}]},"texture":1},
-      {"actor":{"setting":7},"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.75],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4}]},"texture":1}
+      {"actor":{"setting":6},"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.75],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4}],"interpolation":"step"},"texture":1},
+      {"actor":{"setting":7},"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.75],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4}],"interpolation":"step"},"texture":1}
     ]
   },
   {
     "fields": [137],
     "tracks": [
-      {"actor":"scenery","clock":"field","control":{"kind":"clear_when_disabled"},"motion":{"kind":"timeline","loop_from":217,"sequence":[{"kind":"hold","ticks":7},{"kind":"hold","offset":[0.0,0.03125],"ticks":7},{"kind":"hold","offset":[0.0,0.0625],"ticks":7},{"kind":"hold","offset":[0.0,0.09375],"ticks":7},{"kind":"hold","offset":[0.0,0.125],"ticks":7},{"kind":"hold","offset":[0.0,0.15625],"ticks":7},{"kind":"hold","offset":[0.0,0.1875],"ticks":7},{"kind":"hold","offset":[0.0,0.21875],"ticks":7},{"kind":"hold","offset":[0.0,0.25],"ticks":7},{"kind":"hold","offset":[0.0,0.28125],"ticks":7},{"kind":"hold","offset":[0.0,0.3125],"ticks":7},{"kind":"hold","offset":[0.0,0.34375],"ticks":7},{"kind":"hold","offset":[0.0,0.375],"ticks":7},{"kind":"hold","offset":[0.0,0.40625],"ticks":7},{"kind":"hold","offset":[0.0,0.4375],"ticks":7},{"kind":"hold","offset":[0.0,0.46875],"ticks":7},{"kind":"hold","offset":[0.0,0.5],"ticks":7},{"kind":"hold","offset":[0.0,0.53125],"ticks":7},{"kind":"hold","offset":[0.0,0.5625],"ticks":7},{"kind":"hold","offset":[0.0,0.59375],"ticks":7},{"kind":"hold","offset":[0.0,0.625],"ticks":7},{"kind":"hold","offset":[0.0,0.65625],"ticks":7},{"kind":"hold","offset":[0.0,0.6875],"ticks":7},{"kind":"hold","offset":[0.0,0.71875],"ticks":7},{"kind":"hold","offset":[0.0,0.75],"ticks":7},{"kind":"hold","offset":[0.0,0.78125],"ticks":7},{"kind":"hold","offset":[0.0,0.8125],"ticks":7},{"kind":"hold","offset":[0.0,0.84375],"ticks":7},{"kind":"hold","offset":[0.0,0.875],"ticks":7},{"kind":"hold","offset":[0.0,0.90625],"ticks":7},{"kind":"hold","offset":[0.0,0.9375],"ticks":7},[0.0,0.96875]]},"texture":{"setting":0}},
+      {"actor":"scenery","clock":"field","control":{"kind":"clear_when_disabled"},"motion":{"kind":"timeline","loop_from":217,"sequence":[{"kind":"hold","ticks":7},{"kind":"hold","offset":[0.0,0.03125],"ticks":7},{"kind":"hold","offset":[0.0,0.0625],"ticks":7},{"kind":"hold","offset":[0.0,0.09375],"ticks":7},{"kind":"hold","offset":[0.0,0.125],"ticks":7},{"kind":"hold","offset":[0.0,0.15625],"ticks":7},{"kind":"hold","offset":[0.0,0.1875],"ticks":7},{"kind":"hold","offset":[0.0,0.21875],"ticks":7},{"kind":"hold","offset":[0.0,0.25],"ticks":7},{"kind":"hold","offset":[0.0,0.28125],"ticks":7},{"kind":"hold","offset":[0.0,0.3125],"ticks":7},{"kind":"hold","offset":[0.0,0.34375],"ticks":7},{"kind":"hold","offset":[0.0,0.375],"ticks":7},{"kind":"hold","offset":[0.0,0.40625],"ticks":7},{"kind":"hold","offset":[0.0,0.4375],"ticks":7},{"kind":"hold","offset":[0.0,0.46875],"ticks":7},{"kind":"hold","offset":[0.0,0.5],"ticks":7},{"kind":"hold","offset":[0.0,0.53125],"ticks":7},{"kind":"hold","offset":[0.0,0.5625],"ticks":7},{"kind":"hold","offset":[0.0,0.59375],"ticks":7},{"kind":"hold","offset":[0.0,0.625],"ticks":7},{"kind":"hold","offset":[0.0,0.65625],"ticks":7},{"kind":"hold","offset":[0.0,0.6875],"ticks":7},{"kind":"hold","offset":[0.0,0.71875],"ticks":7},{"kind":"hold","offset":[0.0,0.75],"ticks":7},{"kind":"hold","offset":[0.0,0.78125],"ticks":7},{"kind":"hold","offset":[0.0,0.8125],"ticks":7},{"kind":"hold","offset":[0.0,0.84375],"ticks":7},{"kind":"hold","offset":[0.0,0.875],"ticks":7},{"kind":"hold","offset":[0.0,0.90625],"ticks":7},{"kind":"hold","offset":[0.0,0.9375],"ticks":7},[0.0,0.96875]],"interpolation":"step"},"texture":{"setting":0}},
       {"actor":{"setting":1},"clock":"unconditional_actor","motion":{"frames":8,"interval":9,"kind":"atlas","step":[0.0,0.125]},"texture":0}
     ]
   },
@@ -250,8 +250,8 @@
     "tracks": [
       {"actor":{"setting":4},"clock":"field","motion":{"kind":"scroll","restart_ticks":13,"velocity":[0.0,0.08]},"texture":2},
       {"actor":{"setting":5},"clock":"field","motion":{"kind":"scroll","restart_ticks":84,"velocity":[0.0,-0.012]},"texture":0},
-      {"actor":{"setting":6},"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.75],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4}]},"texture":1},
-      {"actor":{"setting":7},"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.75],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4}]},"texture":1}
+      {"actor":{"setting":6},"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.75],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4}],"interpolation":"step"},"texture":1},
+      {"actor":{"setting":7},"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.75],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4}],"interpolation":"step"},"texture":1}
     ]
   },
   {
@@ -302,9 +302,9 @@
   {
     "fields": [220],
     "tracks": [
-      {"actor":999998,"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":30},{"kind":"hold","offset":[0.0,0.1],"ticks":6},{"kind":"hold","offset":[0.0,0.2],"ticks":6},{"kind":"hold","offset":[0.0,0.3],"ticks":6},{"kind":"hold","offset":[0.0,0.4],"ticks":6},{"kind":"hold","offset":[0.0,0.5],"ticks":6},{"kind":"hold","offset":[0.0,0.6],"ticks":6},{"kind":"hold","offset":[0.0,0.7],"ticks":6},{"kind":"hold","offset":[0.0,0.8],"ticks":6},{"kind":"hold","offset":[0.0,0.9],"ticks":6}]},"texture":{"setting":0}},
-      {"actor":999998,"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","offset":[0.0,0.3],"ticks":6},{"kind":"hold","offset":[0.0,0.4],"ticks":6},{"kind":"hold","offset":[0.0,0.5],"ticks":6},{"kind":"hold","offset":[0.0,0.6],"ticks":6},{"kind":"hold","offset":[0.0,0.7],"ticks":6},{"kind":"hold","offset":[0.0,0.8],"ticks":6},{"kind":"hold","offset":[0.0,0.9],"ticks":6},{"kind":"hold","ticks":30},{"kind":"hold","offset":[0.0,0.1],"ticks":6},{"kind":"hold","offset":[0.0,0.2],"ticks":6}]},"texture":{"setting":1}},
-      {"actor":999998,"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","offset":[0.0,0.6],"ticks":6},{"kind":"hold","offset":[0.0,0.7],"ticks":6},{"kind":"hold","offset":[0.0,0.8],"ticks":6},{"kind":"hold","offset":[0.0,0.9],"ticks":6},{"kind":"hold","ticks":30},{"kind":"hold","offset":[0.0,0.1],"ticks":6},{"kind":"hold","offset":[0.0,0.2],"ticks":6},{"kind":"hold","offset":[0.0,0.3],"ticks":6},{"kind":"hold","offset":[0.0,0.4],"ticks":6},{"kind":"hold","offset":[0.0,0.5],"ticks":6}]},"texture":{"setting":2}}
+      {"actor":999998,"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":30},{"kind":"hold","offset":[0.0,0.1],"ticks":6},{"kind":"hold","offset":[0.0,0.2],"ticks":6},{"kind":"hold","offset":[0.0,0.3],"ticks":6},{"kind":"hold","offset":[0.0,0.4],"ticks":6},{"kind":"hold","offset":[0.0,0.5],"ticks":6},{"kind":"hold","offset":[0.0,0.6],"ticks":6},{"kind":"hold","offset":[0.0,0.7],"ticks":6},{"kind":"hold","offset":[0.0,0.8],"ticks":6},{"kind":"hold","offset":[0.0,0.9],"ticks":6}],"interpolation":"step"},"texture":{"setting":0}},
+      {"actor":999998,"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","offset":[0.0,0.3],"ticks":6},{"kind":"hold","offset":[0.0,0.4],"ticks":6},{"kind":"hold","offset":[0.0,0.5],"ticks":6},{"kind":"hold","offset":[0.0,0.6],"ticks":6},{"kind":"hold","offset":[0.0,0.7],"ticks":6},{"kind":"hold","offset":[0.0,0.8],"ticks":6},{"kind":"hold","offset":[0.0,0.9],"ticks":6},{"kind":"hold","ticks":30},{"kind":"hold","offset":[0.0,0.1],"ticks":6},{"kind":"hold","offset":[0.0,0.2],"ticks":6}],"interpolation":"step"},"texture":{"setting":1}},
+      {"actor":999998,"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","offset":[0.0,0.6],"ticks":6},{"kind":"hold","offset":[0.0,0.7],"ticks":6},{"kind":"hold","offset":[0.0,0.8],"ticks":6},{"kind":"hold","offset":[0.0,0.9],"ticks":6},{"kind":"hold","ticks":30},{"kind":"hold","offset":[0.0,0.1],"ticks":6},{"kind":"hold","offset":[0.0,0.2],"ticks":6},{"kind":"hold","offset":[0.0,0.3],"ticks":6},{"kind":"hold","offset":[0.0,0.4],"ticks":6},{"kind":"hold","offset":[0.0,0.5],"ticks":6}],"interpolation":"step"},"texture":{"setting":2}}
     ]
   },
   {
@@ -447,7 +447,7 @@
   {
     "fields": [304,305],
     "tracks": [
-      {"actor":"scenery","clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"scroll","step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.125,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.25,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.375,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.5,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.625,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.75,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.875,0.0],"step":[0.0,0.125],"ticks":8}]},"texture":{"setting":0}}
+      {"actor":"scenery","clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"scroll","step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.125,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.25,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.375,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.5,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.625,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.75,0.0],"step":[0.0,0.125],"ticks":8},{"kind":"scroll","origin":[0.875,0.0],"step":[0.0,0.125],"ticks":8}],"interpolation":"step"},"texture":{"setting":0}}
     ]
   },
   {
@@ -560,8 +560,8 @@
   {
     "fields": [374],
     "tracks": [
-      {"actor":{"setting":6},"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.75],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4}]},"texture":1},
-      {"actor":{"setting":7},"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.75],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4}]},"texture":1}
+      {"actor":{"setting":6},"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.75],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4}],"interpolation":"step"},"texture":1},
+      {"actor":{"setting":7},"clock":"field","motion":{"kind":"timeline","sequence":[{"kind":"hold","ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.75],"ticks":4},{"kind":"hold","offset":[0.0,0.5],"ticks":4},{"kind":"hold","offset":[0.0,0.25],"ticks":4}],"interpolation":"step"},"texture":1}
     ]
   },
   {
@@ -658,9 +658,9 @@
   {
     "fields": [474],
     "tracks": [
-      {"actor":999998,"clock":"field","motion":{"delay_ticks":1,"kind":"timeline","sequence":{"grid":[1,32],"interval":22,"kind":"atlas"}},"texture":{"setting":0}},
-      {"actor":999998,"clock":"field","motion":{"delay_ticks":1,"kind":"timeline","loop_from":1,"sequence":[{"kind":"scroll","step":[0.008333334,0.0],"ticks":6},[0.05,0.0],[0.058333334,0.0],{"kind":"scroll","origin":[0.06666667,0.0],"step":[0.008333333,0.0],"ticks":8},{"kind":"scroll","origin":[0.13333334,0.0],"step":[0.00833334,0.0],"ticks":14},{"kind":"scroll","origin":[0.2500001,0.0],"step":[0.008333325,0.0],"ticks":92}]},"texture":{"setting":1}},
-      {"actor":999998,"clock":"field","motion":{"delay_ticks":1,"kind":"timeline","sequence":{"grid":[1,32],"interval":7,"kind":"atlas"}},"texture":{"setting":2}}
+      {"actor":999998,"clock":"field","motion":{"delay_ticks":1,"kind":"timeline","sequence":{"grid":[1,32],"interval":22,"kind":"atlas"},"interpolation":"step"},"texture":{"setting":0}},
+      {"actor":999998,"clock":"field","motion":{"delay_ticks":1,"kind":"timeline","loop_from":1,"sequence":[{"kind":"scroll","step":[0.008333334,0.0],"ticks":6},[0.05,0.0],[0.058333334,0.0],{"kind":"scroll","origin":[0.06666667,0.0],"step":[0.008333333,0.0],"ticks":8},{"kind":"scroll","origin":[0.13333334,0.0],"step":[0.00833334,0.0],"ticks":14},{"kind":"scroll","origin":[0.2500001,0.0],"step":[0.008333325,0.0],"ticks":92}],"interpolation":"scroll"},"texture":{"setting":1}},
+      {"actor":999998,"clock":"field","motion":{"delay_ticks":1,"kind":"timeline","sequence":{"grid":[1,32],"interval":7,"kind":"atlas"},"interpolation":"step"},"texture":{"setting":2}}
     ]
   },
   {
@@ -812,7 +812,7 @@
   {
     "fields": [523],
     "tracks": [
-      {"actor":999998,"clock":"field","control":{"kind":"finish_when","setting":1,"tick":90},"motion":{"kind":"timeline","loop_from":90,"sequence":{"frames":91,"grid":[1,180],"kind":"atlas"}},"texture":{"setting":0}}
+      {"actor":999998,"clock":"field","control":{"kind":"finish_when","setting":1,"tick":90},"motion":{"kind":"timeline","loop_from":90,"sequence":{"frames":91,"grid":[1,180],"kind":"atlas"},"interpolation":"scroll"},"texture":{"setting":0}}
     ]
   },
   {
@@ -825,8 +825,8 @@
   {
     "fields": [531],
     "tracks": [
-      {"actor":{"setting":0},"clock":"actor","motion":{"delay_ticks":1,"kind":"timeline","sequence":{"grid":[1,32],"interval":8,"kind":"atlas"}},"texture":{"setting":1}},
-      {"actor":{"setting":0},"clock":"actor","motion":{"delay_ticks":1,"kind":"timeline","sequence":{"grid":[1,32],"interval":4,"kind":"atlas"}},"texture":{"setting":2}}
+      {"actor":{"setting":0},"clock":"actor","motion":{"delay_ticks":1,"kind":"timeline","sequence":{"grid":[1,32],"interval":8,"kind":"atlas"},"interpolation":"step"},"texture":{"setting":1}},
+      {"actor":{"setting":0},"clock":"actor","motion":{"delay_ticks":1,"kind":"timeline","sequence":{"grid":[1,32],"interval":4,"kind":"atlas"},"interpolation":"step"},"texture":{"setting":2}}
     ]
   },
   {

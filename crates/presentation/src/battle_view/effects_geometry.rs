@@ -1,7 +1,7 @@
 //! Draw-only particle geometry. Motion, palette selection and lifetime come from
 //! the authoritative frame; drawing never advances a particle or consumes RNG.
 use anyhow::{Result, bail, ensure};
-use bevy::{mesh::VertexAttributeValues, prelude::*};
+use bevy::prelude::*;
 use resonance_battle::{ParticleFrame, ParticleGeometry, ParticleState};
 use resonance_content::battle_effect::{
     declaration::Declaration,
@@ -179,13 +179,23 @@ pub(super) fn particle(
         } else {
             particle.heading
         },
-        texture_size,
+        Uv::particle(particle, texture_size),
         camera,
     )?;
     if !data.positions.is_empty() {
         let offset = Vec3::from_array(particle.state.offset);
         if let Some(matrix) = bone_world {
-            let normal_matrix = Mat3::from_mat4(matrix).inverse().transpose();
+            let basis = Mat3::from_mat4(matrix);
+            // Cofactors give the inverse-transpose direction without division,
+            // so authored zero-scale poses can still flatten attached particles.
+            let mut normal_matrix = Mat3::from_cols(
+                basis.y_axis.cross(basis.z_axis),
+                basis.z_axis.cross(basis.x_axis),
+                basis.x_axis.cross(basis.y_axis),
+            );
+            if basis.determinant() < 0. {
+                normal_matrix = -normal_matrix;
+            }
             ensure!(
                 matrix.is_finite() && normal_matrix.is_finite(),
                 "invalid particle bone matrix"
@@ -219,7 +229,7 @@ pub(super) fn group(
     state: &ParticleState,
     heading: f32,
     declaration: &Declaration,
-    texture_size: [u32; 2],
+    uv: Uv,
     camera: Mat3,
     mut points: impl Iterator<Item = Result<Vec3>>,
 ) -> Result<()> {
@@ -232,7 +242,7 @@ pub(super) fn group(
         return Ok(());
     };
     ensure!(first.is_finite(), "invalid particle group position");
-    fill_geometry(out, state, declaration, heading, texture_size, camera)?;
+    fill_geometry(out, state, declaration, heading, uv, camera)?;
     let base_len = out.positions.len();
     let offset = Vec3::from_array(state.offset);
     for point in points {
@@ -258,12 +268,12 @@ fn fill_geometry(
     state: &ParticleState,
     declaration: &Declaration,
     heading: f32,
-    texture_size: [u32; 2],
+    uv: Uv,
     camera: Mat3,
 ) -> Result<()> {
     out.clear();
     ensure!(
-        texture_size.iter().all(|&v| v > 0) && camera.is_finite() && heading.is_finite(),
+        uv.size.iter().all(|&v| v > 0) && camera.is_finite() && heading.is_finite(),
         "invalid particle texture size or orientation"
     );
     if matches!(declaration, Declaration::ModelParticle { .. }) {
@@ -273,7 +283,6 @@ fn fill_geometry(
     let gradient = declaration.template()?.gradient;
     let anchored = p.anchored;
     let colors = state.colors.map(|c| c.map(|v| f32::from(v as u8) / 255.));
-    let uv = Uv::new(state.uv, texture_size);
     let dimensions = match state.geometry {
         ParticleGeometry::Size { value, .. } | ParticleGeometry::Spiral { value, .. } => {
             Vec3::from_array(value)
@@ -746,21 +755,31 @@ fn shell(size: Vec3, anchored: bool, elliptical: bool, segment: u8, count: u8) -
 }
 
 #[derive(Clone, Copy)]
-struct Uv {
+pub(super) struct Uv {
     rect: [i32; 4],
+    offset: [f32; 2],
     size: [u32; 2],
 }
 impl Uv {
     fn new(rect: [i16; 4], size: [u32; 2]) -> Self {
         Self {
             rect: rect.map(i32::from),
+            offset: [0.; 2],
             size,
+        }
+    }
+    pub(super) fn particle(particle: &ParticleFrame, size: [u32; 2]) -> Self {
+        Self {
+            offset: particle.uv_offset,
+            ..Self::new(particle.state.uv, size)
         }
     }
     fn at(self, vertex: usize) -> [f32; 2] {
         [
-            (self.rect[0] + (vertex & 1) as i32 * self.rect[2]) as f32 / self.size[0] as f32,
-            (self.rect[1] + (vertex / 2) as i32 * self.rect[3]) as f32 / self.size[1] as f32,
+            ((self.rect[0] + (vertex & 1) as i32 * self.rect[2]) as f32 + self.offset[0])
+                / self.size[0] as f32,
+            ((self.rect[1] + (vertex / 2) as i32 * self.rect[3]) as f32 + self.offset[1])
+                / self.size[1] as f32,
         ]
     }
     fn panel(mut self, layout: UvLayout, panel: u16, columns: u8) -> Self {
@@ -786,11 +805,26 @@ impl Uv {
 #[derive(Default)]
 pub(super) struct Vertices {
     pub(super) positions: Vec<[f32; 3]>,
-    normals: Vec<[f32; 3]>,
+    pub(super) normals: Vec<[f32; 3]>,
     pub(super) colors: Vec<[f32; 4]>,
     pub(super) uv: Vec<[f32; 2]>,
 }
 impl Vertices {
+    pub(super) fn packed(&self) -> impl Iterator<Item = crate::materials::GeometryVertex> + '_ {
+        self.positions
+            .iter()
+            .zip(&self.normals)
+            .zip(&self.uv)
+            .zip(&self.colors)
+            .map(
+                |(((position, normal), uv), color)| crate::materials::GeometryVertex {
+                    position: [position[0], position[1], position[2], 1.],
+                    normal: [normal[0], normal[1], normal[2], 0.],
+                    uv: [uv[0], uv[1], uv[0], uv[1]],
+                    color: *color,
+                },
+            )
+    }
     fn strip(&mut self, points: [Vec3; 4], colors: [[f32; 4]; 2], uv: Uv) {
         for indices in [[0, 1, 2], [2, 1, 3]] {
             self.triangle(
@@ -815,37 +849,13 @@ impl Vertices {
         self.colors.clear();
         self.uv.clear();
     }
-
-    fn swap_mesh(&mut self, mesh: &mut Mesh) -> Result<()> {
-        for (attribute, vertices) in [
-            (Mesh::ATTRIBUTE_POSITION, &mut self.positions),
-            (Mesh::ATTRIBUTE_NORMAL, &mut self.normals),
-        ] {
-            let Some(VertexAttributeValues::Float32x3(values)) = mesh.attribute_mut(attribute)
-            else {
-                bail!("particle mesh is missing {}", attribute.name);
-            };
-            std::mem::swap(values, vertices);
-        }
-        let Some(VertexAttributeValues::Float32x4(colors)) =
-            mesh.attribute_mut(Mesh::ATTRIBUTE_COLOR)
-        else {
-            bail!("particle mesh is missing colors");
-        };
-        std::mem::swap(colors, &mut self.colors);
-        let Some(VertexAttributeValues::Float32x2(uv)) = mesh.attribute_mut(Mesh::ATTRIBUTE_UV_0)
-        else {
-            bail!("particle mesh is missing UVs");
-        };
-        std::mem::swap(uv, &mut self.uv);
-        Ok(())
-    }
 }
 
-/// Stage geometry in reusable CPU buffers before publishing a nonempty mesh.
+/// Stage geometry in reusable CPU buffers before publishing nonempty triangles.
 /// Hidden and failed draws retain their last valid GPU geometry.
-pub(super) fn update_mesh(
-    mesh: &mut Mesh,
+#[cfg(test)]
+fn update_geometry(
+    data: &crate::materials::GeometryData,
     vertices: &mut Vertices,
     draw: impl FnOnce(&mut Vertices) -> Result<()>,
 ) -> Result<bool> {
@@ -854,14 +864,7 @@ pub(super) fn update_mesh(
     if vertices.positions.is_empty() {
         return Ok(false);
     }
-    match mesh.attribute_mut(Mesh::ATTRIBUTE_UV_1) {
-        Some(VertexAttributeValues::Float32x2(uv)) => {
-            uv.clear();
-            uv.extend_from_slice(&vertices.uv);
-        }
-        _ => bail!("particle mesh is missing secondary UVs"),
-    }
-    vertices.swap_mesh(mesh)?;
+    data.replace(vertices.packed());
     Ok(true)
 }
 
@@ -882,7 +885,7 @@ mod tests {
             state,
             declaration,
             heading,
-            texture_size,
+            Uv::new(state.uv, texture_size),
             camera,
         )?;
         Ok((!vertices.positions.is_empty()).then_some(vertices))
@@ -908,22 +911,22 @@ mod tests {
             "34",
         );
         let state = declaration.particle()?.state;
-        let mut mesh = super::super::warm_mesh();
+        let data = crate::materials::GeometryData::default();
+        data.replace(std::iter::repeat_n(
+            crate::materials::GeometryVertex {
+                position: [0.; 4],
+                normal: [0.; 4],
+                uv: [0.; 4],
+                color: [1.; 4],
+            },
+            3,
+        ));
         let mut vertices = Vertices::default();
-        let mesh_storage = |mesh: &Mesh| {
-            [
-                Mesh::ATTRIBUTE_POSITION,
-                Mesh::ATTRIBUTE_NORMAL,
-                Mesh::ATTRIBUTE_COLOR,
-                Mesh::ATTRIBUTE_UV_0,
-                Mesh::ATTRIBUTE_UV_1,
-            ]
-            .map(|attribute| match mesh.attribute(attribute).unwrap() {
-                VertexAttributeValues::Float32x2(v) => (v.as_ptr() as usize, v.capacity()),
-                VertexAttributeValues::Float32x3(v) => (v.as_ptr() as usize, v.capacity()),
-                VertexAttributeValues::Float32x4(v) => (v.as_ptr() as usize, v.capacity()),
-                _ => panic!("particle vertex format"),
-            })
+        let snapshot = || {
+            let mut stream = crate::materials::GeometryFrame::default();
+            data.append_to(&mut stream);
+            stream.finish();
+            stream.vertices
         };
         for (shape, count) in [
             (ParticleShape::Sphere { columns: 16 }, 960),
@@ -933,64 +936,52 @@ mod tests {
         ] {
             visual(&mut declaration).geometry = shape;
             visual(&mut declaration).copies = 0;
-            let previous = mesh.clone();
-            let storage = mesh_storage(&mesh);
-            let visible = update_mesh(&mut mesh, &mut vertices, |vertices| {
-                fill_geometry(vertices, &state, &declaration, 0., [512; 2], Mat3::IDENTITY)
+            let previous = snapshot();
+            let storage = data.storage();
+            let visible = update_geometry(&data, &mut vertices, |vertices| {
+                fill_geometry(
+                    vertices,
+                    &state,
+                    &declaration,
+                    0.,
+                    Uv::new(state.uv, [512; 2]),
+                    Mat3::IDENTITY,
+                )
             })?;
             assert_eq!(visible, count > 0);
+            let published = snapshot();
             assert!(
-                mesh.count_vertices() > 0,
-                "empty meshes must never be uploaded"
+                !published.is_empty(),
+                "empty geometry must never be published"
             );
             if !visible {
-                assert_eq!(mesh_storage(&mesh), storage);
-                for (attribute, values) in previous.attributes() {
-                    assert_eq!(mesh.attribute(attribute.id), Some(values));
-                }
+                assert_eq!(data.storage(), storage);
+                assert_eq!(published, previous);
                 continue;
             }
-            assert_eq!(mesh.count_vertices(), count);
+            assert_eq!(published.len(), count);
             let fresh =
                 geometry(&state, &declaration, 0., [512; 2], Mat3::IDENTITY)?.unwrap_or_default();
-            assert_eq!(
-                mesh.attribute(Mesh::ATTRIBUTE_POSITION),
-                Some(&VertexAttributeValues::Float32x3(fresh.positions))
-            );
-            assert_eq!(
-                mesh.attribute(Mesh::ATTRIBUTE_NORMAL),
-                Some(&VertexAttributeValues::Float32x3(fresh.normals))
-            );
-            assert_eq!(
-                mesh.attribute(Mesh::ATTRIBUTE_COLOR),
-                Some(&VertexAttributeValues::Float32x4(fresh.colors))
-            );
-            for attribute in [Mesh::ATTRIBUTE_UV_0, Mesh::ATTRIBUTE_UV_1] {
-                assert_eq!(
-                    mesh.attribute(attribute),
-                    Some(&VertexAttributeValues::Float32x2(fresh.uv.clone()))
-                );
+            for (index, vertex) in published.iter().enumerate() {
+                assert_eq!(&vertex.position[..3], fresh.positions[index]);
+                assert_eq!(&vertex.normal[..3], fresh.normals[index]);
+                assert_eq!(vertex.color, fresh.colors[index]);
+                assert_eq!(&vertex.uv[..2], fresh.uv[index]);
+                assert_eq!(&vertex.uv[2..], fresh.uv[index]);
             }
-            assert_eq!(
-                mesh.primitive_topology(),
-                bevy::mesh::PrimitiveTopology::TriangleList
-            );
-            assert!(mesh.indices().is_none());
         }
         // Failed generation must not publish partial or empty geometry either.
-        let previous = mesh.clone();
-        let storage = mesh_storage(&mesh);
+        let previous = snapshot();
+        let storage = data.storage();
         assert!(
-            update_mesh(&mut mesh, &mut vertices, |vertices| {
+            update_geometry(&data, &mut vertices, |vertices| {
                 vertices.positions.push([0.; 3]);
                 bail!("failed particle geometry")
             })
             .is_err()
         );
-        assert_eq!(storage, mesh_storage(&mesh));
-        for (attribute, values) in previous.attributes() {
-            assert_eq!(mesh.attribute(attribute.id), Some(values));
-        }
+        assert_eq!(storage, data.storage());
+        assert_eq!(snapshot(), previous);
         Ok(())
     }
 
@@ -1108,7 +1099,7 @@ mod tests {
             &state,
             0.,
             &declaration,
-            [64; 2],
+            Uv::new(state.uv, [64; 2]),
             Mat3::IDENTITY,
             std::iter::empty(),
         )?;
@@ -1119,7 +1110,7 @@ mod tests {
             &state,
             0.,
             &declaration,
-            [64; 2],
+            Uv::new(state.uv, [64; 2]),
             Mat3::IDENTITY,
             points.into_iter().map(Ok),
         )?;

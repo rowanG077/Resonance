@@ -65,13 +65,7 @@ fn live_resolution_preview_recovers_in_an_open_field_menu() -> Result<()> {
     ));
     app.insert_resource(crate::config::Preferences::load(config.clone())?);
     let began = std::time::Instant::now();
-    while app.plugins_state() == bevy::app::PluginsState::Adding {
-        anyhow::ensure!(began.elapsed().as_secs() < 180, "GPU setup timed out");
-        bevy::tasks::tick_global_task_pools_on_main_thread();
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
-    app.finish();
-    app.cleanup();
+    crate::test_support::finish_app(&mut app)?;
     app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
         std::time::Duration::ZERO,
     ));

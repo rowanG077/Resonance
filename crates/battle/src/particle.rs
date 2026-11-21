@@ -1,8 +1,9 @@
 //! Particle motion and lifetime.
 #[cfg(feature = "test-support")]
 pub mod observed;
-use crate::{ActorId, BattleFrame, Effects, geometry::rotate};
+use crate::{ActorId, BattleFrame, EffectModelParent, Effects, geometry::rotate};
 use anyhow::{Context, Result, ensure};
+use resonance_content::animation::Matrix;
 use resonance_content::battle_effect::{UvAnimation, UvChange};
 use std::sync::Arc;
 
@@ -10,6 +11,19 @@ use std::sync::Arc;
 pub struct ParticleId(pub(crate) i32);
 
 pub use resonance_content::battle_effect::{ParticleGeometry, ParticleState, ParticleTemplate};
+
+/// A sampled origin follows position only, without inheriting the parent's rotation or scale.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ParticleOriginAttachment {
+    pub follow: crate::EffectFollow,
+    pub model_ground_relative: bool,
+}
+
+impl ParticleOriginAttachment {
+    pub fn position(self, frame: &BattleFrame) -> Option<[f32; 3]> {
+        self.follow.particle_position(frame)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ParticleDefinition {
@@ -44,11 +58,50 @@ pub struct ParticleFrame {
     pub resource: crate::ResourceId,
     pub member: u16,
     pub origin: [f32; 3],
+    /// Bone or weapon binding sampled this update; absent while its clock is held.
+    pub origin_attachment: Option<ParticleOriginAttachment>,
     pub heading: f32,
     pub state: ParticleState,
+    /// Signed UV travel distinguishes scrolling across a wrap from an atlas change.
+    pub scroll: Option<ParticleScroll>,
+    pub uv_offset: [f32; 2],
     pub model: Option<crate::EffectModelFrame>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ParticleScroll {
+    travel: [i64; 2],
+    origin: Option<[i16; 2]>,
+}
+
+impl ParticleFrame {
+    /// Fractional displacement from the integer UV rectangle of this visit.
+    pub fn scroll_offset(&self, next: &Self, alpha: f32) -> [f32; 2] {
+        let Some(to) = next.scroll else {
+            return [0.; 2];
+        };
+        let from = self.scroll.map_or([0; 2], |scroll| scroll.travel);
+        std::array::from_fn(|axis| {
+            let delta = (to.travel[axis] - from[axis]) as f32;
+            let start = f32::from(self.state.uv[axis]);
+            if alpha >= 1. {
+                return f32::from(next.state.uv[axis]) - start;
+            }
+            if let Some(origin) = to.origin {
+                let origin = f32::from(origin[axis]);
+                let extent = f32::from(self.state.uv[axis + 2]);
+                // The first scroll can select a different rectangle at the tick boundary.
+                if extent <= 0. || start != origin + (from[axis].rem_euclid(extent as i64)) as f32 {
+                    return 0.;
+                }
+                return origin + (start - origin + delta * alpha).rem_euclid(extent) - start;
+            }
+            delta * alpha
+        })
+    }
+}
+
+#[derive(Clone)]
 pub(crate) struct Particle {
     pub definition: Arc<ParticleDefinition>,
     pub frame: ParticleFrame,
@@ -67,7 +120,6 @@ pub(crate) struct Particle {
     pub(crate) fade: [u8; 4],
     uv_frame: usize,
     uv_elapsed: u32,
-    uv_scroll: [i32; 2],
     floor_effect_emitted: bool,
 }
 
@@ -83,7 +135,7 @@ impl Particle {
     fn step(
         &mut self,
         followed_origin: Option<[f32; 3]>,
-        model_parent: Option<resonance_content::animation::Matrix>,
+        model_parent: Option<(EffectModelParent, Matrix)>,
     ) -> Result<Option<crate::EffectRequest>> {
         let fresh = self.age == 0;
         if fresh {
@@ -111,6 +163,20 @@ impl Particle {
             add(&mut state.acceleration, self.definition.data.jerk);
         }
         let mut child_member = None;
+        self.frame.origin_attachment = followed_origin
+            .and(self.follow)
+            .filter(|follow| {
+                self.frame.owner_bone.is_none()
+                    && model_parent.is_none()
+                    && matches!(
+                        follow,
+                        crate::EffectFollow::Bone { .. } | crate::EffectFollow::Weapon { .. }
+                    )
+            })
+            .map(|follow| ParticleOriginAttachment {
+                follow,
+                model_ground_relative: self.definition.data.model_ground_relative,
+            });
         if let Some(origin) = followed_origin {
             self.frame.origin = origin;
         }
@@ -259,7 +325,7 @@ impl Particle {
 
     fn sample_model(
         &mut self,
-        parent: Option<resonance_content::animation::Matrix>,
+        parent: Option<(EffectModelParent, Matrix)>,
         advance: bool,
     ) -> Result<()> {
         if let Some(model) = &self.model {
@@ -311,18 +377,22 @@ impl Particle {
             } => {
                 if self.uv_elapsed >= *interval {
                     self.uv_elapsed = 0;
+                    let scroll = self.frame.scroll.get_or_insert(ParticleScroll {
+                        travel: [0; 2],
+                        origin: self.definition.model.is_none().then_some(*origin),
+                    });
                     for axis in 0..2 {
+                        scroll.travel[axis] += i64::from(step[axis]);
                         if self.definition.model.is_some() {
                             state.uv[axis] = state.uv[axis].wrapping_add(step[axis]);
                             continue;
                         }
-                        let extent = i32::from(state.uv[axis + 2]);
+                        let extent = i64::from(state.uv[axis + 2]);
                         ensure!(extent > 0, "nonpositive particle UV scroll extent");
-                        self.uv_scroll[axis] =
-                            (self.uv_scroll[axis] + i32::from(step[axis])).rem_euclid(extent);
-                        state.uv[axis] = (i32::from(origin[axis]) + self.uv_scroll[axis])
-                            .try_into()
-                            .context("particle UV scroll exceeds coordinate range")?;
+                        state.uv[axis] = (i64::from(origin[axis])
+                            + scroll.travel[axis].rem_euclid(extent))
+                        .try_into()
+                        .context("particle UV scroll exceeds coordinate range")?;
                     }
                 }
             }
@@ -439,7 +509,10 @@ impl Effects {
             resource,
             member: definition.member,
             origin,
+            origin_attachment: None,
             heading,
+            scroll: None,
+            uv_offset: [0.; 2],
             state,
             model: None,
         };
@@ -461,7 +534,6 @@ impl Effects {
                 fade,
                 uv_frame: 0,
                 uv_elapsed: 0,
-                uv_scroll: [0; 2],
                 floor_effect_emitted: false,
             },
         );
@@ -496,7 +568,7 @@ impl Effects {
         &self,
         id: ParticleId,
         frame: &BattleFrame,
-    ) -> Result<Option<resonance_content::animation::Matrix>> {
+    ) -> Result<Option<(EffectModelParent, Matrix)>> {
         let particle = &self.particles[&id];
         if let Some(bone) = particle
             .frame
@@ -516,18 +588,22 @@ impl Effects {
                 .bones
                 .get(usize::from(bone))
                 .context("model particle owner bone is unavailable")?;
-            return Ok(Some(
+            return Ok(Some((
+                EffectModelParent::Actor {
+                    actor: particle.frame.owner,
+                    bone: usize::from(bone),
+                },
                 (glam::Mat4::from_cols_array_2d(&model.world)
                     * glam::Mat4::from_cols_array_2d(joint))
                 .to_cols_array_2d(),
-            ));
+            )));
         }
-        let Some((parent, joint)) = self.particles[&id].model_parent else {
+        let Some((parent_id, joint)) = self.particles[&id].model_parent else {
             return Ok(None);
         };
         let parent = self
             .particles
-            .get(&parent)
+            .get(&parent_id)
             .context("model attachment parent expired")?;
         let bone = parent
             .model
@@ -543,10 +619,14 @@ impl Effects {
             .bones
             .get(bone)
             .context("model attachment joint has no pose")?;
-        Ok(Some(
+        Ok(Some((
+            EffectModelParent::Particle {
+                particle: parent_id,
+                bone,
+            },
             (glam::Mat4::from_cols_array_2d(&pose.world) * glam::Mat4::from_cols_array_2d(joint))
                 .to_cols_array_2d(),
-        ))
+        )))
     }
 
     pub(crate) fn set_particle_model(

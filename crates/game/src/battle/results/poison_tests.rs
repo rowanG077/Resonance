@@ -184,8 +184,10 @@ fn results_query_and_reward_grade_read_effective_poison_but_export_reads_base() 
             Conditions::new(layers),
         )?;
         assert_eq!(poisoned(&f.candidate, battle, character)?, query);
-        f.candidate.setup.level_difference = 0;
-        for enemy in &mut f.candidate.setup.enemies {
+        Arc::get_mut(&mut f.candidate.setup)
+            .unwrap()
+            .level_difference = 0;
+        for enemy in &mut Arc::get_mut(&mut f.candidate.setup).unwrap().enemies {
             enemy.grade = 0;
         }
         f.candidate.selection = Some(Selection {

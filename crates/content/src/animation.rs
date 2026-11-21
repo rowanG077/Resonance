@@ -268,14 +268,22 @@ impl Skeleton {
             local.len() == self.bones.len() && matrices.len() == local.len(),
             "pose bone count differs from skeleton"
         );
-        let mut global = vec![None; local.len()];
-        for index in 0..local.len() {
-            self.compose(index, matrices, &mut global, 0)?;
-        }
         Ok(Pose {
             local,
-            global: global.into_iter().map(Option::unwrap).collect(),
+            global: self.global_matrices(matrices)?,
         })
+    }
+
+    pub fn global_matrices(&self, matrices: &[Matrix]) -> Result<Vec<Matrix>> {
+        ensure!(
+            matrices.len() == self.bones.len(),
+            "pose bone count differs from skeleton"
+        );
+        let mut global = vec![None; matrices.len()];
+        for index in 0..matrices.len() {
+            self.compose(index, matrices, &mut global, 0)?;
+        }
+        Ok(global.into_iter().map(Option::unwrap).collect())
     }
 
     fn compose(
@@ -424,15 +432,27 @@ pub fn matrix_rotation(matrix: Matrix) -> Result<[f32; 4]> {
     Ok(q.map(|v| v / length.sqrt()))
 }
 
+// The sums below are written out in `Iterator::sum` order, starting from its
+// -0.0, so results are bit-identical; the generic fold was not inlined and
+// dominated skeleton composition.
+#[inline]
 pub fn multiply(a: Matrix, b: Matrix) -> Matrix {
     std::array::from_fn(|column| {
-        std::array::from_fn(|row| (0..4).map(|i| a[i][row] * b[column][i]).sum())
+        let b = b[column];
+        std::array::from_fn(|row| {
+            -0.0 + a[0][row] * b[0] + a[1][row] * b[1] + a[2][row] * b[2] + a[3][row] * b[3]
+        })
     })
 }
 
+#[inline]
 pub fn transform_point(matrix: Matrix, point: [f32; 3]) -> [f32; 3] {
     std::array::from_fn(|row| {
-        matrix[3][row] + (0..3).map(|i| matrix[i][row] * point[i]).sum::<f32>()
+        matrix[3][row]
+            + (-0.0
+                + matrix[0][row] * point[0]
+                + matrix[1][row] * point[1]
+                + matrix[2][row] * point[2])
     })
 }
 
@@ -452,4 +472,47 @@ fn dot(a: [f32; 4], b: [f32; 4]) -> f32 {
 fn normalize(q: [f32; 4]) -> [f32; 4] {
     let length = dot(q, q).sqrt();
     q.map(|v| v / length)
+}
+
+#[cfg(test)]
+mod multiply_tests {
+    use super::*;
+
+    fn reference(a: Matrix, b: Matrix) -> Matrix {
+        std::array::from_fn(|column| {
+            std::array::from_fn(|row| (0..4).map(|i| a[i][row] * b[column][i]).sum())
+        })
+    }
+
+    #[test]
+    fn written_out_products_match_the_iterator_sum_bit_for_bit() {
+        let mut state = 0x9e37_79b9_u32;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            // Mix signs, zeros and magnitudes, including -0.0.
+            match state % 7 {
+                0 => 0.0,
+                1 => -0.0,
+                _ => f32::from_bits(state) % 1.0e6,
+            }
+        };
+        for _ in 0..20_000 {
+            let a: Matrix = std::array::from_fn(|_| std::array::from_fn(|_| next()));
+            let b: Matrix = std::array::from_fn(|_| std::array::from_fn(|_| next()));
+            let point = [next(), next(), next()];
+            let expected = reference(a, b);
+            let actual = multiply(a, b);
+            for (e, x) in expected.iter().flatten().zip(actual.iter().flatten()) {
+                assert!(e.to_bits() == x.to_bits() || (e.is_nan() && x.is_nan()));
+            }
+            let expected: [f32; 3] = std::array::from_fn(|row| {
+                a[3][row] + (0..3).map(|i| a[i][row] * point[i]).sum::<f32>()
+            });
+            for (e, x) in expected.iter().zip(transform_point(a, point)) {
+                assert!(e.to_bits() == x.to_bits() || (e.is_nan() && x.is_nan()));
+            }
+        }
+    }
 }

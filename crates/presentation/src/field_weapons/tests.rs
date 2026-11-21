@@ -64,8 +64,8 @@ fn field_weapon_system_queries_are_compatible() {
     IntoSystem::into_system(prepare).initialize(&mut world);
     IntoSystem::into_system(instances).initialize(&mut world);
     IntoSystem::into_system(render).initialize(&mut world);
-    IntoSystem::into_system(choreograph).initialize(&mut world);
-    IntoSystem::into_system(dynamics).initialize(&mut world);
+    IntoSystem::into_system(choreograph::<DRAW>).initialize(&mut world);
+    IntoSystem::into_system(dynamics::<DRAW>).initialize(&mut world);
     IntoSystem::into_system(strings).initialize(&mut world);
     IntoSystem::into_system(publish).initialize(&mut world);
 }
@@ -75,14 +75,18 @@ fn texture_animation_preserves_signed_scroll_and_frame_order() -> Result<()> {
     let scroll = serde_json::from_value(serde_json::json!({
         "kind":"scroll", "texture":2, "step_milli_uv":[80,-12], "offset_milli_uv":[-128,4]
     }))?;
-    assert_eq!(texture_offset(&scroll, 0), (2, [-0.128, 0.004]));
-    assert_eq!(texture_offset(&scroll, 10), (2, [0.672, -0.116]));
-    assert_eq!(texture_offset(&scroll, 1000), (2, [0.872, -0.996]));
+    assert_eq!(texture_offset(&scroll, 0, 0.), (2, [-0.128, 0.004]));
+    let (_, midway) = texture_offset(&scroll, 10, 0.5);
+    assert!(Vec2::from(midway).abs_diff_eq(Vec2::new(0.712, -0.122), 1e-6));
+    assert_eq!(texture_offset(&scroll, 1000, 0.), (2, [0.872, -0.996]));
     let atlas = serde_json::from_value(serde_json::json!({
         "kind":"atlas", "texture":1, "rows":4, "ticks_per_frame":3, "frames":[0,1,2,3,2,1]
     }))?;
     for (frame, row) in [0., 0.25, 0.5, 0.75, 0.5, 0.25, 0.].into_iter().enumerate() {
-        assert_eq!(texture_offset(&atlas, frame as u32 * 3), (1, [0., row]));
+        assert_eq!(
+            texture_offset(&atlas, frame as u32 * 3, 0.75),
+            (1, [0., row])
+        );
     }
     Ok(())
 }
@@ -99,24 +103,35 @@ fn weapon_effect_layers_are_preserved() -> Result<()> {
             model
                 .layers
                 .iter()
-                .any(|(_, preview, texture)| { preview.animation.is_some() || texture.is_some() }),
+                .any(|layer| layer.preview.animation.is_some() || layer.animation.is_some()),
             "item {item} lost its animation"
         );
         match item {
             145 => {
-                assert_eq!(model.layers.len(), 4);
                 assert_eq!(
-                    model.layers.iter().filter(|(_, p, _)| p.additive).count(),
-                    2
+                    model
+                        .layers
+                        .iter()
+                        .map(|layer| (layer.rig_layer, layer.preview.additive))
+                        .collect::<Vec<_>>(),
+                    [(0, false), (1, true), (2, false), (3, true)]
                 );
             }
-            155 => assert!(
+            155 => assert_eq!(
                 model
                     .layers
                     .iter()
-                    .all(|(_, p, _)| !p.scene.secondary_motion.is_empty())
+                    .filter(|layer| !layer.preview.scene.secondary_motion.is_empty())
+                    .map(|layer| layer.rig_layer)
+                    .collect::<Vec<_>>(),
+                [0, 0, 2, 2]
             ),
-            158 => assert!(model.layers.iter().all(|(_, p, _)| p.animation.is_some())),
+            158 => assert!(
+                model
+                    .layers
+                    .iter()
+                    .all(|layer| layer.preview.animation.is_some())
+            ),
             _ => {}
         }
     }
@@ -163,26 +178,7 @@ fn readiness_uses_current_equipment_after_a_swap() -> Result<()> {
 fn retiring_a_field_removes_weapon_scenes_and_strings() {
     let mut world = World::new();
     let owner = world.spawn_empty().id();
-    let root = world
-        .spawn(Instance {
-            owner,
-            actor: 120,
-            item: 145,
-            slot: 0,
-            layer: 0,
-            birth: 0,
-            binding: None,
-            camera_facing: vec![],
-            materials: vec![],
-            geometry: vec![],
-            dynamics: None,
-            choreography: None,
-            prepared: false,
-            sampled: false,
-            active: false,
-            rope: None,
-        })
-        .id();
+    let root = world.spawn(published(owner, 145, 0, true)).id();
     let string = world.spawn(ChildOf(root)).id();
     retire(&mut world);
     assert!(world.get_entity(root).is_err());
@@ -266,10 +262,14 @@ fn published(owner: Entity, item: u16, layer: usize, active: bool) -> (Instance,
             layer,
             birth: 0,
             binding: None,
+            clip_ages: None,
+            clip_poses: vec![],
             camera_facing: vec![],
             materials: vec![],
+            winding: Default::default(),
             geometry: vec![],
             dynamics: None,
+            future: None,
             choreography: None,
             prepared: true,
             sampled: true,
@@ -340,12 +340,7 @@ fn cold_swap_keeps_old_model_until_all_new_layers_are_ready() -> Result<()> {
     let layers = captured
         .layers
         .into_iter()
-        .map(|(part, preview, animation)| Layer {
-            part,
-            art: crate::field_view::Part::load(preview.scene.clone(), server, &Default::default()),
-            preview,
-            animation,
-        })
+        .map(|layer| layer.load(server, &Default::default()))
         .collect();
     app.world_mut()
         .resource_mut::<EquipmentCache>()

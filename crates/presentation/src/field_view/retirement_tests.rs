@@ -127,7 +127,6 @@ fn battle_return_removes_actor_rendering_before_resuming_animation() -> Result<(
     .init_resource::<Assets<TitleSurface>>()
     .init_resource::<Assets<crate::sparse_animation::Clip>>()
     .init_resource::<crate::sparse_animation::affine::Locals>()
-    .init_resource::<crate::field_pose::Authored>()
     .init_resource::<Applied>()
     .init_resource::<crate::loading::Resident>()
     .insert_resource(Session(field));
@@ -143,6 +142,7 @@ fn battle_return_removes_actor_rendering_before_resuming_animation() -> Result<(
                 part: 0,
                 pass: 0,
                 materials: vec![],
+                winding: Default::default(),
                 prepared: true,
                 disabled: false,
                 geometry: vec![],
@@ -184,15 +184,7 @@ fn battle_return_removes_actor_rendering_before_resuming_animation() -> Result<(
     );
     app.add_systems(
         PostUpdate,
-        sample_poses()
-            .before(crate::field_animation::blend)
-            .run_if(crate::battle::field_presenting),
-    );
-    app.add_systems(
-        PostUpdate,
-        crate::field_animation::blend
-            .after(crate::field_animation::sample)
-            .run_if(crate::battle::field_presenting),
+        sample_poses().run_if(crate::battle::field_presenting),
     );
     app.update();
 

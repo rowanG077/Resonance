@@ -1,13 +1,5 @@
 //! Authored ordering for ordinary transparent scene meshes.
-use bevy::{
-    core_pipeline::core_3d::{Transparent3d, TransparentSortingInfo3d},
-    prelude::*,
-    render::{
-        Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
-        render_phase::{PhaseItem, ViewSortedRenderPhases},
-        sync_world::MainEntityHashMap,
-    },
-};
+use bevy::prelude::*;
 
 /// Native drawing phases. Asset material order is local to its scene or instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -42,8 +34,36 @@ pub(super) enum ActorLayer {
 }
 
 /// Layer, instance order, then material order within that instance.
-#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct DrawOrder(pub Layer, pub usize, pub u32);
+
+pub(super) fn field_actor_depths(
+    depths: &mut Vec<(i32, f32)>,
+    world: &resonance_events::GameWorld,
+    direction: Vec3,
+    future: Option<(&resonance_events::GameWorld, f32)>,
+) {
+    depths.clear();
+    depths.extend(world.actor_order().iter().filter_map(|&id| {
+        // Attached actors have local coordinates and draw with their committed owner.
+        let owner = std::iter::successors(Some(id), |id| {
+            Some(world.field_model_actor(*id)?.attachment.as_ref()?.actor)
+        })
+        .take(world.actors.len())
+        .last()?;
+        let actor = world.field_model_actor(owner)?;
+        let mut position = Vec3::from_array(actor.visual_position());
+        if let Some((next, alpha)) = future
+            && let Some(target) = next.field_model_actor(owner)
+            && crate::field_view::prediction::continuous_pose(actor, target)
+        {
+            position = position.lerp(Vec3::from_array(target.visual_position()), alpha);
+        }
+        Some((id, position.dot(direction)))
+    }));
+    // Stable ties retain the simulation's submission order.
+    depths.sort_by(|a, b| b.1.total_cmp(&a.1));
+}
 
 impl DrawOrder {
     pub(super) fn field_model(mut layer: Layer, instance: usize, material: u32) -> Self {
@@ -64,71 +84,30 @@ impl DrawOrder {
     }
 }
 
-#[derive(Resource, Default)]
-struct VisibleOrders(MainEntityHashMap<DrawOrder>);
-
-pub(super) struct DrawOrderPlugin;
-impl Plugin for DrawOrderPlugin {
-    fn build(&self, app: &mut App) {
-        if let Some(render) = app.get_sub_app_mut(RenderApp) {
-            render
-                .init_resource::<VisibleOrders>()
-                .add_systems(ExtractSchedule, extract)
-                .add_systems(
-                    Render,
-                    apply
-                        .after(RenderSystems::Queue)
-                        .before(RenderSystems::PhaseSort),
-                );
-        }
-    }
-}
-
-fn extract(
-    mut orders: ResMut<VisibleOrders>,
-    draws: Extract<Query<(Entity, &ViewVisibility, &DrawOrder)>>,
-) {
-    // Prepared pools can contain thousands of hidden draws. Publish only this
-    // frame's visible orders, dropping entries as soon as a draw becomes hidden.
-    orders.0.clear();
-    orders.0.extend(
-        draws.iter().filter_map(|(entity, visible, order)| {
-            visible.get().then_some((entity.into(), *order))
-        }),
-    );
-}
-
-fn apply(mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>, orders: Res<VisibleOrders>) {
-    let orders = &orders.0;
-    for phase in phases.values_mut() {
-        // Stable native keys determine transparent order, independent of ECS insertion.
-        phase
-            .items
-            .sort_by_key(|_, item| orders.get(&item.main_entity()).copied());
-        for (rank, item) in phase.items.values_mut().enumerate() {
-            if orders.contains_key(&item.main_entity()) {
-                // Feed the native order into Bevy's ascending depth sort. This changes
-                // scheduling only; the material's real depth tests remain enabled.
-                item.sorting_info = TransparentSortingInfo3d::Sorted {
-                    mesh_center: Vec3::ZERO,
-                    depth_bias: rank as f32,
-                };
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::{
-        ecs::system::RunSystemOnce,
-        render::{MainWorld, sync_world::MainEntity},
-    };
 
     #[test]
     fn field_actors_finish_body_and_outline_before_nearer_models() {
         use resonance_content::field::{DrawStage, MODEL_DRAW_SPAN};
+        use resonance_events::{Actor, Attachment, GameWorld};
+        let mut world = GameWorld::default();
+        for (id, depth) in [(1, 1.), (2, 3.), (3, 100.)] {
+            world.insert_actor(id, Actor::new(1, [0., depth, 0.]));
+        }
+        world.actors.get_mut(&3).unwrap().attachment = Some(Attachment {
+            actor: 1,
+            bone: "head".into(),
+        });
+        let mut next = GameWorld::default();
+        next.actors = world.actors.clone();
+        next.actors.get_mut(&1).unwrap().position[1] = 5.;
+        let mut depths = Vec::new();
+        for (alpha, order) in [(0.25, [2, 1, 3]), (0.5, [1, 2, 3]), (0.75, [1, 3, 2])] {
+            field_actor_depths(&mut depths, &world, Vec3::Y, Some((&next, alpha)));
+            assert_eq!(depths.iter().map(|&(id, _)| id).collect::<Vec<_>>(), order);
+        }
         for stage in [DrawStage::Actors, DrawStage::LateActors] {
             let layer = Layer::Scene(stage.offset());
             let far_body = DrawOrder::field_model(layer, 0, 15);
@@ -147,50 +126,5 @@ mod tests {
             DrawOrder::field_model(Layer::Scene(0), 3, DrawStage::Foreground.offset() + 7)
                 == DrawOrder(Layer::Scene(DrawStage::Foreground.offset()), 3, 7)
         );
-    }
-
-    #[test]
-    fn unsynced_visible_meshes_publish_current_orders_and_remove_stale_draws() {
-        let mut main = MainWorld::default();
-        let field_order = DrawOrder(Layer::Scene(2), 0, 1);
-        let actor_order = DrawOrder(Layer::Actor(0, ActorLayer::Body), 0, 0);
-        // Ordinary mesh draws use main-world keys without a RenderEntity.
-        let field = main.spawn((field_order, ViewVisibility::VISIBLE)).id();
-        let actor = main.spawn((actor_order, ViewVisibility::HIDDEN)).id();
-        let field_key = MainEntity::from(field);
-        let actor_key = MainEntity::from(actor);
-        let mut render = World::new();
-        render.insert_resource(main);
-        render.init_resource::<VisibleOrders>();
-        render.run_system_once(extract).unwrap();
-        assert_eq!(render.resource::<VisibleOrders>().0.len(), 1);
-        assert!(render.resource::<VisibleOrders>().0[&field_key] == field_order);
-        assert!(
-            !render
-                .resource::<VisibleOrders>()
-                .0
-                .contains_key(&actor_key)
-        );
-
-        let changed_order = DrawOrder(Layer::Actor(1, ActorLayer::Front), 3, 4);
-        {
-            let mut main = render.resource_mut::<MainWorld>();
-            main.entity_mut(field).insert(ViewVisibility::HIDDEN);
-            main.entity_mut(actor)
-                .insert((ViewVisibility::VISIBLE, changed_order));
-        }
-        render.run_system_once(extract).unwrap();
-        assert_eq!(render.resource::<VisibleOrders>().0.len(), 1);
-        assert!(render.resource::<VisibleOrders>().0[&actor_key] == changed_order);
-        assert!(
-            !render
-                .resource::<VisibleOrders>()
-                .0
-                .contains_key(&field_key)
-        );
-
-        render.resource_mut::<MainWorld>().despawn(actor);
-        render.run_system_once(extract).unwrap();
-        assert!(render.resource::<VisibleOrders>().0.is_empty());
     }
 }

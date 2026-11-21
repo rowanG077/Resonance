@@ -117,6 +117,7 @@ impl Fixture {
             selection: &self.dialogue.selection,
             cursor_texture: &self.dialogue.cursor,
             trail: Default::default(),
+            interpolating: false,
             preferences: Some(&self.party.settings.preferences),
             experience: &self.session.experience,
             input_atlas: crate::input_icons::default_atlas(),
@@ -126,6 +127,7 @@ impl Fixture {
             plane: 1,
             opacity: 255,
             offset: [0.; 2],
+            scroll: Default::default(),
             batches: BTreeMap::new(),
         }
     }

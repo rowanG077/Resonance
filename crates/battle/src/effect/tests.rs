@@ -666,13 +666,13 @@ fn scene_effects_hold_expire_and_clear_at_combat_retirement() -> Result<()> {
     assert_eq!(effects.frames().len(), 1);
     effects.advance(&frame, false)?;
     assert!(effects.frames().is_empty());
-    let mut other_bank = effects.banks[&ResourceId(77)].clone();
+    let mut other_bank = EffectBank::clone(&effects.banks[&ResourceId(77)]);
     other_bank.resource = ResourceId(78);
     assert!(Arc::ptr_eq(
         &other_bank.members[&1],
         &effects.banks[&ResourceId(77)].members[&1]
     ));
-    effects.banks.insert(ResourceId(78), other_bank);
+    effects.banks.insert(ResourceId(78), Arc::new(other_bank));
     let mut other_owner = request();
     other_owner.owner = ActorId(1);
     let mut other_resource = request();
@@ -724,7 +724,7 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
         };
         let mut effects = effects(vec![emit(1, birth)], false);
         effects.diagnostics = Diagnostics::new(true);
-        let bank = effects.banks.get_mut(&ResourceId(77)).unwrap();
+        let bank = Arc::make_mut(effects.banks.get_mut(&ResourceId(77)).unwrap());
         if static_model {
             bank.models.insert(
                 0,
@@ -782,7 +782,7 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
         effects.advance(&frame, false)?;
         assert!(effects.frames().is_empty());
         frame.cues.clear();
-        Arc::make_mut(&mut frame.models[0].bones)[0] = Transform {
+        Arc::make_mut(&mut frame.models[0].bones).global[0] = Transform {
             translation: [2., 3., 4.],
             ..Default::default()
         }
@@ -791,7 +791,7 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
         let first = effects.frames()[0].clone();
         assert_eq!(first.origin, [102., 13., 24.]);
         assert_eq!(first.model.is_some(), static_model);
-        Arc::make_mut(&mut frame.models[0].bones)[0] = Transform {
+        Arc::make_mut(&mut frame.models[0].bones).global[0] = Transform {
             translation: [30., 40., 50.],
             rotation: [0., 1., 0., 0.],
             scale: [2., 3., 4.],
@@ -820,7 +820,7 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
     }
     for following in [false, true] {
         let mut effects = effects(births([0, 0]), false);
-        let bank = effects.banks.get_mut(&ResourceId(77)).unwrap();
+        let bank = Arc::make_mut(effects.banks.get_mut(&ResourceId(77)).unwrap());
         let effect = Arc::make_mut(bank.members.get_mut(&1).unwrap());
         let EffectOperation::Spawn { birth, .. } =
             &mut Arc::make_mut(&mut effect.events)[1].operation
@@ -848,7 +848,9 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
         };
         model.world = Transform::default().matrix();
         model.particle_world = model.world;
-        model.bones = Arc::new(vec![bone(10.), bone(20.)]);
+        model.bones = Arc::new(resonance_content::animation::pose::Palette::independent(
+            vec![bone(10.), bone(20.)],
+        ));
         frame.models.push(model);
         frame.cues.push(Cue::Effect(request()));
         effects.advance(&frame, false)?;
@@ -866,7 +868,9 @@ fn bone_particles_sample_current_pose_with_explicit_following() -> Result<()> {
             );
         }
         frame.cues.clear();
-        frame.models[0].bones = Arc::new(vec![bone(30.), bone(40.)]);
+        frame.models[0].bones = Arc::new(resonance_content::animation::pose::Palette::independent(
+            vec![bone(30.), bone(40.)],
+        ));
         effects.advance(&frame, false)?;
         for (index, particle) in effects.frames().iter().enumerate() {
             assert_eq!(particle.owner_bone, first[index].owner_bone);
@@ -912,7 +916,7 @@ fn projectile_retirement_removes_attachments_but_finishes_independent_bursts() -
     for (followed, attached) in [(false, true), (true, true), (false, false)] {
         let mut effects = effects(births([0, 2, 7]), followed);
         if followed {
-            let bank = effects.banks.get_mut(&ResourceId(77)).unwrap();
+            let bank = Arc::make_mut(effects.banks.get_mut(&ResourceId(77)).unwrap());
             let effect = Arc::make_mut(bank.members.get_mut(&1).unwrap());
             let particle = Arc::make_mut(effect.particles.get_mut(&0).unwrap());
             particle.data.follow_orientation = true;
@@ -1364,6 +1368,7 @@ fn passive_groups_repeat_per_owner_pause_and_retire() -> Result<()> {
     }])?;
     let mut frame = frame();
     frame.weapons.push(crate::WeaponFrame {
+        attachment: None,
         owner: ActorId(0),
         slot: Some(crate::WeaponSlot(0)),
         visible: true,
@@ -1373,11 +1378,11 @@ fn passive_groups_repeat_per_owner_pause_and_retire() -> Result<()> {
         clip: None,
         frame: 0.,
         world: glam::Mat4::from_translation(glam::Vec3::new(20., 0., 0.)).to_cols_array_2d(),
-        bones: Arc::new(vec![
-            glam::Mat4::from_translation(glam::Vec3::new(0., 3., 0.)).to_cols_array_2d(),
-        ]),
+        bones: Arc::new(resonance_content::animation::pose::Palette::independent(
+            vec![glam::Mat4::from_translation(glam::Vec3::new(0., 3., 0.)).to_cols_array_2d()],
+        )),
         links: vec![],
-        texture_scroll: None,
+        texture: None,
     });
     for _ in 0..2 {
         effects.advance(&frame, false)?;

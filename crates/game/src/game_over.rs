@@ -61,6 +61,19 @@ impl Default for Screen {
     }
 }
 impl Screen {
+    fn next_alpha(&self) -> u8 {
+        if self.closing {
+            self.alpha.saturating_add(8)
+        } else {
+            self.alpha.saturating_sub(8)
+        }
+    }
+
+    pub fn fade_alpha(&self, fraction: f32) -> f32 {
+        let from = f32::from(self.alpha);
+        from + (f32::from(self.next_alpha()) - from) * fraction
+    }
+
     pub fn closing(&self) -> bool {
         self.closing
     }
@@ -76,11 +89,7 @@ impl Screen {
 
     /// Navigation works during entry; confirmation waits until the fade completes.
     pub fn step(&mut self, input: FieldInput, phase: u32) -> Update {
-        self.alpha = if self.closing {
-            self.alpha.saturating_add(8)
-        } else {
-            self.alpha.saturating_sub(8)
-        };
+        self.alpha = self.next_alpha();
         let mut result = Update::default();
         if !self.closing {
             let held = [input.direction[1] > 0.5, input.direction[1] < -0.5];
@@ -110,6 +119,10 @@ mod tests {
     fn entry_navigation_confirmation_and_both_routes_complete() {
         for choice in 0..2 {
             let mut screen = Screen::default();
+            assert_eq!(
+                [0., 0.5, 1.].map(|t| screen.fade_alpha(t)),
+                [255., 251., 247.]
+            );
             let first = screen.step(
                 FieldInput {
                     pressed_buttons: [resonance_events::input::Button::Accept].into(),
@@ -133,6 +146,7 @@ mod tests {
             );
             assert_eq!(confirming.cue, Some(Cue::Confirm));
             assert_eq!(screen.alpha, 1);
+            assert_eq!(screen.fade_alpha(0.5), 5.);
             for phase in 33..64 {
                 assert!(
                     screen
@@ -149,6 +163,7 @@ mod tests {
                 );
                 assert_eq!(screen.selected, choice);
             }
+            assert_eq!(screen.fade_alpha(0.5), 252.);
             assert_eq!(
                 screen.step(FieldInput::default(), 64).destination,
                 Some(if choice == 0 {

@@ -5,8 +5,7 @@ use bevy::{
     image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
     render::{
         Render, RenderApp, RenderSystems,
-        erased_render_asset::prepare_erased_assets,
-        render_asset::{RenderAssets, prepare_assets},
+        render_asset::{ExtractedAssets, RenderAssets, prepare_assets},
         render_resource::{Sampler, TextureViewDescriptor},
         renderer::RenderDevice,
         texture::GpuImage,
@@ -18,7 +17,37 @@ use std::{
 };
 
 #[derive(Resource, Default, Clone)]
-struct Views(Arc<Mutex<HashMap<AssetId<Image>, View>>>);
+struct Views(Arc<Mutex<Registry>>);
+#[derive(Default)]
+struct Registry {
+    entries: HashMap<AssetId<Image>, View>,
+    sources: HashMap<AssetId<Image>, HashSet<AssetId<Image>>>,
+    added: Vec<AssetId<Image>>,
+}
+impl Registry {
+    fn insert(&mut self, id: AssetId<Image>, view: View) {
+        self.sources.entry(view.source.id()).or_default().insert(id);
+        self.entries.insert(id, view);
+        self.added.push(id);
+    }
+    fn remove(&mut self, id: AssetId<Image>) -> Option<View> {
+        let view = self.entries.remove(&id)?;
+        let source = view.source.id();
+        if let Some(variants) = self.sources.get_mut(&source) {
+            variants.remove(&id);
+            if variants.is_empty() {
+                self.sources.remove(&source);
+            }
+        }
+        Some(view)
+    }
+}
+#[derive(Resource, Default)]
+struct ViewUpdates {
+    sources: HashSet<AssetId<Image>>,
+    removed: HashSet<AssetId<Image>>,
+    pending: HashSet<AssetId<Image>>,
+}
 struct View {
     source: Handle<Image>,
     handle: Weak<StrongHandle>,
@@ -30,44 +59,82 @@ pub(crate) fn install(app: &mut App) {
     app.init_resource::<SampledImages>();
     let views = app.world().resource::<SampledImages>().views.clone();
     if let Some(render) = app.get_sub_app_mut(RenderApp) {
-        render.insert_resource(views).add_systems(Render,
-            prepare_views
-                .in_set(RenderSystems::PrepareAssets)
-                .after(prepare_assets::<GpuImage>)
-                .before(prepare_erased_assets::<MeshMaterial3d<TitleSurface>>)
-                .before(prepare_erased_assets::<MeshMaterial3d<crate::model_preview::material::Surface>>),
-        );
+        render
+            .insert_resource(views)
+            .init_resource::<ViewUpdates>()
+            .add_systems(
+                Render,
+                (
+                    track_source_changes
+                        .in_set(RenderSystems::PrepareAssets)
+                        .before(prepare_assets::<GpuImage>),
+                    prepare_views
+                        .in_set(RenderSystems::PrepareAssets)
+                        .after(prepare_assets::<GpuImage>),
+                ),
+            );
     }
+}
+
+// Capture IDs before Bevy consumes the extraction lists. GPU upload budgeting
+// may delay a source; its dependent views stay pending until it becomes ready.
+fn track_source_changes(
+    extracted: Res<ExtractedAssets<GpuImage>>,
+    mut updates: ResMut<ViewUpdates>,
+) {
+    updates
+        .sources
+        .extend(extracted.extracted.iter().map(|(id, _)| *id));
+    // Includes Unused events for MAIN_WORLD-only sampler aliases as well.
+    updates.removed.extend(extracted.removed.iter().copied());
 }
 
 fn prepare_views(
     views: Res<Views>,
     mut images: ResMut<RenderAssets<GpuImage>>,
     device: Res<RenderDevice>,
-    mut previous: Local<HashSet<AssetId<Image>>>,
+    mut updates: ResMut<ViewUpdates>,
     mut samplers: Local<Vec<(ImageSamplerDescriptor, Sampler)>>,
 ) {
     profile_span!("sampler views");
+    let mut views = views.0.lock().unwrap();
+    let ViewUpdates {
+        sources,
+        removed,
+        pending,
+    } = &mut *updates;
     if device.is_changed() {
         samplers.clear();
+        pending.extend(views.entries.keys().copied());
     }
-    let mut views = views.0.lock().unwrap();
-    views.retain(|_, view| view.handle.strong_count() > 0);
-    for id in previous.drain() {
-        if !views.contains_key(&id) {
+    for id in removed.drain() {
+        if views.remove(id).is_some() {
             images.remove(id);
         }
+        pending.remove(&id);
     }
-    for (&id, view) in views.iter() {
-        previous.insert(id);
+    pending.extend(views.added.drain(..));
+    for source in sources.drain() {
+        if let Some(variants) = views.sources.get(&source) {
+            pending.extend(variants.iter().copied());
+        }
+    }
+    // The ordinary steady frame performs no image-table scan or GPU lookups.
+    pending.retain(|id| {
+        let Some(view) = views.entries.get(id) else {
+            return false;
+        };
+        if view.handle.strong_count() == 0 {
+            return false;
+        }
         let Some(source) = images.get(&view.source) else {
-            continue;
+            return true;
         };
         if images
-            .get(id)
+            .get(*id)
             .is_some_and(|image| image.texture.id() == source.texture.id())
         {
-            continue;
+            return false;
         }
         let texture = source.texture.clone();
         let texture_descriptor = source.texture_descriptor.clone();
@@ -85,7 +152,7 @@ fn prepare_views(
             sampler
         };
         images.insert(
-            id,
+            *id,
             GpuImage {
                 texture,
                 texture_view,
@@ -95,7 +162,8 @@ fn prepare_views(
                 had_data: false,
             },
         );
-    }
+        false
+    });
 }
 
 #[derive(Resource, Default, Clone)]
@@ -138,11 +206,15 @@ impl SampledImages {
             .unwrap()
             .images
             .retain(|_, image| image.strong_count() > 0);
-        self.views
-            .0
-            .lock()
-            .unwrap()
-            .retain(|_, view| view.handle.strong_count() > 0);
+        let mut views = self.views.0.lock().unwrap();
+        let retired: Vec<_> = views
+            .entries
+            .iter()
+            .filter_map(|(&id, view)| (view.handle.strong_count() == 0).then_some(id))
+            .collect();
+        for id in retired {
+            views.remove(id);
+        }
     }
 }
 type SampleKey = (AssetId<Image>, u8, u8, bool, bool, bool);
@@ -249,14 +321,7 @@ mod tests {
                 .disable::<bevy::winit::WinitPlugin>()
                 .disable::<bevy::gilrs::GilrsPlugin>(),
         );
-        let began = std::time::Instant::now();
-        while app.plugins_state() == bevy::app::PluginsState::Adding {
-            anyhow::ensure!(began.elapsed().as_secs() < 60, "GPU setup timed out");
-            bevy::tasks::tick_global_task_pools_on_main_thread();
-            std::thread::sleep(std::time::Duration::from_millis(1));
-        }
-        app.finish();
-        app.cleanup();
+        crate::test_support::finish_app(&mut app)?;
         let device = app.world().resource::<RenderDevice>().clone();
         let queue = app.world().resource::<RenderQueue>();
         let mut source = Image::new_fill(
@@ -335,15 +400,26 @@ mod tests {
         )
         .unwrap();
         let mut gpu = RenderAssets::<GpuImage>::default();
-        gpu.insert(source.id(), first);
         gpu.insert(second_source.id(), second_upload);
         let mut world = World::new();
         world.insert_resource(cache.views.clone());
         world.insert_resource(gpu);
         world.insert_resource(device);
+        world.init_resource::<ViewUpdates>();
+        world.init_resource::<ExtractedAssets<GpuImage>>();
         let mut schedule = bevy::ecs::schedule::Schedule::default();
-        schedule.add_systems(prepare_views);
+        schedule.add_systems((track_source_changes, prepare_views).chain());
         schedule.run(&mut world);
+        // A source can be delayed by the GPU upload budget. Its new aliases
+        // must become ready later without another extraction event.
+        assert!(world.resource::<RenderAssets<GpuImage>>().get(&a).is_none());
+        assert!(world.resource::<RenderAssets<GpuImage>>().get(&b).is_none());
+        assert_eq!(world.resource::<ViewUpdates>().pending.len(), 2);
+        world
+            .resource_mut::<RenderAssets<GpuImage>>()
+            .insert(source.id(), first);
+        schedule.run(&mut world);
+        assert!(world.resource::<ViewUpdates>().pending.is_empty());
         {
             let gpu = world.resource::<RenderAssets<GpuImage>>();
             let source = gpu.get(&source).unwrap();
@@ -365,10 +441,30 @@ mod tests {
                 None
             );
         }
+        let unrelated_view = world
+            .resource::<RenderAssets<GpuImage>>()
+            .get(&same_sampler)
+            .unwrap()
+            .texture_view
+            .id();
         world
             .resource_mut::<RenderAssets<GpuImage>>()
             .insert(source.id(), replacement);
+        world
+            .resource_mut::<ExtractedAssets<GpuImage>>()
+            .extracted
+            .push((source.id(), Image::default()));
         schedule.run(&mut world);
+        assert!(world.resource::<ViewUpdates>().pending.is_empty());
+        assert_eq!(
+            world
+                .resource::<RenderAssets<GpuImage>>()
+                .get(&same_sampler)
+                .unwrap()
+                .texture_view
+                .id(),
+            unrelated_view
+        );
         assert_eq!(
             world
                 .resource::<RenderAssets<GpuImage>>()
@@ -383,9 +479,18 @@ mod tests {
                 .texture
                 .id()
         );
+        world
+            .resource_mut::<ExtractedAssets<GpuImage>>()
+            .extracted
+            .clear();
         let retired = a.id();
+        let other_retired = same_sampler.id();
         drop(a);
         drop(same_sampler);
+        world
+            .resource_mut::<ExtractedAssets<GpuImage>>()
+            .removed
+            .extend([retired, other_retired]);
         schedule.run(&mut world);
         assert!(
             world
@@ -401,8 +506,8 @@ mod tests {
                 .is_some()
         );
         let views = cache.views.0.lock().unwrap();
-        assert_eq!(views.len(), 1);
-        assert_eq!(views.get(&b.id()).unwrap().source.id(), source.id());
+        assert_eq!(views.entries.len(), 1);
+        assert_eq!(views.entries.get(&b.id()).unwrap().source.id(), source.id());
         Ok(())
     }
 }

@@ -1,7 +1,10 @@
 //! Target ornaments anchored to the presented actors.
 use super::{ActorMarkers, Batch, BattleFrame, hud_color};
 use anyhow::{Context as ContextExt, Result};
-use bevy::prelude::Vec3;
+use bevy::{
+    math::Affine3A,
+    prelude::{Transform, Vec3},
+};
 use resonance_battle::{ActorAvailability, Control, Side, conditions::Condition};
 
 const BLINK_PERIOD: u16 = 180;
@@ -41,6 +44,26 @@ impl Track {
         }
     }
 
+    /// Sample the same speed-limited follow step against the actor's rendered pose.
+    /// Only whole ticks above advance the retained position, trail count and blink.
+    fn sample(&self, anchor: Vec3, presented: Vec3, fraction: f32) -> (Vec3, Vec3) {
+        let position = self.position.unwrap();
+        if fraction <= 0. {
+            return (position, self.direction);
+        }
+        let delta = (anchor - position) * fraction + (presented - anchor);
+        let step = FOLLOW_STEP * fraction;
+        if delta.length_squared() <= step * step {
+            (position + delta, self.direction)
+        } else {
+            let heading = delta.normalize();
+            (
+                position + heading * step,
+                self.direction.lerp(heading, fraction),
+            )
+        }
+    }
+
     fn cell(self) -> f32 {
         if self.blink < BLINK_PERIOD - 2 * BLINK_CELL_TICKS {
             0.
@@ -67,29 +90,39 @@ const CONTROLLER_COLORS: [[u8; 4]; 4] = [
     [128, 128, 64, 255],
 ];
 
-fn billboard(
-    camera: resonance_battle::CameraPose,
-    anchor: [f32; 3],
-    size: [f32; 2],
-    offset_x: f32,
-) -> Option<[f32; 4]> {
-    let eye = Vec3::from_array(camera.eye);
-    let forward = (Vec3::from_array(camera.focus) - eye).normalize_or_zero();
-    let depth = (Vec3::from_array(anchor) - eye).dot(forward);
-    if depth <= 0. {
-        return None;
+struct Projection {
+    view_from_world: Affine3A,
+    focal_length: f32,
+}
+
+impl Projection {
+    fn new(frame: &BattleFrame) -> Option<Self> {
+        let camera = frame.camera?;
+        let transform = Transform::from_translation(Vec3::from_array(camera.eye))
+            .looking_at(Vec3::from_array(camera.focus), Vec3::Y);
+        let fov = frame
+            .camera_fov_degrees
+            .unwrap_or(resonance_battle::VERTICAL_FOV_DEGREES);
+        Some(Self {
+            view_from_world: transform.compute_affine().inverse(),
+            // Markers use the HUD's 640 by 480 coordinates after scene projection.
+            focal_length: 240. / (fov.to_radians() / 2.).tan(),
+        })
     }
-    let scale = 240.
-        / (depth
-            * (resonance_battle::VERTICAL_FOV_DEGREES / 2.)
-                .to_radians()
-                .tan());
-    let [mut x, scene_y] = resonance_battle::project_screen_point(camera, anchor);
-    // Scene projection has 448 rows; HUD geometry has 480.
-    let y = scene_y * 480. / 448.;
-    x += offset_x * scale;
-    let [width, height] = size.map(|value| value * scale / 2.);
-    Some([x - width, y - height, x + width, y + height])
+
+    fn billboard(&self, anchor: [f32; 3], size: [f32; 2], offset_x: f32) -> Option<[f32; 4]> {
+        let view = self
+            .view_from_world
+            .transform_point3(Vec3::from_array(anchor));
+        if view.z >= 0. {
+            return None;
+        }
+        let scale = self.focal_length / -view.z;
+        let x = 320. + (view.x + offset_x) * scale;
+        let y = 240. - view.y * scale;
+        let [width, height] = size.map(|value| value * scale / 2.);
+        Some([x - width, y - height, x + width, y + height])
+    }
 }
 
 impl Markers {
@@ -99,9 +132,10 @@ impl Markers {
         selection: Option<(resonance_battle::ActorId, resonance_battle::ActorId)>,
         anchors: &[ActorMarkers],
         elapsed: u32,
+        fraction: f32,
     ) -> Result<[Batch; COUNT]> {
         let mut batches = std::array::from_fn(|_| Batch::default());
-        let Some(camera) = frame.camera else {
+        let Some(projection) = Projection::new(frame) else {
             self.tracks = Default::default();
             return Ok(batches);
         };
@@ -133,7 +167,7 @@ impl Markers {
             {
                 let cell = f32::from(markers.effect_tick / PARALYSIS_CELL_TICKS % 2);
                 head[1] += 8. + 4. * cell;
-                if let Some(rect) = billboard(camera, head, PARALYSIS_SIZE, 0.) {
+                if let Some(rect) = projection.billboard(head, PARALYSIS_SIZE, 0.) {
                     let v = 25. + 16. * cell;
                     batches[PARALYSIS].quad(
                         rect,
@@ -148,6 +182,7 @@ impl Markers {
             let Some(anchor) = markers.target else {
                 continue;
             };
+            let presented = markers.presented_target.unwrap_or(anchor);
             let owners = || {
                 frame
                     .actors
@@ -178,15 +213,18 @@ impl Markers {
                 active[party_index] = true;
                 track.follow(Vec3::from_array(anchor), elapsed);
                 if owner.control != Control::Auto {
-                    let origin = track.position.unwrap();
+                    let (origin, direction) = track.sample(
+                        Vec3::from_array(anchor),
+                        Vec3::from_array(presented),
+                        fraction,
+                    );
                     for trail in 0..=track.trails {
                         let distance = f32::from(trail);
-                        let position = origin - track.direction * TRAIL_SPACING * distance;
+                        let position = origin - direction * TRAIL_SPACING * distance;
                         let width = MARKER_SIZE[0] - 2. * distance;
                         let height = MARKER_SIZE[1] - 3. * distance;
                         let opacity = if trail == 0 { 240 } else { 248 - 40 * trail };
-                        let Some(rect) = billboard(
-                            camera,
+                        let Some(rect) = projection.billboard(
                             (position + Vec3::Y * height / 2.).to_array(),
                             [width, height],
                             0.,
@@ -200,9 +238,12 @@ impl Markers {
                     }
                 }
                 if shared {
-                    let Some(rect) = billboard(
-                        camera,
-                        [anchor[0], anchor[1] + 12. + index as f32 * 24., anchor[2]],
+                    let Some(rect) = projection.billboard(
+                        [
+                            presented[0],
+                            presented[1] + 12. + index as f32 * 24.,
+                            presented[2],
+                        ],
                         [36., 24.],
                         22.5,
                     ) else {
@@ -267,7 +308,7 @@ mod tests {
             })
             .collect();
         let draw = |frame: &BattleFrame, selection, anchors: &[ActorMarkers]| {
-            Markers::default().draw(frame, selection, anchors, 0)
+            Markers::default().draw(frame, selection, anchors, 0, 0.)
         };
         let all = draw(&frame, None, &anchors)?;
         assert!(
@@ -280,6 +321,11 @@ mod tests {
         assert!(all[1..5].iter().all(|batch| batch.positions.len() == 4));
         assert_eq!(all[LABELS].positions.len(), 16, "shared-target labels");
         assert_eq!(all[1].positions, all[2].positions, "markers overlap");
+        let mut zoom = frame.clone();
+        zoom.camera_fov_degrees = Some(resonance_battle::VERTICAL_FOV_DEGREES / 2.);
+        let zoomed = draw(&zoom, None, &anchors)?;
+        let width = |batch: &Batch| batch.positions[1][0] - batch.positions[0][0];
+        assert!(width(&zoomed[1]) > width(&all[1]) * 2.);
         frame.actors[1].hp = 0;
         frame.actors[1].availability = ActorAvailability::Dead;
         assert!(
@@ -294,26 +340,31 @@ mod tests {
         earlier.targets[0] = Some(ActorId::from_index(4)?);
         let mut separated = anchors.clone();
         separated[5].target.as_mut().unwrap()[0] += 600.;
-        moving.draw(&earlier, None, &separated, 0)?;
-        let trail = moving.draw(&frame, None, &separated, 1)?;
+        moving.draw(&earlier, None, &separated, 0, 0.)?;
+        let start = moving.tracks[0].position.unwrap();
+        let midpoint = moving.draw(&frame, None, &separated, 0, 0.5)?;
+        assert_eq!(moving.tracks[0].position, Some(start));
+        let trail = moving.draw(&frame, None, &separated, 1, 0.)?;
+        let middle_x = midpoint[1].positions[0][0];
+        assert!(middle_x > all[1].positions[0][0] && middle_x < trail[1].positions[0][0]);
         assert!(
             trail[1].positions.len() > 4,
             "target changes leave trailing ornaments"
         );
         assert!(
-            moving.draw(&frame, None, &separated, 0)? == trail,
+            moving.draw(&frame, None, &separated, 0, 0.)? == trail,
             "drawing does not age motion"
         );
-        let blink = moving.draw(&frame, None, &separated, 171)?;
+        let blink = moving.draw(&frame, None, &separated, 171, 0.)?;
         assert_eq!(
             blink[1].positions.len(),
             4,
             "trails settle without retaining copies"
         );
         assert!(blink[1].uv != trail[1].uv[..4]);
-        let closed = moving.draw(&frame, None, &separated, 4)?;
+        let closed = moving.draw(&frame, None, &separated, 4, 0.)?;
         assert!(closed[1].uv != blink[1].uv);
-        let open = moving.draw(&frame, None, &separated, 4)?;
+        let open = moving.draw(&frame, None, &separated, 4, 0.)?;
         assert!(
             open[1].uv == all[1].uv,
             "the blink returns to its ordinary cell"

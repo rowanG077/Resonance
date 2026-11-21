@@ -43,8 +43,11 @@ impl FixtureParticle {
                 resource: crate::ResourceId(0),
                 member: 0,
                 origin,
+                origin_attachment: None,
                 heading: 0.,
                 state,
+                scroll: None,
+                uv_offset: [0.; 2],
                 model: None,
             },
             follow: None,
@@ -59,7 +62,6 @@ impl FixtureParticle {
             fade,
             uv_frame: 0,
             uv_elapsed: 0,
-            uv_scroll: [0; 2],
             floor_effect_emitted: false,
         }))
     }

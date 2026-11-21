@@ -1,0 +1,167 @@
+//! Disposable preview animation and dynamics, after the committed solver step.
+use super::*;
+use crate::sparse_animation::affine::{Helper, Locals, PoseEndpoint, apply_poses};
+
+#[derive(Default)]
+pub(super) struct Cache {
+    key: Option<(u64, Entity)>,
+    poses: Vec<PoseEndpoint>,
+}
+
+#[allow(clippy::type_complexity)]
+pub(super) fn present(
+    state: State,
+    mut viewer: ResMut<Viewer>,
+    mut prediction: Option<ResMut<crate::field_view::Prediction>>,
+    rigs: Query<&crate::secondary_motion::Rig>,
+    mut workspace: Local<crate::sparse_animation::affine::PoseWorkspace>,
+    mut transforms: ParamSet<(Helper, (Query<&mut Transform>, ResMut<Locals>))>,
+    mut surfaces: ResMut<Assets<Surface>>,
+) {
+    let Some(menu) = state.menu() else {
+        return;
+    };
+    let Some(current) = menu.preview() else {
+        return;
+    };
+    let Some(prediction) = prediction.as_deref_mut() else {
+        return;
+    };
+    if viewer.status != super::PreviewStatus::Ready {
+        return;
+    }
+    let Some(next) = prediction
+        .menu()
+        .and_then(|m| m.preview())
+        .filter(|p| p.id == current.id)
+    else {
+        return;
+    };
+    let (a, b) = (preview_camera(&current), preview_camera(&next));
+    let alpha = prediction.alpha;
+    let camera = Transform {
+        translation: a.translation.lerp(b.translation, alpha),
+        rotation: a.rotation.slerp(b.rotation, alpha),
+        ..a
+    };
+    let opacity = (f32::from(current.opacity)
+        + (f32::from(next.opacity) - f32::from(current.opacity)) * alpha)
+        / 255.;
+    let Some(root) = viewer.parts.first().and_then(|part| part.root) else {
+        return;
+    };
+    // A rebuilt preview has new entities even if the simulation endpoint is unchanged.
+    let key = (prediction.counts()[0], root);
+    if viewer.prediction.key != Some(key) {
+        let helper = transforms.p0();
+        let result = prediction.scratch_scene(|scene, _| -> Result<Vec<PoseEndpoint>> {
+            let menu = scene.menu().context("preview prediction lost its menu")?;
+            let next = menu
+                .preview()
+                .context("preview prediction lost its model")?;
+            let overrides = evaluate_behavior(viewer.behavior.as_ref(), menu)?;
+            let model = &viewer
+                .record
+                .as_ref()
+                .context("preview has no prepared model")?
+                .preview;
+            let mut locals = BTreeMap::new();
+            let authored = Locals::default();
+            let mut poses = Vec::new();
+            for (index, part) in viewer.parts.iter().enumerate().filter(|(_, p)| p.ready) {
+                let Some(root) = part.root else {
+                    continue;
+                };
+                let transform = part.sample_pose(&next, model, &overrides, index, &mut poses)?;
+                locals.insert(root, transform.into());
+                locals.extend(
+                    part.binding
+                        .0
+                        .iter()
+                        .zip(poses.iter().copied())
+                        .map(|(&(entity, _), pose)| (entity, pose)),
+                );
+            }
+            let empty = BTreeMap::new();
+            let mut dynamics = BTreeMap::new();
+            let mut driven = BTreeMap::new();
+            if let Some(primary) = viewer.parts.first().filter(|p| p.ready)
+                && let Some(root) = primary.root
+                && let Ok(rig) = rigs.get(root)
+            {
+                let roots = primary.clip.map_or(&[][..], |i| {
+                    primary.spec.scene.clips[i].pose_chains.as_slice()
+                });
+                let mut actor = resonance_events::Actor::new(0, [0.; 3]);
+                actor.heading = next.yaw;
+                if let Some(pose) = rig.predict(
+                    &actor,
+                    &Default::default(),
+                    menu.tick,
+                    Vec3::splat(model.scale),
+                    roots,
+                    |e| {
+                        Some((
+                            helper
+                                .predicted_global(e, &locals, &authored, &empty, None)
+                                .ok()?,
+                            helper.predicted_has_affine(e, &locals),
+                        ))
+                    },
+                ) {
+                    for part in viewer
+                        .parts
+                        .iter()
+                        .filter(|p| p.ready && p.spec.attached_to.is_none())
+                    {
+                        if let Some(rig) = part.root.and_then(|root| rigs.get(root).ok()) {
+                            pose.bind(rig, &mut dynamics, &mut driven);
+                        }
+                    }
+                }
+            }
+            Ok(helper
+                .pose_endpoints(
+                    locals.keys().copied(),
+                    &locals,
+                    &authored,
+                    &dynamics,
+                    &driven,
+                )
+                .collect::<Result<Vec<_>, _>>()?)
+        });
+        let output = match result.transpose() {
+            Ok(Some(output)) => output,
+            Ok(None) => return,
+            Err(e) => {
+                prediction.report_error(&e);
+                return;
+            }
+        };
+        // Copy out of scratch storage before retaining the cache across renders.
+        viewer.prediction.poses.clone_from(&output);
+        viewer.prediction.key = Some(key);
+    }
+    apply_poses(
+        &viewer.prediction.poses,
+        alpha,
+        &mut transforms,
+        &mut workspace,
+    );
+    let (mut nodes, _) = transforms.p1();
+    if let Ok(mut transform) = nodes.get_mut(viewer.camera) {
+        *transform = camera;
+    }
+    for part in viewer.parts.iter().filter(|p| p.ready) {
+        for (i, handle) in part.materials.iter().enumerate() {
+            if let Some(mut s) = surfaces.get_mut(handle) {
+                s.tint.w = opacity
+                    * part
+                        .spec
+                        .scene
+                        .outline_color_for(&part.spec.scene.materials[i])
+                        .map_or(1., |c| f32::from(c[3]) / 255.);
+            }
+        }
+    }
+}

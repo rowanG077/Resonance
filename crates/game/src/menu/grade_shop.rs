@@ -3,7 +3,7 @@ use resonance_content::grade::Benefit;
 use std::collections::BTreeSet;
 
 pub const VISIBLE: usize = 8;
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct State {
     pub row: usize,
     pub first: usize,

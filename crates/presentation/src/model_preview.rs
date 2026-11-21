@@ -1,7 +1,11 @@
 //! Prepared, animated catalogue models. Loading belongs to the paused menu.
 use crate::gpu_prepare as gpu;
+use crate::native::{MeshMaterial2d, MeshMaterial3d};
+use crate::sparse_animation::affine::Pose;
 pub(super) mod material;
 mod motion;
+mod prediction;
+mod residency;
 mod source;
 use anyhow::{Context as ContextExt, Result, ensure};
 use bevy::{
@@ -9,17 +13,14 @@ use bevy::{
         CameraProjection, RenderTarget, SubCameraView,
         visibility::{NoFrustumCulling, RenderLayers},
     },
-    core_pipeline::tonemapping::Tonemapping,
     ecs::system::SystemParam,
     gltf::Gltf,
     image::{ImageLoaderSettings, ImageSampler},
     prelude::*,
     render::{
-        erased_render_asset::prepare_erased_assets, extract_resource::ExtractResourcePlugin,
-        render_asset::prepare_assets, render_resource::TextureFormat, sync_world::MainEntity,
-        texture::GpuImage,
+        extract_resource::ExtractResourcePlugin, render_resource::TextureFormat,
+        sync_world::MainEntity,
     },
-    sprite_render::Material2dPlugin,
 };
 use material::{Composite, Surface};
 use resonance_content::model_preview::{ModelPreview, PreviewPart};
@@ -36,43 +37,28 @@ use symphonia_script_tools::PreparationCache;
 type Pending = crate::loading::Task<source::Prepared>;
 const LAYER: usize = 29;
 
-#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-struct CompositeImageReady;
-
 pub(super) fn install(app: &mut App) {
-    bevy::asset::embedded_asset!(app, "model_preview.wesl");
+    crate::native::init_material::<Composite>(app);
     let shared = gpu::Shared::default();
     app.insert_resource(shared.clone())
         .init_resource::<gpu::Capture>()
-        .add_plugins((
-            MaterialPlugin::<Surface>::default(),
-            Material2dPlugin::<Composite>::default(),
-            ExtractResourcePlugin::<gpu::Capture>::default(),
-        ))
+        .add_plugins(ExtractResourcePlugin::<gpu::Capture>::default())
         .add_systems(Startup, setup)
         .add_systems(
             Update,
-            (layout, prepare)
+            (layout, prepare, residency::sync)
                 .chain()
                 .after(crate::field_view::FieldPreparation),
         )
         .add_systems(
             PostUpdate,
-            (animate, pose, motion::apply)
+            (animate, motion::apply, prediction::present)
                 .chain()
-                .after(crate::secondary_motion::restore)
                 .before(bevy::transform::TransformSystems::Propagate),
         );
     app.get_sub_app_mut(bevy::render::RenderApp)
         .unwrap()
         .insert_resource(shared)
-        // A resize must upload the new texture view before the composite binds it.
-        .configure_sets(
-            bevy::render::Render,
-            CompositeImageReady
-                .after(prepare_assets::<GpuImage>)
-                .before(prepare_erased_assets::<MeshMaterial2d<Composite>>),
-        )
         .add_systems(
             bevy::render::Render,
             (gpu::rendered, gpu::capture_submitted).in_set(bevy::render::RenderSystems::Cleanup),
@@ -129,6 +115,57 @@ struct Part {
     bones: BTreeMap<String, Entity>,
     ready: bool,
 }
+impl Part {
+    /// Resolve the preview clock to authored 30-Hz frames for both pose evaluators.
+    fn animation_sample<'a>(
+        &'a self,
+        preview: &resonance_game::menu::preview::Preview<'_>,
+    ) -> Option<(&'a resonance_content::animation::Motion, f32)> {
+        let index = self.clip?;
+        let motion = &self.motions[index];
+        let tick = preview.sample(self.spec.scene.clips[index].duration_ticks());
+        let frame =
+            tick as f32 * resonance_content::animation::FRAME_HZ / resonance_content::ANIMATION_HZ;
+        Some((motion, frame.min(motion.duration_frames)))
+    }
+
+    /// The committed pose and its disposable endpoint use the prepared model's
+    /// coordinates, animation and behavior. The caller retains sampling storage.
+    fn sample_pose(
+        &self,
+        preview: &resonance_game::menu::preview::Preview<'_>,
+        model: &ModelPreview,
+        overrides: &PoseOverrides,
+        index: usize,
+        poses: &mut Vec<Pose>,
+    ) -> Result<Transform> {
+        ensure!(
+            overrides
+                .scales
+                .keys()
+                .all(|node| usize::from(node.part) < model.parts.len()),
+            "behavior references a missing preview part"
+        );
+        self.binding
+            .sample_poses(self.animation_sample(preview), poses)?;
+        for (node, scale) in &overrides.scales {
+            if usize::from(node.part) == index {
+                let pose = poses
+                    .get_mut(usize::from(node.bone))
+                    .context("behavior references a missing bound node")?;
+                *pose = pose.with_scale(Vec3::from_array(*scale));
+            }
+        }
+        Ok(if self.spec.attached_to.is_some() {
+            // Carried models share their parent bones' Z-up coordinates.
+            Transform::IDENTITY
+        } else {
+            Transform::from_translation(preview_translation(overrides, model.elevation))
+                .with_rotation(Quat::from_rotation_z(preview.yaw.to_radians()))
+                .with_scale(Vec3::splat(model.scale))
+        })
+    }
+}
 #[derive(Resource)]
 struct Viewer {
     camera: Entity,
@@ -146,6 +183,8 @@ struct Viewer {
     behavior: Option<PreparedBehavior>,
     behavior_tick: Option<u32>,
     overrides: PoseOverrides,
+    prediction: prediction::Cache,
+    dormant: Option<residency::Dormant>,
 }
 #[derive(Debug, PartialEq, Eq)]
 enum PreviewStatus {
@@ -196,9 +235,11 @@ pub(super) struct State<'w> {
     live: Option<ResMut<'w, crate::new_game::Session>>,
 }
 impl State<'_> {
-    fn menu(&mut self) -> Option<&mut resonance_game::menu::Menu> {
-        let session = &mut **self.live.as_mut()?;
-        session.menu_mut()
+    fn menu(&self) -> Option<&resonance_game::menu::Menu> {
+        self.live.as_ref()?.menu()
+    }
+    fn menu_mut(&mut self) -> Option<&mut resonance_game::menu::Menu> {
+        self.live.as_mut()?.menu_mut()
     }
 }
 #[derive(SystemParam)]
@@ -244,7 +285,6 @@ fn setup(
     let camera = commands
         .spawn((
             Camera3d::default(),
-            Tonemapping::Linear,
             Msaa::Off,
             Camera {
                 order: -10,
@@ -254,6 +294,7 @@ fn setup(
             },
             RenderLayers::layer(LAYER),
             RenderTarget::Image(target.clone().into()),
+            crate::native::Offscreen,
             preview_projection(size),
             Transform::default(),
         ))
@@ -289,6 +330,8 @@ fn setup(
         behavior: None,
         behavior_tick: None,
         overrides: PoseOverrides::default(),
+        prediction: Default::default(),
+        dormant: None,
     });
 }
 
@@ -340,7 +383,7 @@ fn layout(
     display: Res<crate::display::Display>,
     viewer: Res<Viewer>,
     mut images: ResMut<Assets<Image>>,
-    mut composites: ResMut<Assets<Composite>>,
+    composites: Res<Assets<Composite>>,
     mut projections: Query<&mut Projection>,
     mut transforms: Query<&mut Transform>,
 ) {
@@ -348,16 +391,14 @@ fn layout(
         return;
     }
     let size = display.0;
-    let image = composites.get(&viewer.composite).unwrap().image.clone();
-    let mut target = images.get_mut(&image).unwrap();
+    let image = &composites.get(&viewer.composite).unwrap().image;
+    let mut target = images.get_mut(image).unwrap();
     if target.size() != UVec2::new(size.width, size.scene_height()) {
         target.resize(bevy::render::render_resource::Extent3d {
             width: size.width,
             height: size.scene_height(),
             depth_or_array_layers: 1,
         });
-        // A resized image has a new texture view; refresh the sampling bind group.
-        composites.get_mut(&viewer.composite).unwrap().image = image;
     }
     *projections.get_mut(viewer.camera).unwrap() = preview_projection(size);
     transforms.get_mut(viewer.quad).unwrap().scale =
@@ -391,7 +432,9 @@ fn prepare(
         let selected = menu.preview().unwrap();
         let same_selection = viewer.record.as_ref().is_some_and(|r| r.id == selected.id);
         if same_selection && viewer.status == PreviewStatus::Unavailable {
-            menu.busy = false;
+            if menu.busy {
+                state.menu_mut().unwrap().busy = false;
+            }
             return Ok(());
         }
         commands.entity(viewer.quad).insert(Visibility::Inherited);
@@ -402,6 +445,8 @@ fn prepare(
         if same_selection && viewer.status == PreviewStatus::Ready {
             return Ok(());
         }
+        let menu = state.menu_mut().unwrap();
+        let selected = menu.preview().unwrap();
         if !same_selection {
             let record = Record {
                 id: selected.id,
@@ -637,7 +682,7 @@ fn prepare(
     if let Err(error) = result {
         fail(
             error,
-            state.menu(),
+            state.menu_mut(),
             &mut viewer,
             &mut commands,
             shared,
@@ -717,10 +762,7 @@ impl Part {
                     sampled,
                 ))
             };
-            self.materials.push(assets.surfaces.add(Surface {
-                base,
-                extension: default(),
-            }));
+            self.materials.push(assets.surfaces.add(base));
         }
         if let Some((index, _)) = self.spec.selected_clip()? {
             self.clip = Some(index);
@@ -813,6 +855,7 @@ fn animate(
     mut surfaces: ResMut<Assets<Surface>>,
     shared: Res<gpu::Shared>,
     mut failures: crate::field_view::Failures,
+    mut poses: Local<Vec<Pose>>,
 ) {
     let Some(menu) = state.menu() else {
         return;
@@ -832,14 +875,21 @@ fn animate(
             &viewer.overrides,
             viewer.record.as_ref().unwrap().preview.elevation,
         );
+        *transforms
+            .get_mut(viewer.camera)
+            .context("preview camera is missing")? = preview_camera(&preview);
         // Each ready part must be sampled before dynamics initialize, even while
         // another part is still loading.
-        for part in viewer.parts.iter().filter(|part| part.ready) {
+        for (index, part) in viewer
+            .parts
+            .iter()
+            .enumerate()
+            .filter(|(_, part)| part.ready)
+        {
             for (index, handle) in part.materials.iter().enumerate() {
                 let surface = &mut surfaces
                     .get_mut(handle)
-                    .context("prepared preview material is missing")?
-                    .base;
+                    .context("prepared preview material is missing")?;
                 surface.field_light = preview_light(translation);
                 surface.tint.w = f32::from(preview.opacity) / 255.
                     * part
@@ -848,111 +898,26 @@ fn animate(
                         .outline_color_for(&part.spec.scene.materials[index])
                         .map_or(1., |c| f32::from(c[3]) / 255.);
             }
-            if let Some(index) = part.clip {
-                let duration = part.spec.scene.clips[index].duration_ticks();
-                let tick = preview.sample(duration);
-                let clip = &part.motions[index];
-                part.binding.sample(
-                    clip,
-                    tick as f32 / resonance_content::ANIMATION_HZ,
-                    &mut transforms,
-                    &mut affine,
-                )?;
-            } else {
-                restore_pose(&part.binding, &mut transforms, &mut affine)?;
-            }
-        }
-        Ok(())
-    })();
-    if let Err(error) = result {
-        fail(
-            error,
-            Some(menu),
-            &mut viewer,
-            &mut commands,
-            &shared,
-            &mut failures,
-        );
-    }
-}
-
-fn pose(
-    mut commands: Commands,
-    mut state: State,
-    mut viewer: ResMut<Viewer>,
-    mut transforms: Query<&mut Transform>,
-    mut affine: ResMut<crate::sparse_animation::affine::Locals>,
-    shared: Res<gpu::Shared>,
-    mut failures: crate::field_view::Failures,
-) {
-    let Some(menu) = state.menu().filter(|m| m.preview().is_some()) else {
-        return;
-    };
-    let Some(record) = &viewer.record else { return };
-    if viewer.parts.is_empty() {
-        return;
-    }
-    let result = (|| -> Result<()> {
-        let preview = menu.preview().unwrap();
-        let distance = preview.distance;
-        let slide = 16 - i32::from(preview.page_fade) * 316 / 256;
-        let target = Vec3::new(
-            -distance * 4.8_f32.to_radians().sin() + (slide / 4 - 16) as f32,
-            0.,
-            distance * 6.4_f32.to_radians().sin(),
-        );
-        let eye = target
-            + Vec3::new(
-                0.,
-                -distance * 15_f32.to_radians().cos(),
-                distance * 15_f32.to_radians().sin(),
-            );
-        *transforms
-            .get_mut(viewer.camera)
-            .context("preview camera is missing")? =
-            Transform::from_translation(eye).looking_at(target, Vec3::Z);
-        ensure!(
-            viewer
-                .overrides
-                .scales
-                .keys()
-                .all(|node| usize::from(node.part) < viewer.parts.len()),
-            "behavior references a missing preview part"
-        );
-        for (index, part) in viewer.parts.iter().enumerate() {
-            if !part.ready {
-                continue;
-            }
-            {
-                let mut transform =
-                    transforms.get_mut(part.root.context("prepared preview root missing")?)?;
-                *transform = if part.spec.attached_to.is_some() {
-                    // Carried models share their parent bones' Z-up coordinates.
-                    Transform::IDENTITY
-                } else {
-                    Transform::from_translation(preview_translation(
-                        &viewer.overrides,
-                        record.preview.elevation,
-                    ))
-                    .with_rotation(Quat::from_rotation_z(preview.yaw.to_radians()))
-                    .with_scale(Vec3::splat(record.preview.scale))
-                };
-            }
-            scale_nodes(
-                &part.binding,
-                viewer.overrides.scales.iter().filter_map(|(node, scale)| {
-                    (usize::from(node.part) == index).then_some((node.bone, *scale))
-                }),
-                &mut transforms,
-                &mut affine,
+            let root_pose = part.sample_pose(
+                &preview,
+                &viewer.record.as_ref().unwrap().preview,
+                &viewer.overrides,
+                index,
+                &mut poses,
             )?;
+            *transforms.get_mut(part.root.context("prepared preview root missing")?)? = root_pose;
+            for (&(entity, rest), &pose) in part.binding.0.iter().zip(poses.iter()) {
+                let mut local = rest;
+                affine.set(entity, &mut local, pose);
+                transforms.get_mut(entity)?.set_if_neq(local);
+            }
         }
         Ok(())
     })();
     if let Err(error) = result {
         fail(
             error,
-            Some(menu),
+            state.menu_mut(),
             &mut viewer,
             &mut commands,
             &shared,
@@ -975,6 +940,23 @@ fn evaluate_behavior(
     behavior.evaluate(|flag| checkpoint.progress().event_flags.contains(&flag))
 }
 
+fn preview_camera(preview: &resonance_game::menu::preview::Preview<'_>) -> Transform {
+    let distance = preview.distance;
+    let slide = 16 - i32::from(preview.page_fade) * 316 / 256;
+    let target = Vec3::new(
+        -distance * 4.8_f32.to_radians().sin() + (slide / 4 - 16) as f32,
+        0.,
+        distance * 6.4_f32.to_radians().sin(),
+    );
+    let eye = target
+        + Vec3::new(
+            0.,
+            -distance * 15_f32.to_radians().cos(),
+            distance * 15_f32.to_radians().sin(),
+        );
+    Transform::from_translation(eye).looking_at(target, Vec3::Z)
+}
+
 fn preview_translation(pose: &PoseOverrides, elevation: f32) -> Vec3 {
     pose.translation
         .map_or(Vec3::new(0., 0., elevation), Vec3::from_array)
@@ -982,37 +964,6 @@ fn preview_translation(pose: &PoseOverrides, elevation: f32) -> Vec3 {
 
 fn preview_light(translation: Vec3) -> Vec4 {
     (translation + Vec3::new(-600., -600., 1400.)).extend(192.)
-}
-
-fn restore_pose(
-    binding: &crate::sparse_animation::Binding,
-    transforms: &mut Query<&mut Transform>,
-    affine: &mut crate::sparse_animation::affine::Locals,
-) -> Result<()> {
-    for &(entity, rest) in &binding.0 {
-        affine.set(entity, &mut *transforms.get_mut(entity)?, rest.into());
-    }
-    Ok(())
-}
-
-fn scale_nodes(
-    binding: &crate::sparse_animation::Binding,
-    scales: impl Iterator<Item = (u16, [f32; 3])>,
-    transforms: &mut Query<&mut Transform>,
-    affine: &mut crate::sparse_animation::affine::Locals,
-) -> Result<()> {
-    for (bone, scale) in scales {
-        let &(entity, _) = binding
-            .0
-            .get(usize::from(bone))
-            .context("behavior references a missing bound node")?;
-        affine.scale(
-            entity,
-            &mut *transforms.get_mut(entity)?,
-            Vec3::from_array(scale),
-        );
-    }
-    Ok(())
 }
 
 fn fail(
@@ -1040,6 +991,7 @@ fn fail(
         }
     }
     viewer.retired.clear();
+    viewer.dormant = None;
     commands.entity(viewer.quad).insert(Visibility::Hidden);
     commands
         .entity(viewer.camera)
@@ -1051,11 +1003,25 @@ fn fail(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sparse_animation::{
-        Binding,
-        affine::{Locals, Pose},
-    };
-    use bevy::{ecs::system::RunSystemOnce, math::Affine3A};
+    use crate::sparse_animation::Binding;
+    use bevy::ecs::system::RunSystemOnce;
+
+    fn part(spec: PreviewPart, binding: Binding) -> Part {
+        Part {
+            spec,
+            gltf: Default::default(),
+            textures: vec![],
+            toon: None,
+            root: None,
+            materials: vec![],
+            clips: vec![],
+            motions: vec![],
+            clip: None,
+            binding,
+            bones: Default::default(),
+            ready: true,
+        }
+    }
 
     #[test]
     fn viewport_margins_reveal_models_without_moving_the_authored_view() {
@@ -1131,6 +1097,77 @@ mod tests {
                 assert_eq!(projection, baseline, "authored framing changed");
             }
         }
+    }
+
+    #[test]
+    fn preview_poses_use_prepared_coordinates_and_thirty_hz_frames() -> Result<()> {
+        use resonance_content::animation::{
+            Channel, Interpolation, Motion, NodeTrack, Track, Transform as Trs,
+        };
+        let motion = Arc::new(Motion {
+            duration_frames: 30.,
+            tracks: vec![Track {
+                bone: 0,
+                nodes: vec![Arc::new(NodeTrack {
+                    translation: Some(Channel {
+                        interpolation: Interpolation::Linear,
+                        times: vec![0., 1.],
+                        values: vec![[0.; 3], [30., 0., 0.]],
+                    }),
+                    ..NodeTrack::new(Trs::default())
+                })],
+            }],
+        });
+        let spec: PreviewPart = serde_json::from_value(serde_json::json!({
+            "resource":1,"mesh":"test.glb","textures":[],"materials":[],
+                "translation":[0.,0.,0.],"autoplay":false,"texture_animations":[],
+                "clips":[{"motion":"test.motion","slots":[0],"duration_seconds":1.}],
+            "animation":0,"attached_to":null,"additive":false
+        }))?;
+        let mut part = part(
+            spec.clone(),
+            Binding(vec![(Entity::PLACEHOLDER, Transform::IDENTITY)]),
+        );
+        part.motions.push(motion);
+        part.clip = Some(0);
+        let catalogue = ModelPreview {
+            document: Default::default(),
+            scale: 1.,
+            elevation: 0.,
+            parts: vec![spec],
+            hidden_geometry: vec![],
+            behavior: None,
+        };
+        // Named model documents can replace the catalogue's initial placement.
+        let mut prepared = catalogue.clone();
+        prepared.scale = 2.;
+        prepared.elevation = 80.;
+        let mut poses = Vec::new();
+        for (tick, expected) in [(0, 0.), (1, 0.5), (21, 10.5), (60, 30.), (61, 0.5)] {
+            let preview = resonance_game::menu::preview::Preview {
+                id: PreviewId::Monster(0),
+                model: &catalogue,
+                yaw: 90.,
+                distance: 1.,
+                animation_tick: tick,
+                opacity: 255,
+                page_fade: 0,
+            };
+            for attached in [false, true] {
+                part.spec.attached_to = attached.then(|| "hand".into());
+                let root =
+                    part.sample_pose(&preview, &prepared, &Default::default(), 0, &mut poses)?;
+                assert_eq!(poses[0].global().translation(), Vec3::X * expected);
+                if attached {
+                    assert_eq!(root, Transform::IDENTITY);
+                } else {
+                    assert_eq!(root.translation, Vec3::Z * 80.);
+                    assert_eq!(root.scale, Vec3::splat(2.));
+                    assert!((root.rotation * Vec3::X).abs_diff_eq(Vec3::Y, 0.00001));
+                }
+            }
+        }
+        Ok(())
     }
 
     #[test]
@@ -1221,54 +1258,74 @@ mod tests {
     }
 
     #[test]
-    fn indexed_behavior_scales_reset_body_and_outline_without_an_animation() {
+    fn indexed_behavior_scales_reset_body_and_outline_without_an_animation() -> Result<()> {
+        use resonance_content::{
+            animation::{Motion, NodeTrack, Track, Transform as Trs},
+            model_behavior::Node,
+        };
         let mut world = World::new();
-        world.init_resource::<Locals>();
         let rest = Transform::from_xyz(1., 2., 3.);
         let entities: [[Entity; 2]; 2] = std::array::from_fn(|_| {
             std::array::from_fn(|_| world.spawn((Name::new("repeated"), rest)).id())
         });
+        let spec: PreviewPart = serde_json::from_value(serde_json::json!({
+            "mesh":"test.glb", "clips":[{"motion":"test.motion","slots":[0],"duration_seconds":1.}]
+        }))?;
+        let model = ModelPreview {
+            document: None,
+            scale: 1.,
+            elevation: 0.,
+            parts: vec![spec.clone(); 2],
+            hidden_geometry: vec![],
+            behavior: None,
+        };
+        let preview = resonance_game::menu::preview::Preview {
+            id: PreviewId::Monster(0),
+            model: &model,
+            yaw: 0.,
+            distance: 1.,
+            animation_tick: 0,
+            opacity: 255,
+            page_fade: 0,
+        };
+        let affine = Arc::new(Motion {
+            duration_frames: 30.,
+            tracks: vec![Track {
+                bone: 0,
+                nodes: vec![
+                    Arc::new(NodeTrack::new(Trs {
+                        translation: [20.; 3],
+                        ..Default::default()
+                    })),
+                    Arc::new(NodeTrack::new(Trs::default())),
+                ],
+            }],
+        });
+        let mut parts = entities.map(|nodes| {
+            let mut part = part(
+                spec.clone(),
+                Binding(nodes.map(|entity| (entity, rest)).into()),
+            );
+            part.motions.push(affine.clone());
+            part
+        });
+        let mut poses = Vec::new();
         for hidden in [true, false, true] {
-            world
-                .run_system_once(
-                    move |mut transforms: Query<&mut Transform>, mut affine: ResMut<Locals>| {
-                        for nodes in entities {
-                            let binding = Binding(nodes.map(|entity| (entity, rest)).into());
-                            restore_pose(&binding, &mut transforms, &mut affine).unwrap();
-                            if hidden {
-                                // Hiding an affine node preserves its translation.
-                                affine.set(
-                                    nodes[0],
-                                    &mut transforms.get_mut(nodes[0]).unwrap(),
-                                    Pose::Affine(Affine3A::from_translation(Vec3::splat(20.))),
-                                );
-                            }
-                            scale_nodes(
-                                &binding,
-                                hidden.then_some((0, [0.; 3])).into_iter(),
-                                &mut transforms,
-                                &mut affine,
-                            )
-                            .unwrap();
-                            assert!(
-                                scale_nodes(
-                                    &binding,
-                                    [(2, [1.; 3])].into_iter(),
-                                    &mut transforms,
-                                    &mut affine
-                                )
-                                .is_err()
-                            );
-                        }
-                    },
-                )
-                .unwrap();
-            for nodes in entities {
+            for (index, part) in parts.iter_mut().enumerate() {
+                part.clip = hidden.then_some(0);
+                let mut overrides = PoseOverrides::default();
+                if hidden {
+                    overrides.scales.insert(
+                        Node {
+                            part: index as u16,
+                            bone: 0,
+                        },
+                        [0.; 3],
+                    );
+                }
+                part.sample_pose(&preview, &model, &overrides, index, &mut poses)?;
                 assert_eq!(
-                    world
-                        .resource::<Locals>()
-                        .get(nodes[0], *world.get::<Transform>(nodes[0]).unwrap())
-                        .global(),
+                    poses[0].global(),
                     if hidden {
                         GlobalTransform::from(Transform {
                             translation: Vec3::splat(20.),
@@ -1279,7 +1336,18 @@ mod tests {
                         GlobalTransform::from(rest)
                     }
                 );
-                assert_eq!(*world.get::<Transform>(nodes[1]).unwrap(), rest);
+                assert_eq!(poses[1], rest.into());
+                overrides.scales.insert(
+                    Node {
+                        part: index as u16,
+                        bone: 2,
+                    },
+                    [1.; 3],
+                );
+                assert!(
+                    part.sample_pose(&preview, &model, &overrides, index, &mut poses)
+                        .is_err()
+                );
             }
         }
         let translated = PoseOverrides {
@@ -1296,5 +1364,6 @@ mod tests {
             preview_translation(&PoseOverrides::default(), 0.),
             Vec3::ZERO
         );
+        Ok(())
     }
 }

@@ -119,35 +119,23 @@ impl HudLayer {
         }
     }
 
-    pub(super) fn prepare(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
+    pub(super) fn prepare(&mut self, commands: &mut Commands) {
         if self.rendered.is_some() {
             return;
         }
-        let mut batch = Batch::default();
-        batch.quad([0., 0., 1., 1.], [0., 0., 1., 1.], [1.; 4]);
-        if self.definition.texture_effect == TextureEffect::GlyphPattern {
-            batch.pattern_uv = batch.uv.clone();
-        }
-        self.rendered = Some(Layer::with_mesh(
+        self.rendered = Some(Layer::new(
             self.material.clone(),
             self.definition.depth,
-            batch.mesh([1, 1]),
             commands,
-            meshes,
         ));
     }
-    pub(super) fn upload(
-        &mut self,
-        batch: Batch,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<()> {
+    pub(super) fn upload(&mut self, batch: Batch, commands: &mut Commands) -> Result<()> {
         let visible = !batch.indices.is_empty();
         let layer = self
             .rendered
             .as_mut()
             .context("battle HUD layer was not prepared")?;
-        layer.update_mesh(batch, self.definition.size, meshes)?;
+        layer.update(batch, self.definition.size);
         layer.show(visible, commands);
         Ok(())
     }

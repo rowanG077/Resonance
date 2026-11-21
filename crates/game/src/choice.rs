@@ -11,7 +11,7 @@ pub struct ChoiceInput {
     pub cancel: bool,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ChoicePlayer {
     operation: Option<u64>,
     direction: [i8; 2],

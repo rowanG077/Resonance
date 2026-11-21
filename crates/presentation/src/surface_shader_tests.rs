@@ -1,14 +1,13 @@
-//! Compose the actual surface shader and Bevy imports without a render device.
+//! Compose the native frame's shaders and their Bevy imports without a render device.
 use crate::test_support::validate_shader;
 use bevy::{
-    pbr::{MAX_CASCADES_PER_LIGHT, MAX_DIRECTIONAL_LIGHTS, MAX_RECT_LIGHTS},
     prelude::*,
     shader::{ShaderCache, ShaderCacheError, ShaderDefVal},
 };
 use std::{fs, path::Path, process::Command};
 
 #[test]
-fn surface_shaders_validate_for_field_and_effect_materials() -> anyhow::Result<()> {
+fn native_frame_shaders_validate() -> anyhow::Result<()> {
     // Resolve the locked dependency versions, including patched/local Bevy
     // checkouts, instead of copying shader declarations into this test.
     // CI runs `cargo fetch --locked` first: metadata can need manifests beyond
@@ -91,12 +90,35 @@ fn surface_shaders_validate_for_field_and_effect_materials() -> anyhow::Result<(
         let handle = assets.add(shader.clone());
         cache.set_shader(handle.id(), shader);
     }
-    let ui = Shader::from_wesl(
-        include_str!("field_ui.wesl"),
-        "embedded://resonance_presentation/field_ui.wesl",
+    let mut add = |path: &str, source: &'static str| {
+        let shader = Shader::from_wesl(source, format!("embedded://resonance_presentation/{path}"));
+        let handle = assets.add(shader.clone());
+        cache.set_shader(handle.id(), shader);
+        handle
+    };
+    add("native_frame.wesl", include_str!("native_frame.wesl"));
+    let ui = add("field_ui.wesl", include_str!("field_ui.wesl"));
+    let vertex = add(
+        "native_surface_vertex.wesl",
+        include_str!("native_surface_vertex.wesl"),
     );
-    let ui_handle = assets.add(ui.clone());
-    cache.set_shader(ui_handle.id(), ui);
+    let fragment = add("title_surface.wesl", include_str!("title_surface.wesl"));
+    let flat = add("native_flat.wesl", include_str!("native_flat.wesl"));
+    let effects = [
+        ("field_dissolve", include_str!("field_dissolve.wesl")),
+        ("field_refraction", include_str!("field_refraction.wesl")),
+        (
+            "native_scene_sample",
+            include_str!("native_scene_sample.wesl"),
+        ),
+    ]
+    .map(|(name, source)| (name, add(&format!("{name}.wesl"), source)));
+    // Every pipeline of the native frame adds this, as `native::render::defs`.
+    let native = |names: &[&'static str]| {
+        let mut defs: Vec<ShaderDefVal> = names.iter().copied().map(ShaderDefVal::from).collect();
+        defs.push(ShaderDefVal::UInt("MATERIAL_BIND_GROUP".into(), 1));
+        defs
+    };
     for interpolation in [
         &[][..],
         &["CLAMP_UI_ATLAS"][..],
@@ -109,125 +131,87 @@ fn surface_shaders_validate_for_field_and_effect_materials() -> anyhow::Result<(
             Some("GLYPH_PATTERN"),
             Some("OPAQUE_IMAGE"),
         ] {
-            let mut defs = vec![ShaderDefVal::UInt("MATERIAL_BIND_GROUP".into(), 2)];
-            for &definition in interpolation {
-                defs.push(definition.into());
-            }
-            if let Some(effect) = effect {
-                defs.push(effect.into());
-            }
-            cache.get(0, ui_handle.id(), &defs).map_err(|error| {
+            let mut defs = native(interpolation);
+            defs.extend(effect.map(ShaderDefVal::from));
+            cache.get(0, ui.id(), &defs).map_err(|error| {
                 anyhow::anyhow!("UI interpolation={interpolation:?}, effect={effect:?}: {error:?}")
             })?;
         }
     }
-    let shaders = [
-        ("fragment", include_str!("title_surface.wesl")),
-        ("vertex", include_str!("title_surface_vertex.wesl")),
-        ("title_output", include_str!("title_output.wesl")),
-        ("title_text", include_str!("title_text.wesl")),
-        ("title_glow", include_str!("title_glow.wesl")),
-        ("field_water", include_str!("field_water.wesl")),
-        ("field_dissolve", include_str!("field_dissolve.wesl")),
-        ("menu_backdrop", include_str!("menu_backdrop.wesl")),
-        ("model_preview", include_str!("model_preview.wesl")),
-        ("refraction", include_str!("field_refraction.wesl")),
-        ("captured_mesh", include_str!("field_capture.wesl")),
-        (
-            "battle_scene_sample",
-            include_str!("battle_view/scene_sample.wesl"),
-        ),
-    ]
-    .map(|(name, source)| {
-        let shader = Shader::from_wesl(
-            source,
-            format!("embedded://resonance_presentation/{name}.wesl"),
-        );
-        let handle = assets.add(shader.clone());
-        cache.set_shader(handle.id(), shader);
-        (name, handle)
-    });
-    for bindless in [false, true] {
-        for fog in [false, true] {
-            for (lighting, particles, vertex_alpha) in [
-                (false, false, false),
-                (true, false, false),
-                (false, true, false),
-                (false, true, true),
-                (true, true, true),
+    for immediate in [false, true] {
+        for (world, fog, skinned, layout) in [
+            (false, false, false, false),
+            (false, true, true, true),
+            (false, false, false, true),
+            (true, false, false, false),
+            (true, true, false, false),
+        ] {
+            for material in [
+                &[][..],
+                &["CONSTANT_COLOR"][..],
+                &["MULTIPLY_ALPHA_ONLY"][..],
+                &["CLAMP_COLOR"][..],
+                &["CLAMP_COLOR", "VERTEX_ALPHA"][..],
             ] {
-                let mut defs: Vec<ShaderDefVal> = [
-                    ("MATERIAL_BIND_GROUP", 3),
-                    ("MAX_DIRECTIONAL_LIGHTS", MAX_DIRECTIONAL_LIGHTS as u32),
-                    ("MAX_CASCADES_PER_LIGHT", MAX_CASCADES_PER_LIGHT as u32),
-                    ("MAX_RECT_LIGHTS", MAX_RECT_LIGHTS as u32),
-                    ("AVAILABLE_STORAGE_BUFFER_BINDINGS", 8),
-                ]
-                .map(|(name, value)| ShaderDefVal::UInt(name.into(), value))
-                .into();
-                defs.extend(
-                    [
-                        "VERTEX_POSITIONS",
-                        "VERTEX_NORMALS",
-                        "VERTEX_UVS_A",
-                        "VERTEX_UVS_B",
-                        "VERTEX_COLORS",
-                        "VERTEX_OUTPUT_INSTANCE_INDEX",
-                    ]
-                    .map(ShaderDefVal::from),
-                );
+                let mut defs = native(&[
+                    "VERTEX_NORMALS",
+                    "VERTEX_UVS_A",
+                    "VERTEX_UVS_B",
+                    "VERTEX_COLORS",
+                ]);
+                defs.extend(material.iter().copied().map(ShaderDefVal::from));
                 for (name, enabled) in [
-                    ("BINDLESS", bindless),
+                    ("WORLD_SURFACE", world),
                     ("DISTANCE_FOG", fog),
-                    ("FIELD_LIGHTING", lighting),
-                    ("CLAMP_COLOR", particles),
-                    ("VERTEX_ALPHA", vertex_alpha),
+                    ("SKINNED", skinned),
+                    ("SURFACE_LAYOUT", layout),
+                    ("NATIVE_IMMEDIATE_SLOT", immediate),
                 ] {
                     if enabled {
                         defs.push(name.into());
                     }
                 }
-                for (name, handle) in &shaders {
-                    if *name == "fragment" {
-                        for flags in [vec!["CONSTANT_COLOR"], vec!["MULTIPLY_ALPHA_ONLY"]] {
-                            let mut effect = defs.clone();
-                            effect.extend(flags.iter().copied().map(ShaderDefVal::from));
-                            cache.get(0, handle.id(), &effect).map_err(|error| {
-                                anyhow::anyhow!("surface effect {flags:?}: {error:?}")
-                            })?;
-                        }
+                for (stage, handle) in [("vertex", &vertex), ("fragment", &fragment)] {
+                    cache.get(0, handle.id(), &defs).map_err(|error| {
+                        anyhow::anyhow!(
+                            "surface {stage}: immediate={immediate}, world={world}, fog={fog}, \
+                             skinned={skinned}, layout={layout}, material={material:?}: {error:?}"
+                        )
+                    })?;
+                }
+            }
+        }
+    }
+    // The flat quads: output, text, menu backdrop, model preview composite,
+    // glow, water and blits, with and without vertex colors.
+    for colors in [&[][..], &["VERTEX_COLORS"][..]] {
+        cache
+            .get(0, flat.id(), &native(colors))
+            .map_err(|error| anyhow::anyhow!("flat quads {colors:?}: {error:?}"))?;
+    }
+    // Scene effects, single- and multisampled.
+    for (name, handle) in &effects {
+        for depth in [&[][..], &["MULTISAMPLED_DEPTH"][..]] {
+            for masked in [false, true] {
+                let mut defs: Vec<ShaderDefVal> =
+                    depth.iter().copied().map(ShaderDefVal::from).collect();
+                if *name == "field_refraction" {
+                    defs.push("NATIVE_SCENE".into());
+                }
+                if *name == "native_scene_sample" {
+                    defs.extend(
+                        ["NATIVE_SCENE", "DEPTH_TEST", "VERTEX_COLORS"].map(ShaderDefVal::from),
+                    );
+                    if masked {
+                        defs.push("MASKED_SCENE".into());
                     }
-                    if *name == "vertex" {
-                        for flags in [
-                            vec!["SKINNED"],
-                            vec!["SURFACE_LAYOUT"],
-                            vec!["SKINNED", "SURFACE_LAYOUT"],
-                            vec!["MORPH_TARGETS"],
-                            vec!["SKINNED", "MORPH_TARGETS"],
-                        ] {
-                            let mut animated = defs.clone();
-                            animated.extend(flags.iter().copied().map(ShaderDefVal::from));
-                            cache.get(0, handle.id(), &animated).map_err(|error| {
-                                anyhow::anyhow!("animated vertex {flags:?}: {error:?}")
-                            })?;
-                        }
-                    }
-                    if matches!(*name, "refraction" | "captured_mesh") {
-                        let mut multisampled = defs.clone();
-                        multisampled.push("MULTISAMPLED_DEPTH".into());
-                        cache
-                            .get(0, handle.id(), &multisampled)
-                            .map_err(|error| anyhow::anyhow!("multisampled {name}: {error:?}"))?;
-                    }
-                    if let Err(error) = cache.get(0, handle.id(), &defs) {
-                        let message = match error {
-                            ShaderCacheError::ProcessShaderError(error) => error,
-                            error => error.to_string(),
-                        };
-                        anyhow::bail!(
-                            "{name}: bindless={bindless}, fog={fog}, lighting={lighting}, particles={particles}, vertex_alpha={vertex_alpha}: {message}"
-                        );
-                    }
+                }
+                if let Err(error) = cache.get(0, handle.id(), &defs) {
+                    let message = match error {
+                        ShaderCacheError::ProcessShaderError(error) => error,
+                        error => error.to_string(),
+                    };
+                    anyhow::bail!("{name} {depth:?}: {message}");
                 }
             }
         }

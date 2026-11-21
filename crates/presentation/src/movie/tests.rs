@@ -1,5 +1,6 @@
 //! Exercise the actual movie systems and native mixer without an output device.
 use super::*;
+use crate::native::MeshMaterial2d;
 use crate::{Art, Clock, FieldAssets, Menu};
 use resonance_events::input::{Button, Buttons};
 use resonance_game::TitleState;

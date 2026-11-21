@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Default, serde::Serialize)]
+#[derive(Default, serde::Serialize, Clone)]
 pub struct Transform {
     pub original_row: usize,
     pub original_first: usize,

@@ -4,10 +4,12 @@ mod camera_tests;
 #[cfg(test)]
 mod continuity_tests;
 mod frame;
+mod prediction;
 use super::field_view::{ActorPart, Art, Part, State};
 use super::sparse_animation::affine::{Locals, Pose};
 use bevy::prelude::*;
 use frame::Frame;
+pub(super) use prediction::{prepare as prepare_prediction, present};
 use resonance_events::{Actor, Animation, Wings};
 use std::collections::BTreeSet;
 
@@ -21,7 +23,6 @@ pub(super) struct Rig {
     secondary_bones: BTreeSet<usize>,
     from: Vec<Frame>,
     presented: Vec<Frame>,
-    authored_channels: Vec<u8>,
     clip: Option<(resonance_events::animation::AnimationSource, u32, u16, u32)>,
 }
 
@@ -65,61 +66,78 @@ pub(super) fn bind(
                 pass: part.pass,
             };
             let weight = sample.wing_weight(start.animation.as_ref()).unwrap_or(1.);
-            for clip in start.animation.iter().chain(&start.scenery_animations) {
-                if let Some(tracks) = sample.tracks(&mut rig, artwork, clip) {
-                    for (bone, mut pose) in tracks {
-                        rig.blend_bone(bone, &mut pose, weight, true);
+            let echo = sample
+                .wings
+                .and_then(|w| w.layer(sample.pass, sample.effect_tick).echo);
+            let mut channels = vec![0; rig.bones.len()];
+            for animation in start.animation.iter().chain(&start.scenery_animations) {
+                if let Some(clip) = sample.clip(artwork, animation, echo) {
+                    let tracks = sample_tracks(
+                        &rig.bones,
+                        &mut channels,
+                        clip.motion,
+                        clip.time,
+                        clip.echo_weight,
+                    )
+                    .collect::<anyhow::Result<Vec<_>>>()
+                    .expect("validated animation must evaluate");
+                    for (bone, pose) in tracks {
+                        rig.presented[bone] =
+                            rig.blended_bone(bone, pose, rig.from[bone], weight, true);
                     }
                 }
             }
-            rig.sampled = rig.authored_channels.iter().any(|&channels| channels != 0);
+            rig.sampled = channels.iter().any(|&channels| channels != 0);
         }
         commands.entity(root).insert(rig);
     }
 }
 
-/// Sparse clips omit unchanged channels, so restore every bone before sampling.
-pub(super) fn restore(rigs: Query<&Rig>, mut nodes: Query<&mut Transform>) {
-    for rig in &rigs {
-        for &(entity, rest) in &rig.bones {
-            if let Ok(mut transform) = nodes.get_mut(entity) {
-                *transform = rest;
-            }
-        }
-    }
+struct SampledClip<'a> {
+    animation: &'a resonance_events::Animation,
+    motion: &'a resonance_content::animation::Motion,
+    time: f32,
+    roots: &'a [String],
+    echo_weight: Option<f32>,
 }
 
-/// Resolve the displayed clip and its sampling time.
-fn sample_clip<'a>(
-    model: &'a Part,
-    animation: &Animation,
-    resource: u32,
-    tick: u32,
-    delay: f32,
-) -> Option<(&'a resonance_content::animation::Motion, f32)> {
-    let index = model
-        .spec
-        .clips
-        .iter()
-        .position(|clip| animation.matches(clip, resource))?;
-    let spec = &model.spec.clips[index];
-    let duration = spec.duration_seconds * resonance_content::ANIMATION_HZ;
-    let mut time = animation.sample(tick, 0, duration);
-    if delay != 0. && duration > 0. {
-        time -= delay;
-        if time < 0. || time > duration {
-            let phase = time.rem_euclid(duration);
-            time = if phase == 0. && time > 0. {
-                duration
-            } else {
-                phase
-            };
+/// Predictions retain the current echo when its slot changes in the next tick.
+/// All other clip timing and entrance rules are shared with committed sampling.
+fn sample_clips<'a>(
+    model: &'a crate::field_view::Part,
+    actor: &'a resonance_events::Actor,
+    pass: u8,
+    world: &'a resonance_events::GameWorld,
+    echo: Option<&'a resonance_events::WingEcho>,
+) -> impl Iterator<Item = SampledClip<'a>> + 'a {
+    let sample = ActorSample::current(actor, world, pass);
+    actor
+        .field_model_animation()
+        .into_iter()
+        .chain(actor.scenery_animations.values())
+        .filter_map(move |animation| sample.clip(model, animation, echo))
+}
+
+fn sample_tracks<'a>(
+    bones: &'a [(Entity, Transform)],
+    channels: &'a mut [u8],
+    motion: &'a resonance_content::animation::Motion,
+    time: f32,
+    echo_weight: Option<f32>,
+) -> impl Iterator<Item = anyhow::Result<(usize, Frame)>> + 'a {
+    motion.tracks.iter().map(move |track| {
+        let i = usize::from(track.bone);
+        let rest = bones[i].1;
+        channels[i] |= track.channels().0;
+        let mut frame = Frame::sample(
+            super::sparse_animation::sample_track(track, time, rest)?,
+            channels[i],
+        );
+        if let Some(weight) = echo_weight {
+            frame = Frame::sample(rest.into(), 0).mix(frame, rest, weight);
         }
-    }
-    Some((
-        &model.motions[index],
-        time * resonance_content::animation::FRAME_HZ / resonance_content::ANIMATION_HZ,
-    ))
+        Ok((i, frame))
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -148,41 +166,63 @@ impl<'a> ActorSample<'a> {
             .map(|entrance| entrance.weight)
     }
 
-    fn tracks(
+    fn clip(
         self,
-        rig: &mut Rig,
-        model: &Part,
-        animation: &Animation,
-    ) -> Option<Vec<(usize, Frame)>> {
-        let layer = self.wings.map(|w| w.layer(self.pass, self.effect_tick));
+        model: &'a Part,
+        animation: &'a Animation,
+        echo: Option<&resonance_events::WingEcho>,
+    ) -> Option<SampledClip<'a>> {
+        let delay = if echo.is_some() {
+            -1.
+        } else {
+            self.wings
+                .map_or(0., |w| w.layer(self.pass, self.effect_tick).pose_delay)
+        };
+        let echo_weight = echo.and_then(|e| e.entrance_weight(self.tick));
+        let index = model
+            .spec
+            .clips
+            .iter()
+            .position(|clip| animation.matches(clip, self.resource))?;
+        let spec = &model.spec.clips[index];
+        let duration = spec.duration_seconds * resonance_content::ANIMATION_HZ;
+        let mut time = animation.sample(self.tick, 0, duration);
         let delay = self
             .wings
             .and_then(|w| w.entrance(self.pass, self.tick.saturating_sub(animation.start_tick)))
-            .map_or_else(
-                || layer.as_ref().map_or(0., |layer| layer.pose_delay),
-                |entrance| entrance.delay,
-            );
-        let (clip, mut time) = sample_clip(model, animation, self.resource, self.tick, delay)?;
-        let echo = layer
-            .and_then(|layer| layer.echo)
-            .and_then(|echo| echo.entrance_weight(self.tick));
-        if echo.is_some() {
-            time = 0.;
-        }
-        let mut tracks = rig
-            .sample_tracks(clip, time)
-            .expect("validated animation must evaluate");
-        if let Some(weight) = echo {
-            for (i, pose) in &mut tracks {
-                let rest = rig.bones[*i].1;
-                *pose = Frame::sample(rest.into(), 0).mix(*pose, rest, weight);
+            .map_or(delay, |entrance| entrance.delay);
+        if delay != 0. && duration > 0. {
+            time -= delay;
+            if time < 0. || time > duration {
+                let phase = time.rem_euclid(duration);
+                time = if phase == 0. && time > 0. {
+                    duration
+                } else {
+                    phase
+                };
             }
         }
-        Some(tracks)
+        Some(SampledClip {
+            animation,
+            motion: &model.motions[index],
+            time: if echo_weight.is_some() {
+                0.
+            } else {
+                time * resonance_content::animation::FRAME_HZ / resonance_content::ANIMATION_HZ
+            },
+            roots: &spec.pose_chains,
+            echo_weight,
+        })
     }
 }
 
-/// Evaluate sparse curves before blending and script adjustments.
+#[derive(Default)]
+pub(super) struct Sample {
+    poses: Vec<Frame>,
+    channels: Vec<u8>,
+}
+
+/// Evaluate and blend in reusable storage, then publish each authored bone once.
 pub(super) fn sample(
     state: State,
     art: Res<Art>,
@@ -190,33 +230,45 @@ pub(super) fn sample(
     mut nodes: Query<&mut Transform>,
     mut affine: ResMut<Locals>,
     mut applied: ResMut<super::field_audit::Applied>,
+    mut output: Local<Sample>,
 ) {
     let world = &state.get().events.world;
     for (part, mut rig) in &mut rigs {
-        rig.authored_channels.fill(0);
         let actor = world.field_model_actor(part.actor).unwrap();
-        let sample = ActorSample::current(actor, world, part.pass);
         let model = &art.models[&part.resource][part.part];
-        for animation in actor
-            .field_model_animation()
-            .into_iter()
-            .chain(actor.scenery_animations.values())
-        {
-            let Some(tracks) = sample.tracks(&mut rig, model, animation) else {
-                continue;
-            };
-            for (i, pose) in tracks {
-                let entity = rig.bones[i].0;
-                if let Ok(mut transform) = nodes.get_mut(entity) {
-                    affine.set(entity, &mut transform, pose.pose);
-                }
-            }
+        let echo = actor
+            .wings
+            .as_ref()
+            .and_then(|w| w.layer(part.pass, world.effect_tick).echo);
+        rig.sample_pose(part, model, actor, world, echo, &mut output, |clip| {
             applied.ack(super::field_audit::Request::Animation {
                 actor: part.actor,
                 part: part.part,
-                resource: animation.resource,
-                slot: animation.slot,
+                resource: clip.animation.resource,
+                slot: clip.animation.slot,
             });
+        });
+        let key = actor
+            .field_model_animation()
+            .map(|a| (a.source, a.resource, a.slot, a.start_tick));
+        if key != rig.clip {
+            rig.start_blend();
+            rig.clip = key;
+        }
+        rig.presented.clone_from(&output.poses);
+        // The first visible sample has no earlier pose to blend from.
+        if !rig.sampled {
+            rig.from.clone_from(&output.poses);
+        }
+        rig.sampled |= output.channels.iter().any(|&channels| channels != 0);
+        for (&(entity, rest), pose) in rig.bones.iter().zip(&output.poses) {
+            if let Ok(mut transform) = nodes.get_mut(entity) {
+                // Affine keys retain the authored TRS fallback for absolute
+                // script setters; a previous rendered pose must not supply it.
+                let mut local = rest;
+                affine.set(entity, &mut local, pose.pose);
+                transform.set_if_neq(local);
+            }
         }
     }
 }
@@ -270,7 +322,6 @@ impl Rig {
         Self {
             binding_key: Default::default(),
             sampled: false,
-            authored_channels: vec![0; bones.len()],
             bones,
             camera_facing: Vec::new(),
             secondary_bones: BTreeSet::new(),
@@ -294,41 +345,102 @@ impl Rig {
         Ok(None)
     }
 
-    fn sample_tracks(
-        &mut self,
-        motion: &resonance_content::animation::Motion,
-        time: f32,
-    ) -> anyhow::Result<Vec<(usize, Frame)>> {
-        motion
-            .tracks
-            .iter()
-            .map(|track| {
-                let i = usize::from(track.bone);
-                self.authored_channels[i] |= track.channels().0;
-                Ok((
-                    i,
-                    Frame::sample(
-                        super::sparse_animation::sample_track(track, time, self.bones[i].1)?,
-                        self.authored_channels[i],
-                    ),
-                ))
-            })
-            .collect()
+    /// Committed and speculative poses share clip selection, omitted-channel
+    /// behavior and blend sources. Sampling never changes the source rig.
+    #[allow(clippy::too_many_arguments)]
+    fn sample_pose(
+        &self,
+        part: &ActorPart,
+        model: &crate::field_view::Part,
+        actor: &resonance_events::Actor,
+        world: &resonance_events::GameWorld,
+        echo: Option<&resonance_events::WingEcho>,
+        output: &mut Sample,
+        mut sampled: impl FnMut(&SampledClip),
+    ) {
+        output.poses.clear();
+        output.poses.extend(
+            self.bones
+                .iter()
+                .map(|(_, rest)| Frame::sample((*rest).into(), 0)),
+        );
+        output.channels.resize(self.bones.len(), 0);
+        output.channels.fill(0);
+        for clip in sample_clips(model, actor, part.pass, world, echo) {
+            for frame in sample_tracks(
+                &self.bones,
+                &mut output.channels,
+                clip.motion,
+                clip.time,
+                clip.echo_weight,
+            ) {
+                let (i, frame) = frame.expect("validated animation must evaluate");
+                output.poses[i] = frame;
+            }
+            sampled(&clip);
+        }
+        let key = actor
+            .field_model_animation()
+            .map(|a| (a.source, a.resource, a.slot, a.start_tick));
+        let source = if key == self.clip {
+            &self.from
+        } else {
+            &self.presented
+        };
+        let weight = self.blend_weight(actor, part.pass, world.tick);
+        for (i, pose) in output.poses.iter_mut().enumerate() {
+            // Match the authored channel mask after all overlapping controllers.
+            *pose = self.blended_bone(
+                i,
+                Frame::sample(pose.pose, output.channels[i]),
+                source[i],
+                weight,
+                output.channels[i] != 0,
+            );
+        }
     }
 
     fn start_blend(&mut self) {
         self.from.copy_from_slice(&self.presented);
     }
 
-    fn blend_bone(&mut self, index: usize, pose: &mut Frame, weight: f32, animated: bool) {
+    /// The committed and predicted poses use the same omitted-channel rules.
+    fn blended_bone(
+        &self,
+        index: usize,
+        pose: Frame,
+        source: Frame,
+        weight: f32,
+        animated: bool,
+    ) -> Frame {
         // Cloth and hair resume their rest target when explicit motion ends;
         // carrying a previous clip's bend would pin the dynamics to that pose.
         if !animated && !self.secondary_bones.contains(&index) {
-            *pose = self.presented[index];
+            self.presented[index]
         } else if weight < 1. {
-            *pose = self.from[index].mix(*pose, self.bones[index].1, weight);
+            source.mix(pose, self.bones[index].1, weight)
+        } else {
+            pose
         }
-        self.presented[index] = *pose;
+    }
+
+    fn blend_weight(&self, actor: &resonance_events::Actor, pass: u8, tick: u32) -> f32 {
+        actor.field_model_animation().map_or(1., |animation| {
+            actor
+                .wings
+                .as_ref()
+                .and_then(|w| w.entrance(pass, tick.saturating_sub(animation.start_tick)))
+                .map_or_else(
+                    || {
+                        if self.sampled {
+                            animation.blend_weight(tick)
+                        } else {
+                            1.
+                        }
+                    },
+                    |entrance| entrance.weight,
+                )
+        })
     }
 }
 
@@ -351,48 +463,6 @@ pub(super) fn face_camera(
     }
 }
 
-pub(super) fn blend(
-    state: State,
-    mut rigs: Query<(&ActorPart, &mut Rig)>,
-    mut nodes: Query<&mut Transform>,
-    mut affine: ResMut<Locals>,
-) {
-    let world = &state.get().events.world;
-    for (part, mut rig) in &mut rigs {
-        let actor = world.field_model_actor(part.actor).unwrap();
-        let animation = actor.field_model_animation();
-        let key = animation.map(|a| (a.source, a.resource, a.slot, a.start_tick));
-        if key != rig.clip {
-            rig.start_blend();
-            rig.clip = key;
-        }
-        let sample = ActorSample::current(actor, world, part.pass);
-        let weight = sample.wing_weight(animation).unwrap_or_else(|| {
-            animation
-                .filter(|_| rig.sampled)
-                .map_or(1., |a| a.blend_weight(world.tick))
-        });
-        for i in 0..rig.bones.len() {
-            let entity = rig.bones[i].0;
-            if let Ok(mut transform) = nodes.get_mut(entity) {
-                let mut pose =
-                    Frame::sample(affine.get(entity, *transform), rig.authored_channels[i]);
-                let animated = rig.authored_channels[i] != 0;
-                rig.blend_bone(i, &mut pose, weight, animated);
-                // A newly loaded rig has no previous visible pose to blend from.
-                // Retain its first sample even if the clip starts out paused.
-                if !rig.sampled {
-                    rig.from[i] = pose;
-                }
-                affine.set(entity, &mut transform, pose.pose);
-            }
-        }
-        // Setup can render a rig before its first clip is selected. Its bind
-        // pose must not become the starting pose for that clip's transition.
-        rig.sampled |= rig.authored_channels.iter().any(|&channels| channels != 0);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -402,14 +472,13 @@ mod tests {
         let mut rig = Rig::new(vec![(Entity::PLACEHOLDER, rest); 2]);
         rig.secondary_bones.insert(0);
         let folded = rest.with_rotation(Quat::from_rotation_x(1.));
-        for i in 0..2 {
-            rig.blend_bone(i, &mut Frame::from(folded), 1., true);
-        }
+        rig.presented.fill(Frame::from(folded));
         rig.start_blend();
         for (weight, angle) in [(0.5, 0.5), (1., 0.)] {
             for i in 0..2 {
-                let mut pose = Frame::sample(rest.into(), 0);
-                rig.blend_bone(i, &mut pose, weight, false);
+                let pose =
+                    rig.blended_bone(i, Frame::sample(rest.into(), 0), rig.from[i], weight, false);
+                rig.presented[i] = pose;
                 let expected = if i == 0 { angle } else { 1. };
                 let rotation =
                     super::super::sparse_animation::affine::rotation(pose.pose.global().affine());
@@ -420,56 +489,35 @@ mod tests {
     }
 
     #[test]
-    fn interrupted_blends_start_from_the_visible_pose_and_omitted_bones_stay_put() {
+    fn first_animation_has_no_unseen_bind_pose_to_blend_from() {
         let mut rig = Rig::new(vec![(Entity::PLACEHOLDER, Transform::IDENTITY)]);
-        let target = Frame::from(Transform::from_xyz(10., 0., 0.));
-        let mut pose = target;
-        rig.blend_bone(0, &mut pose, 0.5, true);
-        assert_eq!(pose.pose.global().translation().x, 5.);
-        rig.start_blend();
-        pose = Frame::from(Transform::from_xyz(-5., 0., 0.));
-        rig.blend_bone(0, &mut pose, 0.5, true);
-        assert_eq!(pose.pose.global().translation().x, 0.);
-        rig.blend_bone(0, &mut pose, 1., false);
-        assert_eq!(pose.pose.global().translation().x, 0.);
+        let mut actor = resonance_events::Actor::new(1, [0.; 3]);
+        let mut animation = resonance_events::Animation::new(1, 0, 60, 10);
+        animation.blend_ticks = 9;
+        actor.animation = Some(animation);
+        assert_eq!(rig.blend_weight(&actor, 0, 10), 1.);
+        rig.sampled = true;
+        assert_eq!(rig.blend_weight(&actor, 0, 10), 0.);
     }
 
     #[test]
-    fn mesh_names_do_not_redirect_skeletal_pose_updates() {
-        use bevy::ecs::system::RunSystemOnce;
-        let mut world = World::new();
-        let root = world.spawn_empty().id();
-        let rest = Transform::from_xyz(5., 2., 1.);
-        let bone = world.spawn((Name::new("sheath"), rest, ChildOf(root))).id();
-        let mesh = world
-            .spawn((Name::new("sheath"), Transform::IDENTITY, ChildOf(bone)))
-            .id();
-        world.spawn((
-            Name::new("sheath"),
-            Transform::IDENTITY,
-            Mesh3d::default(),
-            ChildOf(mesh),
-        ));
-        // Skinned geometry is a sibling of the skeleton and may be visited first.
-        let skinned = world
-            .spawn((Name::new("sheath"), Transform::IDENTITY, ChildOf(root)))
-            .id();
-        world.spawn((Mesh3d::default(), ChildOf(skinned)));
-        let names = world
-            .run_system_once(
-                move |children: Query<&Children>,
-                      nodes: Query<(&Name, &Transform, &ChildOf)>,
-                      meshes: Query<(), With<Mesh3d>>| {
-                    super::super::field_pose::named_bones(root, &children, &nodes, &meshes)
-                },
-            )
-            .unwrap();
-        let &(entity, authored, parent) = &names["sheath"];
-        assert_eq!((entity, authored, parent), (bone, rest, root));
-        world.spawn(Rig::new(vec![(entity, authored)]));
-        world.get_mut::<Transform>(bone).unwrap().translation = Vec3::ZERO;
-        world.run_system_once(restore).unwrap();
-        assert_eq!(*world.get::<Transform>(bone).unwrap(), rest);
-        assert_eq!(*world.get::<Transform>(mesh).unwrap(), Transform::IDENTITY);
+    fn interrupted_blends_start_from_the_visible_pose_and_omitted_bones_stay_put() {
+        let mut rig = Rig::new(vec![(Entity::PLACEHOLDER, Transform::IDENTITY)]);
+        let target = Frame::from(Transform::from_xyz(10., 0., 0.));
+        let mut pose = rig.blended_bone(0, target, rig.from[0], 0.5, true);
+        rig.presented[0] = pose;
+        assert_eq!(pose.pose.global().translation().x, 5.);
+        rig.start_blend();
+        pose = rig.blended_bone(
+            0,
+            Frame::from(Transform::from_xyz(-5., 0., 0.)),
+            rig.from[0],
+            0.5,
+            true,
+        );
+        rig.presented[0] = pose;
+        assert_eq!(pose.pose.global().translation().x, 0.);
+        pose = rig.blended_bone(0, pose, rig.from[0], 1., false);
+        assert_eq!(pose.pose.global().translation().x, 0.);
     }
 }

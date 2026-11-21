@@ -2,7 +2,7 @@
 use super::*;
 use anyhow::ensure;
 use bevy::render::{
-    Render, RenderApp, RenderSystems,
+    Render, RenderApp,
     extract_component::{ExtractComponent, ExtractComponentPlugin},
     render_asset::RenderAssets,
     render_resource::{Extent3d, Origin3d, TextureDimension, TextureFormat},
@@ -15,7 +15,7 @@ use std::sync::Arc;
 pub(super) fn install(app: &mut App) {
     app.add_plugins(ExtractComponentPlugin::<Composition>::default());
     if let Some(render) = app.get_sub_app_mut(RenderApp) {
-        render.add_systems(Render, composite.in_set(RenderSystems::PrepareResources));
+        render.add_systems(Render, composite.in_set(crate::renderer::FrameUploads));
     }
 }
 
@@ -217,7 +217,7 @@ impl Artwork {
         }
         Ok(ready)
     }
-    pub fn prepare(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
+    pub fn prepare(&mut self, commands: &mut Commands) {
         if !self.layers.is_empty() {
             return;
         }
@@ -225,7 +225,7 @@ impl Artwork {
         for canvas in &mut self.canvases {
             canvas.painted = None;
         }
-        let mut allocate = |material, depth| Layer::new(material, depth, commands, meshes);
+        let mut allocate = |material, depth| Layer::new(material, depth, commands);
         self.layers.push(allocate(self.background.clone(), 4.));
         self.layers.push(allocate(self.font.clone(), 9.));
         for (index, canvas) in self.canvases.iter().enumerate() {
@@ -238,10 +238,10 @@ impl Artwork {
     pub fn render(
         &mut self,
         playback: Option<&resonance_game::field::SkitPlayback>,
+        future: Option<(&resonance_game::field::SkitPlayback, f32)>,
         font: &BitmapFont,
         resolution: crate::Resolution,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
         images: &mut Assets<Image>,
         materials: &mut Assets<Surface>,
     ) -> Result<()> {
@@ -266,14 +266,28 @@ impl Artwork {
             "too many skit portraits to render"
         );
         let tick = playback.events.tick();
+        let future = future.filter(|(p, _)| p.id == playback.id);
+        let next_scene = future.and_then(|(p, a)| {
+            p.events
+                .world
+                .skit
+                .as_ref()
+                .map(|s| (s, p.events.tick(), a))
+        });
+        let fade = |start: u32, rate: u32, cap: u32| {
+            let value = ((tick.saturating_sub(start) + 1) * rate).min(cap) as f32;
+            next_scene.map_or(value, |(_, t, a)| {
+                value + (((t.saturating_sub(start) + 1) * rate).min(cap) as f32 - value) * a
+            }) / 255.
+        };
         let rect @ [left, _, right, _] = resolution.ui_rect();
         let mut background = Batch::default();
         background.quad(rect, [0.5; 4], [0., 0., 0., 0.5]);
-        self.layers[0].update_mesh(background, [font.width, font.height], meshes)?;
+        self.layers[0].update(background, [font.width, font.height]);
         self.layers[0].show(true, commands);
         let mut text = Batch::default();
         if let Some(start) = scene.panel_started {
-            let opacity = ((tick.saturating_sub(start) + 1) * 4).min(144) as f32 / 255.;
+            let opacity = fade(start, 4, 144);
             text.quad([left, 384., right, 468.], [0.5; 4], [0., 0., 0., opacity]);
         }
         centered(
@@ -282,12 +296,12 @@ impl Artwork {
             &playback.title,
             34.,
             25.,
-            ((tick + 1) * 4).min(255) as f32 / 255.,
+            fade(0, 4, 255),
             false,
         )?;
         let lines: Vec<_> = scene.subtitle.split('\n').collect();
         let top = if lines.len() == 1 { 402. } else { 392. };
-        let alpha = ((tick.saturating_sub(scene.subtitle_started) + 1) * 8).min(255) as f32 / 255.;
+        let alpha = fade(scene.subtitle_started, 8, 255);
         for (i, line) in lines.iter().enumerate() {
             centered(
                 &mut text,
@@ -307,7 +321,7 @@ impl Artwork {
                 }
             }
         }
-        self.layers[1].update_mesh(text, [font.width, font.height], meshes)?;
+        self.layers[1].update(text, [font.width, font.height]);
         self.layers[1].show(true, commands);
         for (index, layer) in self.layers[2..].iter_mut().enumerate() {
             let Some(portrait) = scene.portraits.values().nth(index) else {
@@ -355,24 +369,39 @@ impl Artwork {
                 });
                 canvas.painted = Some((portrait.resource, portrait.tiles.clone()));
             }
-            let [x, y] = portrait.position;
-            let [w, h] = portrait.size.map(|v| v * portrait.scale);
+            let next = next_scene.and_then(|(s, _, a)| {
+                let id = scene.portraits.keys().nth(index)?;
+                s.portraits
+                    .get(id)
+                    .filter(|p| p.resource == portrait.resource)
+                    .map(|p| (p, a))
+            });
+            let smooth = |v: f32, target: &dyn Fn(&resonance_events::skit::Portrait) -> f32| {
+                next.map_or(v, |(p, a)| v + (target(p) - v) * a)
+            };
+            let [x, y] = std::array::from_fn(|i| smooth(portrait.position[i], &|p| p.position[i]));
+            let [w, h] = std::array::from_fn(|i| {
+                smooth(portrait.size[i] * portrait.scale, &|p| p.size[i] * p.scale)
+            });
             let mut batch = Batch::default();
-            let mut color = portrait.color;
-            color[3] = portrait.opacity;
+            let mut color = std::array::from_fn(|i| smooth(portrait.color[i], &|p| p.color[i]));
+            color[3] = smooth(portrait.opacity, &|p| p.opacity);
             batch.quad(
                 [x - w / 2., y - h / 2., x + w / 2., y + h / 2.],
                 [0., 0., 1., 1.],
                 color,
             );
-            let (sin, cos) = portrait.angle.to_radians().sin_cos();
+            let angle = next.map_or(portrait.angle, |(p, a)| {
+                portrait.angle + ((p.angle - portrait.angle + 180.).rem_euclid(360.) - 180.) * a
+            });
+            let (sin, cos) = angle.to_radians().sin_cos();
             for p in &mut batch.positions {
                 let dx = p[0] - (x - 320.);
                 let dy = p[1] - (240. - y);
                 p[0] = x - 320. + dx * cos + dy * sin;
                 p[1] = 240. - y - dx * sin + dy * cos;
             }
-            layer.update_mesh(batch, [1, 1], meshes)?;
+            layer.update(batch, [1, 1]);
             layer.show(true, commands);
         }
         Ok(())
@@ -608,17 +637,7 @@ mod tests {
             wgpu::Features::TEXTURE_COMPRESSION_BC,
         ));
         install(&mut app);
-        let began = std::time::Instant::now();
-        while app.plugins_state() == bevy::app::PluginsState::Adding {
-            ensure!(
-                began.elapsed().as_secs() < 60,
-                "GPU initialization timed out"
-            );
-            bevy::tasks::tick_global_task_pools_on_main_thread();
-            std::thread::sleep(std::time::Duration::from_millis(1));
-        }
-        app.finish();
-        app.cleanup();
+        crate::test_support::finish_app(&mut app)?;
         let format = TextureFormat::Bc7RgbaUnorm;
         let blocks = |size, values: &[u8]| {
             let mut image = canvas_image(size, format);

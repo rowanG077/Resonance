@@ -238,17 +238,16 @@ impl Drawing<'_> {
                     },
                 );
             }
-            let scroll = scroll_offset(state.scroll, 27);
-            let first = state.first - 2 * usize::from(state.scroll > 0);
+            let rows = self
+                .scroll
+                .primary
+                .rows(state.first, state.scroll, RECIPE_ROWS, 2, 27);
             let starts = self.vertex_counts();
-            for (row, id) in (first..RECIPE_COUNT)
-                .take(RECIPE_ROWS + 2 * usize::from(state.scroll != 0))
-                .enumerate()
-            {
+            for (row, id) in (rows.first..RECIPE_COUNT).take(rows.count).enumerate() {
                 let known = party.cooking.knows(id as u8);
                 let [x, y] = [
                     32. + (row % 2) as f32 * 176.,
-                    136. + (row / 2) as f32 * 27. - scroll as f32,
+                    136. + (row / 2) as f32 * 27. - rows.offset,
                 ];
                 if known {
                     self.recipe_icon(id, [x, y], 24.)?;

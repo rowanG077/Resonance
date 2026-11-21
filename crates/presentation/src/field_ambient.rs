@@ -14,8 +14,11 @@ use resonance_events::{
 pub(super) struct Ambient {
     emitters: Vec<Emitter>,
     tick: Option<u32>,
+    future: Vec<Emitter>,
+    predicted: Option<(u32, u64)>,
 }
 
+#[derive(Clone)]
 struct Emitter {
     recipe: AmbientParticles,
     material: usize,
@@ -59,11 +62,15 @@ impl Ambient {
                 })
                 .collect(),
             tick: None,
+            future: Vec::new(),
+            predicted: None,
         }
     }
 
     pub(super) fn reset(&mut self) {
         self.tick = None;
+        self.future.clear();
+        self.predicted = None;
         for (index, emitter) in self.emitters.iter_mut().enumerate() {
             emitter.sprites.clear();
             emitter.snow.fill(Snowflake::default());
@@ -74,9 +81,44 @@ impl Ambient {
     pub(super) fn render(
         &mut self,
         world: &GameWorld,
+        next: Option<(&GameWorld, f32, u64)>,
         camera: Quat,
         quads: &mut Vec<(Layer, usize, Quad)>,
     ) {
+        self.advance(world);
+        if let Some((next, _, revision)) = next {
+            let key = (world.effect_tick, revision);
+            if self.predicted != Some(key) {
+                self.future.clone_from(&self.emitters);
+                // Swap only the disposable arrays; committed emitters and RNG never advance.
+                std::mem::swap(&mut self.emitters, &mut self.future);
+                let tick = self.tick;
+                self.advance(next);
+                self.tick = tick;
+                std::mem::swap(&mut self.emitters, &mut self.future);
+                self.predicted = Some(key);
+            }
+        } else {
+            self.predicted = None;
+        }
+        for (index, emitter) in self.emitters.iter().enumerate() {
+            emitter.draw(
+                world.effect_tick,
+                camera,
+                world.brightness(),
+                next.map(|(world, alpha, _)| {
+                    (
+                        &self.future[index],
+                        world.effect_tick,
+                        world.brightness(),
+                        alpha,
+                    )
+                }),
+                quads,
+            );
+        }
+    }
+    fn advance(&mut self, world: &GameWorld) {
         let tick = world.effect_tick;
         let elapsed = self.tick.map_or(1, |previous| tick.wrapping_sub(previous));
         self.tick = Some(tick);
@@ -113,7 +155,6 @@ impl Ambient {
             for offset in (0..steps).rev() {
                 emitter.step(tick.wrapping_sub(offset), active, player);
             }
-            emitter.draw(tick, camera, world.brightness(), quads);
         }
     }
 }
@@ -208,42 +249,86 @@ impl Emitter {
         tick: u32,
         camera: Quat,
         brightness: f32,
+        next: Option<(&Self, u32, f32, f32)>,
         quads: &mut Vec<(Layer, usize, Quad)>,
     ) {
         let sprite = &self.recipe.sprite;
-        for particle in &self.sprites {
-            let rgb = particle.rgba.map(|v| f32::from(v) * 4. / 255. * brightness);
-            quads.push((
-                Layer::Effects,
-                self.material,
-                Quad::new(
-                    Vec3::from_array(particle.position),
-                    camera * Quat::from_rotation_z(particle.rotation[2].to_radians()),
-                    particle.size,
-                    sprite.uv_at(tick.wrapping_sub(particle.born)),
-                    [rgb[0], rgb[1], rgb[2], particle.alpha(tick) / 255.],
-                    VerticalAnchor::Center,
-                ),
-            ));
+        let (future, next_tick, next_brightness, alpha) = next
+            .map_or((&[][..], tick, brightness, 0.), |(e, t, b, a)| {
+                (e.sprites.as_slice(), t, b, a)
+            });
+        let brightness = brightness + (next_brightness - brightness) * alpha;
+        let endpoint = |p: &BillboardEffect, tick: u32| {
+            let [r, g, b, _] = p.rgba.map(|c| f32::from(c) * 4. / 255. * brightness);
+            Quad::new(
+                Vec3::from_array(p.position),
+                camera * Quat::from_rotation_z(p.rotation[2].to_radians()),
+                p.size,
+                sprite.uv_at(tick.wrapping_sub(p.born)),
+                [r, g, b, p.alpha(tick) / 255.],
+                VerticalAnchor::Center,
+            )
+        };
+        for (current, next) in sprite_pairs(&self.sprites, future) {
+            let quad = Quad::between(
+                current.map(|p| endpoint(p, tick)),
+                next.map(|p| endpoint(p, next_tick)),
+                alpha,
+            );
+            quads.push((Layer::Effects, self.material, quad));
         }
         if let AmbientEmission::Snow { size, color, .. } = self.recipe.emission {
             let [r, g, b, a] = color.map(|v| f32::from(v) / 255.);
-            for flake in self.snow.iter().filter(|flake| flake.speed != 0) {
+            for (index, flake) in self.snow.iter().enumerate() {
+                let future = next
+                    .and_then(|(next, _, _, _)| next.snow.get(index))
+                    .unwrap_or(flake);
+                let position = match (flake.speed != 0, future.speed != 0) {
+                    (true, true) => Vec3::from_array(flake.position)
+                        .lerp(Vec3::from_array(future.position), alpha),
+                    (true, false) => Vec3::from_array(flake.position),
+                    (false, true) => Vec3::from_array(future.position),
+                    (false, false) => continue,
+                };
+                let opacity = if flake.speed == 0 {
+                    alpha
+                } else if future.speed == 0 {
+                    1. - alpha
+                } else {
+                    1.
+                };
                 quads.push((
                     Layer::Effects,
                     self.material,
                     Quad::new(
-                        Vec3::from_array(flake.position),
+                        position,
                         camera,
                         [size; 2],
                         sprite.uv,
-                        [r * brightness, g * brightness, b * brightness, a],
+                        [r * brightness, g * brightness, b * brightness, a * opacity],
                         VerticalAnchor::Center,
                     ),
                 ));
             }
         }
     }
+}
+
+// Emitters retain chronological birth order. Fire's two layers have distinct lifetimes.
+fn sprite_pairs<'a>(
+    from: &'a [BillboardEffect],
+    to: &'a [BillboardEffect],
+) -> impl Iterator<Item = (Option<&'a BillboardEffect>, Option<&'a BillboardEffect>)> {
+    let (mut a, mut b) = (from.iter().peekable(), to.iter().peekable());
+    std::iter::from_fn(move || match (a.peek(), b.peek()) {
+        (Some(x), Some(y)) if x.born == y.born && x.lifetime == y.lifetime => {
+            Some((a.next(), b.next()))
+        }
+        (Some(x), Some(y)) if (x.born.wrapping_sub(y.born) as i32) > 0 => Some((None, b.next())),
+        (Some(_), _) => Some((a.next(), None)),
+        (_, Some(_)) => Some((None, b.next())),
+        _ => None,
+    })
 }
 
 fn sample(state: &mut u32, count: u32) -> u32 {
@@ -271,6 +356,45 @@ mod tests {
             },
             emission,
         }
+    }
+
+    #[test]
+    fn speculative_weather_reuses_its_endpoint_and_keeps_live_particles_and_rng() {
+        let mut ambient = Ambient::new([(
+            recipe(AmbientEmission::Fire {
+                position: [0.; 3],
+                size: 20.,
+            }),
+            0,
+        )]);
+        let mut source = GameWorld::default();
+        source.effect_tick = 4;
+        let mut next = GameWorld::default();
+        next.effect_tick = 5;
+        let mut quads = Vec::new();
+        ambient.render(&source, Some((&next, 0.25, 1)), Quat::IDENTITY, &mut quads);
+        let random = ambient.emitters[0].random;
+        let next_address = ambient.future[0].sprites.as_ptr();
+        assert_eq!(ambient.emitters[0].sprites[0].position, [0.; 3]);
+        let fire = &ambient.emitters[0].sprites[0];
+        let next_position = fire.velocity;
+        assert_eq!(ambient.future[0].sprites[0].position, next_position);
+        let width = 2. * (fire.size[0] / 2.).trunc();
+        assert_eq!(fire.size[0], width);
+        let calls = resonance_simulation_memory::system_calls();
+        for alpha in [0.1, 0.5, 0.9] {
+            quads.clear();
+            ambient.render(&source, Some((&next, alpha, 1)), Quat::IDENTITY, &mut quads);
+            let [left, right, ..] = quads[0].2.positions().map(Vec3::from_array);
+            assert!((left.distance(right) - (width - 2. * alpha)).abs() < 1e-5);
+            assert_eq!(ambient.future[0].sprites.as_ptr(), next_address);
+            assert_eq!(ambient.emitters[0].random, random);
+            assert_eq!(ambient.emitters[0].sprites[0].position, [0.; 3]);
+        }
+        assert_eq!(resonance_simulation_memory::system_calls(), calls);
+        quads.clear();
+        ambient.render(&next, None, Quat::IDENTITY, &mut quads);
+        assert_eq!(ambient.emitters[0].sprites[0].position, next_position);
     }
 
     #[test]
@@ -304,10 +428,10 @@ mod tests {
         let mut world = GameWorld::default();
         let mut quads = Vec::new();
         world.effect_tick = 2000;
-        ambient.render(&world, Quat::IDENTITY, &mut quads);
+        ambient.render(&world, None, Quat::IDENTITY, &mut quads);
         world.effect_tick = 1_000_000;
         quads.clear();
-        ambient.render(&world, Quat::IDENTITY, &mut quads);
+        ambient.render(&world, None, Quat::IDENTITY, &mut quads);
         assert_eq!(ambient.emitters[0].sprites.capacity(), capacity);
         assert_eq!(ambient.emitters[0].sprites.len(), 4);
         assert!(

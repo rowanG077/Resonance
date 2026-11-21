@@ -1,5 +1,6 @@
 //! Planar reflections share the field's animated meshes and use one small render target.
 use super::Art;
+use crate::native::{DistanceFog, MeshMaterial3d};
 use crate::{
     draw_order::{DrawOrder, Layer},
     materials::TitleSurface,
@@ -9,24 +10,22 @@ use bevy::{
         RenderTarget,
         visibility::{NoFrustumCulling, RenderLayers},
     },
-    core_pipeline::tonemapping::Tonemapping,
     image::ImageSampler,
-    mesh::MeshVertexBufferLayoutRef,
     prelude::*,
-    render::render_resource::{
-        AsBindGroup, CompareFunction, RenderPipelineDescriptor, SpecializedMeshPipelineError,
-        TextureFormat,
-    },
-    shader::ShaderRef,
+    render::render_resource::TextureFormat,
 };
 use resonance_content::field::{FieldWater, MODEL_DRAW_SPAN};
 
 pub(super) const REFLECTION_LAYER: usize = 24;
 
 pub(super) fn install(app: &mut App) {
-    bevy::asset::embedded_asset!(app, "field_water.wesl");
-    app.add_plugins(MaterialPlugin::<Surface>::default())
-        .add_systems(PostUpdate, camera_activity);
+    crate::native::init_material::<Surface>(app);
+    app.add_systems(
+        PostUpdate,
+        camera_activity
+            .after(bevy::camera::CameraUpdateSystems)
+            .after(bevy::transform::TransformSystems::Propagate),
+    );
 }
 
 pub(super) struct Artwork {
@@ -63,36 +62,16 @@ impl Artwork {
 #[derive(Component)]
 pub(super) struct ReflectionCamera;
 
-#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
-pub(super) struct Surface {
-    #[texture(0)]
-    #[sampler(1)]
+#[derive(Asset, TypePath, Debug, Clone)]
+pub(crate) struct Surface {
     reflection: Handle<Image>,
-    #[uniform(2)]
     tint: Vec4,
-    #[uniform(3)]
     dimensions: Vec2,
 }
-
-impl Material for Surface {
-    fn fragment_shader() -> ShaderRef {
-        "embedded://resonance_presentation/field_water.wesl".into()
-    }
-    fn alpha_mode(&self) -> AlphaMode {
-        AlphaMode::Blend
-    }
-    fn specialize(
-        _: &bevy::pbr::MaterialPipeline,
-        descriptor: &mut RenderPipelineDescriptor,
-        _: &MeshVertexBufferLayoutRef,
-        _: bevy::pbr::MaterialPipelineKey<Self>,
-    ) -> Result<(), SpecializedMeshPipelineError> {
-        descriptor.primitive.cull_mode = None;
-        if let Some(depth) = &mut descriptor.depth_stencil {
-            depth.depth_write_enabled = Some(true);
-            depth.depth_compare = Some(CompareFunction::Greater);
-        }
-        Ok(())
+impl Surface {
+    /// The reflection image, tint and scene size the native frame draws with.
+    pub(crate) fn native(&self) -> (AssetId<Image>, Vec4, Vec2) {
+        (self.reflection.id(), self.tint, self.dimensions)
     }
 }
 
@@ -174,7 +153,7 @@ pub(super) fn render(
                 RenderTarget::Image(image.clone().into()),
                 RenderLayers::layer(REFLECTION_LAYER),
                 ReflectionCamera,
-                Tonemapping::Linear,
+                crate::native::Offscreen,
                 Msaa::Off,
                 reflected_view(view, water.spec.height),
                 projection.clone(),
@@ -200,7 +179,7 @@ pub(super) fn render(
         *camera_projection = projection.clone();
     }
     if let Some(fog) = fog {
-        commands.entity(draw.camera).insert(fog.clone());
+        commands.entity(draw.camera).insert(*fog);
     }
     if let (Some(draw), Some((_, scales, offsets))) = (&mut draw.background, background) {
         // The reflection retains the upper-left quarter of the scene backdrop.
@@ -234,6 +213,96 @@ fn camera_activity(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires a GPU; checks logical camera activity with native rendering"]
+    fn reflection_activity_follows_field_without_changing_logical_cameras() {
+        #[derive(Resource)]
+        struct Activity {
+            active: bool,
+            visible: bool,
+        }
+        let mut app = App::new();
+        app.add_plugins(crate::test_support::render_plugins());
+        let [scene, reflected] = [64, 32].map(|size| {
+            app.world_mut()
+                .resource_mut::<Assets<Image>>()
+                .add(Image::new_target_texture(
+                    size,
+                    size,
+                    TextureFormat::Bgra8Unorm,
+                    None,
+                ))
+        });
+        crate::test_support::native_scene(&mut app, scene.clone());
+        install(&mut app);
+        app.insert_resource(Activity {
+            active: false,
+            visible: true,
+        })
+        .add_systems(
+            PostUpdate,
+            (|activity: Res<Activity>,
+              mut cameras: Query<(&mut Camera, &mut RenderLayers), With<crate::FieldCamera>>| {
+                for (mut camera, mut layers) in &mut cameras {
+                    camera.is_active = activity.active;
+                    *layers = RenderLayers::layer(if activity.visible { 0 } else { 31 });
+                }
+            })
+            .before(bevy::camera::CameraUpdateSystems)
+            .before(bevy::transform::TransformSystems::Propagate),
+        );
+        let main = app
+            .world_mut()
+            .spawn((
+                Camera3d::default(),
+                crate::FieldCamera,
+                RenderLayers::layer(0),
+                RenderTarget::Image(scene.into()),
+            ))
+            .id();
+        let reflection = app
+            .world_mut()
+            .spawn((
+                Camera3d::default(),
+                Camera {
+                    is_active: false,
+                    ..default()
+                },
+                ReflectionCamera,
+                crate::native::Offscreen,
+                RenderLayers::layer(REFLECTION_LAYER),
+                RenderTarget::Image(reflected.into()),
+            ))
+            .id();
+        crate::test_support::finish_app(&mut app).unwrap();
+        for (active, visible) in [
+            (false, true),
+            (true, true),
+            (true, false),
+            (true, true),
+            (false, true),
+            (true, true),
+        ] {
+            *app.world_mut().resource_mut::<Activity>() = Activity { active, visible };
+            for _ in 0..2 {
+                app.update();
+                let compiled = app.world().resource::<crate::native::Compiled>();
+                assert_eq!(compiled.views.contains_key(&main), active);
+                assert_eq!(compiled.views.contains_key(&reflection), active && visible);
+                assert_eq!(app.world().get::<Camera>(main).unwrap().is_active, active);
+                assert_eq!(
+                    app.world().get::<Camera>(reflection).unwrap().is_active,
+                    active && visible
+                );
+                let render = app.sub_app_mut(bevy::render::RenderApp);
+                let mut views = render
+                    .world_mut()
+                    .query::<&bevy::render::camera::ExtractedCamera>();
+                assert_eq!(views.iter(render.world()).count(), 0);
+            }
+        }
+    }
 
     #[test]
     fn reflection_preserves_water_coordinates_and_triangle_winding() {

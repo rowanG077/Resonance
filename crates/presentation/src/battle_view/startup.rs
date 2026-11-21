@@ -1,9 +1,6 @@
 //! Fixed battle bindings and real renderer pipeline preparation at boot.
 use super::*;
-use std::{
-    collections::{HashMap, VecDeque},
-    time::Instant,
-};
+use std::{collections::VecDeque, time::Instant};
 
 use crate::gpu_prepare::Shared;
 use resonance_game::battle::encounter::CommonModelKind;
@@ -16,30 +13,11 @@ pub(crate) fn install(app: &mut App) {
         .insert_resource(pool);
 }
 
-struct Geometry {
-    mesh: Handle<Mesh>,
-    skin: Option<(
-        Handle<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
-        usize,
-    )>,
-}
-
 pub(crate) struct Warm {
     next: usize,
     effects: VecDeque<effects::Effects>,
     styles: BTreeSet<ModelStyle>,
     toon: Handle<Image>,
-    _target: Handle<Image>,
-    joint: Entity,
-    entities: Vec<Entity>,
-    meshes: Vec<Handle<Mesh>>,
-    representatives: HashMap<crate::materials::SurfaceKey, Handle<TitleSurface>>,
-    seed: Option<(
-        Handle<Mesh>,
-        Handle<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
-        usize,
-        Handle<TitleSurface>,
-    )>,
     shared: Shared,
     since: Instant,
 }
@@ -85,32 +63,6 @@ impl Warm {
                 )
             })
             .collect::<Result<_>>()?;
-        let target = world
-            .resource_mut::<Assets<Image>>()
-            .add(Image::new_target_texture(
-                64,
-                64,
-                TextureFormat::Bgra8Unorm,
-                None,
-            ));
-        let camera = world
-            .spawn((
-                scene_camera(),
-                Tonemapping::Linear,
-                Msaa::Off,
-                Camera {
-                    order: -16,
-                    ..default()
-                },
-                RenderTarget::Image(target.clone().into()),
-                RenderLayers::layer(WARM_LAYER),
-                battle_projection(),
-                Transform::from_xyz(0., 300., 2000.).looking_at(Vec3::ZERO, Vec3::Y),
-            ))
-            .id();
-        let joint = world
-            .spawn((Transform::default(), GlobalTransform::IDENTITY))
-            .id();
         let styles = common
             .effect_banks()
             .flat_map(|bank| &bank.actors)
@@ -128,37 +80,14 @@ impl Warm {
             effects,
             styles,
             toon: toon.clone(),
-            _target: target,
-            joint,
-            entities: vec![camera, joint],
-            meshes: Vec::new(),
-            representatives: Default::default(),
-            seed: None,
             shared,
             since: Instant::now(),
         };
-        let mesh = effects::warm_mesh();
-        let geometry = Geometry {
-            mesh: world.resource_mut::<Assets<Mesh>>().add(mesh),
-            skin: None,
-        };
-        warm.meshes.push(geometry.mesh.clone());
+        let mesh = world.resource::<crate::materials::GeometryMesh>().0.clone();
         for recipe in effects::startup_surfaces(common.effect_banks().map(Arc::as_ref), &toon) {
-            warm.draw(world, &geometry, recipe, false);
+            warm.draw(world, &mesh, recipe, false, true);
         }
-        // Weapon ribbons have a different UV layout from sprite particles.
-        let mut vertices = crate::weapon_geometry::Vertices::default();
-        vertices.quad(
-            [Vec3::ZERO, Vec3::X, Vec3::Y, Vec3::ONE],
-            [[0.; 2]; 4],
-            [[1.; 4]; 4],
-        );
-        let mesh = vertices.mesh();
-        let geometry = Geometry {
-            mesh: world.resource_mut::<Assets<Mesh>>().add(mesh),
-            skin: None,
-        };
-        warm.meshes.push(geometry.mesh.clone());
+        // Sprite particles, weapon ribbons and ropes share the streamed layout.
         for (blend, depth_write) in [
             (Blend::Alpha, false),
             (Blend::Additive, false),
@@ -166,7 +95,7 @@ impl Warm {
         ] {
             warm.draw(
                 world,
-                &geometry,
+                &mesh,
                 TitleSurface {
                     blend: Some(blend),
                     depth_write,
@@ -175,6 +104,7 @@ impl Warm {
                     ..default()
                 },
                 false,
+                true,
             );
         }
         Ok(Some(warm))
@@ -183,52 +113,26 @@ impl Warm {
     fn draw(
         &mut self,
         world: &mut World,
-        geometry: &Geometry,
+        mesh: &Handle<Mesh>,
         recipe: TitleSurface,
         resident: bool,
+        streamed: bool,
     ) {
-        let material = resident
-            .then(|| {
-                world.resource_scope(|world, pool: Mut<ResidentModels>| {
-                    pool.warm(
-                        recipe.clone(),
-                        &mut world.resource_mut::<Assets<TitleSurface>>(),
-                    )
-                })
-            })
-            .flatten();
-        if let Some(material) = &material {
-            self.shared
-                .0
-                .lock()
-                .unwrap()
-                .material_bindings
-                .insert((false, material.id().untyped()));
+        if resident {
+            world.resource_scope(|world, pool: Mut<ResidentModels>| {
+                pool.warm(
+                    recipe.clone(),
+                    &mut world.resource_mut::<Assets<TitleSurface>>(),
+                );
+            });
         }
-        let material = self
-            .representatives
-            .entry((&recipe).into())
-            .or_insert_with(|| {
-                material.unwrap_or_else(|| world.resource_mut::<Assets<TitleSurface>>().add(recipe))
-            })
-            .clone();
         self.shared.0.lock().unwrap().prepare(
-            self.entities[0],
-            geometry.mesh.id(),
-            material.id().untyped(),
-            false,
+            crate::gpu_prepare::View::Battle,
+            mesh.id(),
+            &recipe,
+            streamed,
             None,
         );
-        // Keep one real draw for the largest skin span as well as pipeline prewarming.
-        // This initializes skin buffer capacity before the first live battle.
-        if let Some((inverse, count)) = &geometry.skin
-            && self
-                .seed
-                .as_ref()
-                .is_none_or(|(_, _, previous, _)| previous < count)
-        {
-            self.seed = Some((geometry.mesh.clone(), inverse.clone(), *count, material));
-        }
     }
 
     fn model(
@@ -289,16 +193,9 @@ impl Warm {
             }
         }
         for draw in layout.nodes.iter().filter_map(|node| node.draw.as_ref()) {
-            let geometry = Geometry {
-                mesh: draw.mesh.clone(),
-                skin: draw
-                    .skin
-                    .as_ref()
-                    .map(|skin| (skin.inverse_bindposes.clone(), skin.joints.len())),
-            };
             let slot = draw.slot.index(recipes.len())?;
             for (recipe, resident) in &recipes[slot] {
-                self.draw(world, &geometry, recipe.clone(), *resident);
+                self.draw(world, &draw.mesh, recipe.clone(), *resident, false);
             }
         }
         Ok(())
@@ -366,12 +263,6 @@ impl Warm {
                 })
             })?;
             effects.retain_bindings(&mut world.resource_mut::<ResidentBindings>());
-            self.shared.0.lock().unwrap().material_bindings.extend(
-                world
-                    .resource::<ResidentBindings>()
-                    .handles()
-                    .map(|handle| (false, handle.id().untyped())),
-            );
         }
         for _ in 0..32 {
             let Some(model) = models.get(self.next) else {
@@ -390,24 +281,6 @@ impl Warm {
         if self.next == models.len() && self.effects.is_empty() {
             let mut report = self.shared.0.lock().unwrap();
             if !report.armed {
-                if let Some((mesh, inverse_bindposes, count, material)) = self.seed.take() {
-                    let entity = world
-                        .spawn((
-                            Mesh3d(mesh),
-                            MeshMaterial3d(material),
-                            Transform::default(),
-                            NoFrustumCulling,
-                            bevy::render::batching::NoAutomaticBatching,
-                            RenderLayers::layer(WARM_LAYER),
-                            SkinnedMesh {
-                                inverse_bindposes,
-                                joints: vec![self.joint; count],
-                            },
-                        ))
-                        .id();
-                    self.entities.push(entity);
-                    report.expected.insert(entity.into());
-                }
                 report.armed = true;
             }
         }
@@ -421,9 +294,6 @@ impl Warm {
     }
 
     pub(crate) fn retire(&mut self, world: &mut World) {
-        for entity in self.entities.drain(..) {
-            world.despawn(entity);
-        }
         world.resource::<ResidentModels>().finish_startup();
         world.resource_mut::<ResidentBindings>().finish_startup();
         info!(

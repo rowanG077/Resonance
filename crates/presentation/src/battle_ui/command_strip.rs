@@ -17,6 +17,27 @@ pub(super) struct Motion {
     trail: CursorTrail,
 }
 
+#[derive(Clone, Copy, Default)]
+struct Phase {
+    tick: u32,
+    fraction: f32,
+}
+
+impl Phase {
+    fn sample(self, value: impl Fn(u32) -> f32) -> f32 {
+        let from = value(self.tick);
+        if self.fraction == 0. {
+            from
+        } else {
+            from.lerp(value(self.tick.wrapping_add(1)), self.fraction)
+        }
+    }
+
+    fn bob(self, amplitude: f32, step: u32, offset: u32, wave: fn(u32) -> f32) -> f32 {
+        self.sample(|tick| (amplitude * wave(tick.wrapping_mul(step).wrapping_add(offset))).trunc())
+    }
+}
+
 /// Movement leaves a fading trail between selection anchors; idle bobbing does not.
 #[derive(Default)]
 struct CursorTrail {
@@ -26,7 +47,7 @@ struct CursorTrail {
 }
 
 impl CursorTrail {
-    fn sample(&mut self, tick: u32, position: [i32; 2]) -> impl Iterator<Item = ([i32; 2], u8)> {
+    fn sample(&mut self, time: Phase, position: [i32; 2]) -> impl Iterator<Item = ([i32; 2], u8)> {
         const COPIES: i32 = 8;
         const OPACITY: u32 = 224;
         const COPY_FADE: u32 = 16;
@@ -38,18 +59,20 @@ impl CursorTrail {
         if *anchor != position {
             self.previous = *anchor;
             *anchor = position;
-            self.since = tick;
+            self.since = time.tick;
         }
         let moving = self.previous != position;
-        let age = tick.wrapping_sub(self.since).min(OPACITY / TICK_FADE);
+        let age =
+            time.tick.wrapping_sub(self.since).min(OPACITY / TICK_FADE) as f32 + time.fraction;
         let step: [i32; 2] =
             std::array::from_fn(|axis| (self.previous[axis] - position[axis]) / COPIES);
         (0..COPIES).filter_map(move |copy| {
-            let opacity = OPACITY.saturating_sub(copy as u32 * COPY_FADE + age * TICK_FADE);
+            let opacity =
+                ((OPACITY - copy as u32 * COPY_FADE) as f32 - age * TICK_FADE as f32).round() as u8;
             (moving && opacity != 0).then(|| {
                 (
                     std::array::from_fn(|axis| position[axis] + copy * step[axis]),
-                    opacity as u8,
+                    opacity,
                 )
             })
         })
@@ -79,11 +102,10 @@ impl Artwork {
         &mut self,
         state: Option<&Frame>,
         formation: Option<FormationNotice>,
-        tick: u32,
+        time: HudTime,
         pending: Option<resonance_battle::item::Release>,
         characters: &[Character],
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let pending = pending
             .filter(|_| {
@@ -104,7 +126,10 @@ impl Artwork {
             .transpose()?;
         let mut batches = draw(
             state,
-            tick,
+            Phase {
+                tick: time.tick,
+                fraction: time.visit,
+            },
             pending,
             &self.art,
             &self.font,
@@ -114,7 +139,7 @@ impl Artwork {
             draw_formation_notice(&mut batches, &self.art.font, notice)?;
         }
         for (layer, batch) in self.ui.commands.iter_mut().zip(batches) {
-            layer.upload(batch, commands, meshes)?;
+            layer.upload(batch, commands)?;
         }
         Ok(())
     }
@@ -187,8 +212,8 @@ fn emblem(
     command: Command,
     selected: bool,
     enabled: bool,
-    phase: u32,
-    tick: u32,
+    phase: Phase,
+    time: Phase,
 ) {
     let inset = if selected { SELECTED_INSET } else { 0. };
     let x = FIRST_BUTTON + BUTTON_PITCH * f32::from(command.index()) - inset;
@@ -202,9 +227,14 @@ fn emblem(
     );
     sprite(batch, [x, y, size, size], art.background, WHITE);
     let motion = &art.motion;
-    let phase = if selected && enabled { phase } else { 0 };
+    let phase = if selected && enabled {
+        phase
+    } else {
+        Phase::default()
+    };
     let shade = if selected {
-        motion.selected_shade[0] + motion.selected_shade[1] * sine(tick.wrapping_mul(16))
+        motion.selected_shade[0]
+            + motion.selected_shade[1] * time.sample(|tick| sine(tick.wrapping_mul(16)))
     } else {
         128.
     } as u8;
@@ -221,52 +251,60 @@ fn emblem(
         match command {
             Command::Tech if selected => {
                 if part == 0 {
-                    transform = Some((phase as f32 * 8., [0., 0.]));
+                    transform = Some(((phase.tick as f32 + phase.fraction) * 8., [0., 0.]));
                 } else {
-                    at[1] +=
-                        (motion.bob * sine(phase * 6 + if part == 1 { 180 } else { 0 })).trunc();
+                    at[1] += phase.bob(motion.bob, 6, if part == 1 { 180 } else { 0 }, sine);
                 }
             }
             Command::Unison if selected => {
                 if part < 2 {
-                    at[1] -= (motion.bob * half_sine(phase * 6)).trunc();
+                    at[1] -= phase.bob(motion.bob, 6, 0, half_sine);
                 } else {
-                    frame += (tick / 6 % 3) as usize;
+                    frame += (time.tick / 6 % 3) as usize;
                 }
             }
             Command::Strategy => {
-                if part == 3 && (!selected || ((phase + 30) / 18) & 1 != 0) {
+                if part == 3 && (!selected || ((phase.tick + 30) / 18) & 1 != 0) {
                     continue;
                 }
                 if selected && part == 0 {
                     at[0] -= 5.;
-                    transform = Some((motion.strategy_rotation * sine(phase * 10), [2., 2.]));
+                    transform = Some((
+                        motion.strategy_rotation * phase.sample(|phase| sine(phase * 10)),
+                        [2., 2.],
+                    ));
                 }
                 if selected && part == 2 {
-                    at[1] += (motion.small_bob * sine(phase * 8)).trunc();
+                    at[1] += phase.bob(motion.small_bob, 8, 0, sine);
                 }
             }
             Command::Equipment if selected => {
-                at[1] +=
-                    (motion.lift * half_sine(phase * 6 + if part == 1 { 90 } else { 0 })).trunc();
+                at[1] += phase.bob(motion.lift, 6, if part == 1 { 90 } else { 0 }, half_sine);
             }
             Command::Items if selected => match part {
-                0 => at[1] += (motion.lift * half_sine(phase * 6)).trunc(),
+                0 => at[1] += phase.bob(motion.lift, 6, 0, half_sine),
                 1 => {
                     at[0] += 12.;
                     at[1] += 24.;
-                    transform = Some((motion.label_bob * sine(phase * 5), [-14., -24.]));
+                    transform = Some((
+                        motion.label_bob * phase.sample(|phase| sine(phase * 5)),
+                        [-14., -24.],
+                    ));
                 }
                 _ => {
                     at[0] -= 10.;
-                    at[1] += 16. + (motion.small_bob * sine(phase * 3)).trunc();
-                    transform = Some((motion.item_sway * sine(phase * 6), [8., -16.]));
+                    at[1] += 16. + phase.bob(motion.small_bob, 3, 0, sine);
+                    transform = Some((
+                        motion.item_sway * phase.sample(|phase| sine(phase * 6)),
+                        [8., -16.],
+                    ));
                 }
             },
             Command::Escape => {
                 at[1] -= 8.;
                 let rotation = if selected {
-                    motion.escape_rotation * sine(phase * 8 + part as u32 * 180)
+                    motion.escape_rotation
+                        * phase.sample(|phase| sine(phase * 8 + part as u32 * 180))
                 } else {
                     0.
                 };
@@ -370,7 +408,7 @@ pub(super) fn label(
 
 fn draw(
     state: Option<&Frame>,
-    tick: u32,
+    time: Phase,
     pending: Option<(Character, &str)>,
     art: &Art,
     font: &BitmapFont,
@@ -390,9 +428,12 @@ fn draw(
     let selected = usize::from(state.selected.index());
     if motion.selected != Some(state.selected) {
         motion.selected = Some(state.selected);
-        motion.since = tick;
+        motion.since = time.tick;
     }
-    let phase = tick.wrapping_sub(motion.since) % 360;
+    let phase = Phase {
+        tick: time.tick.wrapping_sub(motion.since) % 360,
+        ..time
+    };
     let a = &art.commands;
     // Selected artwork overlaps its neighbors and is therefore submitted last.
     for command in Command::ALL
@@ -407,7 +448,7 @@ fn draw(
             command == state.selected,
             state.enabled & command.mask() != 0,
             phase,
-            tick,
+            time,
         );
     }
     let name = if state.selected == Command::Escape && state.escape_requested {
@@ -429,7 +470,7 @@ fn draw(
         name,
         [
             center - cells * 12.,
-            76. - (a.motion.label_bob * half_sine(tick.wrapping_mul(6))).trunc(),
+            76. - time.bob(a.motion.label_bob, 6, 0, half_sine),
         ],
         [22., 32.],
         24.,
@@ -471,7 +512,7 @@ fn draw(
             / 2;
         let position = [
             left + 52. - (14. * units as f32 + 4.) / 2.,
-            380. - (a.motion.selector_bob * half_sine(tick.wrapping_mul(8))).trunc(),
+            380. - time.bob(a.motion.selector_bob, 8, 0, half_sine),
         ];
         for (offset, color) in [(2., a.shadow_color), (0., a.text_color)] {
             label(
@@ -502,7 +543,7 @@ fn draw(
             )?;
         }
     }
-    for ([x, y], alpha) in motion.trail.sample(tick, cursor.map(|v| v as i32)) {
+    for ([x, y], alpha) in motion.trail.sample(time, cursor.map(|v| v as i32)) {
         sprite(
             &mut sprites,
             [x as f32, y as f32, 32., 32.],
@@ -510,7 +551,7 @@ fn draw(
             [128, 128, 128, alpha],
         );
     }
-    let bob = (a.motion.cursor_bob * half_sine(tick.wrapping_mul(8))).trunc();
+    let bob = time.bob(a.motion.cursor_bob, 8, 0, half_sine);
     cursor[0] += bob;
     cursor[1] -= bob;
     sprite(
@@ -576,14 +617,26 @@ mod tests {
     #[test]
     fn battle_cursor_keeps_its_movement_trail_after_ten_updates() {
         let mut trail = CursorTrail::default();
-        assert_eq!(trail.sample(10, [132, 172]).count(), 0);
-        assert_eq!(trail.sample(20, [188, 172]).count(), 8);
-        let settled = trail.sample(30, [188, 172]).collect::<Vec<_>>();
+        let time = |tick| Phase { tick, fraction: 0. };
+        assert_eq!(trail.sample(time(10), [132, 172]).count(), 0);
+        assert_eq!(trail.sample(time(20), [188, 172]).count(), 8);
+        let settled = trail.sample(time(30), [188, 172]).collect::<Vec<_>>();
         assert_eq!(settled.first(), Some(&([188, 172], 144)));
+        let halfway = Phase {
+            fraction: 0.5,
+            ..time(30)
+        };
+        assert_eq!(
+            trail.sample(halfway, [188, 172]).next(),
+            Some(([188, 172], 140))
+        );
         assert_eq!(settled.last(), Some(&([139, 172], 32)));
-        assert_eq!(trail.sample(30, [188, 172]).collect::<Vec<_>>(), settled);
-        assert_eq!(trail.sample(48, [188, 172]).count(), 0);
-        assert_eq!(trail.sample(60, [244, 172]).count(), 8);
+        assert_eq!(
+            trail.sample(time(30), [188, 172]).collect::<Vec<_>>(),
+            settled
+        );
+        assert_eq!(trail.sample(time(48), [188, 172]).count(), 0);
+        assert_eq!(trail.sample(time(60), [244, 172]).count(), 8);
     }
 
     #[test]
@@ -614,30 +667,38 @@ mod tests {
             assert!(!batches[3].indices.is_empty());
         }
         let mut motion = Motion::default();
-        let visible = draw(Some(&state), 0, None, &art, &font, &mut motion)?;
+        let mut sample = |state: Option<&Frame>, time, pending| {
+            draw(state, time, pending, &art, &font, &mut motion)
+        };
+        let start = Phase::default();
+        let visible = sample(Some(&state), start, None)?;
+        let between = sample(
+            Some(&state),
+            Phase {
+                fraction: 0.5,
+                ..start
+            },
+            None,
+        )?;
+        assert_ne!(between[1].positions, visible[1].positions);
+        assert_eq!(between[1].uv, visible[1].uv);
         assert!(!visible[1].indices.is_empty());
         state.view = View::Strategy(Default::default());
-        let submenu = draw(Some(&state), 0, None, &art, &font, &mut motion)?;
+        let submenu = sample(Some(&state), start, None)?;
         assert!(
             visible == submenu,
             "translucent submenus keep the command strip beneath their panels"
         );
         state.view = View::Strip;
         state.enabled &= !Command::Tech.mask();
-        let disabled = draw(Some(&state), 0, None, &art, &font, &mut motion)?;
+        let disabled = sample(Some(&state), start, None)?;
         assert_eq!(disabled[1].positions.len(), visible[1].positions.len() + 4);
         state.selected = Command::Items;
-        let items = draw(
-            Some(&state),
-            1,
-            Some((Character::Lloyd, "Apple Gel")),
-            &art,
-            &font,
-            &mut motion,
-        )?;
+        let next = Phase { tick: 1, ..start };
+        let items = sample(Some(&state), next, Some((Character::Lloyd, "Apple Gel")))?;
         assert!(items[2] != visible[2]);
         assert!(
-            draw(None, 2, None, &art, &font, &mut motion)?
+            sample(None, next, None)?
                 .iter()
                 .all(|b| b.indices.is_empty())
         );

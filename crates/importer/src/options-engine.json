@@ -28,6 +28,10 @@
       "name": "VSync",
       "description": "Synchronize frames with the display.\nHelps prevent screen tearing."
     },
+    "experimental_high_fps": {
+      "name": "Enable experimental high FPS",
+      "description": "Smooths movement above 60 FPS.\nMay cause small visual glitches."
+    },
     "graphics_backend": {
       "name": "Graphics Backend",
       "description": "Choose a supported graphics backend.\nRestart the game to apply changes."

@@ -1,7 +1,7 @@
 //! Shared inventory and authored enemy inspection from immutable battle snapshots.
 use super::*;
 use resonance_battle::{ActorId, Affinity, Cue};
-use resonance_game::battle::command::{Frame, ListFrame, View};
+use resonance_game::battle::command::{Frame, View};
 
 const SCAN_HOLD: u32 = 240;
 const SCAN_SLIDE: u32 = 15;
@@ -91,7 +91,7 @@ fn draw_inspection(
     frame: &BattleFrame,
     target: ActorId,
     anchor: [f32; 3],
-    presentation_tick: u64,
+    (presentation_tick, fraction): (u64, f32),
     font: &BitmapFont,
     batches: &mut [Batch; SCAN_LAYERS],
 ) -> Result<()> {
@@ -121,7 +121,7 @@ fn draw_inspection(
         resonance_battle::project_screen_point(camera, [actor.position[0], 0., actor.position[2]])
             [0];
     let direction = if ground_x <= 400. { 1. } else { -1. };
-    let phase = ((presentation_tick * 4) % 360) as f32;
+    let phase = ((presentation_tick % 90) as f32 + fraction) * 4.;
     let color = [
         (128. + 95. * phase.to_radians().sin()) as u8,
         (128. + 95. * phase.to_radians().cos()) as u8,
@@ -184,7 +184,7 @@ fn draw_inspection(
     Ok(())
 }
 
-fn scan_rect(scan: Scan, actor: &resonance_battle::ActorFrame) -> [f32; 4] {
+fn scan_rect(scan: Scan, actor: &resonance_battle::ActorFrame, fraction: f32) -> [f32; 4] {
     let weak = actor.equipment.affinities.contains(&Affinity::Weak);
     let resist = actor
         .equipment
@@ -192,10 +192,11 @@ fn scan_rect(scan: Scan, actor: &resonance_battle::ActorFrame) -> [f32; 4] {
         .iter()
         .any(|a| matches!(a, Affinity::Resistant | Affinity::Absorb | Affinity::Immune));
     let rows = usize::from(weak) + usize::from(resist);
-    let x = if scan.age < SCAN_SLIDE {
-        (640. - scan.age as f32 * 12.).max(464.)
+    let age = scan.age as f32 + fraction;
+    let x = if age < SCAN_SLIDE as f32 {
+        (640. - age * 12.).max(464.)
     } else {
-        464. + scan.age.saturating_sub(SCAN_SLIDE + SCAN_HOLD) as f32 * 12.
+        464. + (age - (SCAN_SLIDE + SCAN_HOLD) as f32).max(0.) * 12.
     };
     [
         x,
@@ -237,10 +238,15 @@ impl Artwork {
 
     #[cfg(test)]
     pub(super) fn scan_batches(&self, frame: &BattleFrame) -> Result<[Batch; SCAN_LAYERS]> {
-        self.draw_scan(frame, self.scan)
+        self.draw_scan(frame, self.scan, 0.)
     }
 
-    fn draw_scan(&self, frame: &BattleFrame, scan: Option<Scan>) -> Result<[Batch; SCAN_LAYERS]> {
+    fn draw_scan(
+        &self,
+        frame: &BattleFrame,
+        scan: Option<Scan>,
+        fraction: f32,
+    ) -> Result<[Batch; SCAN_LAYERS]> {
         let mut batches = std::array::from_fn(|_| Batch::default());
         let Some(scan) = scan else {
             return Ok(batches);
@@ -256,7 +262,7 @@ impl Artwork {
             .find(|enemy| enemy.actor == scan.target)
             .context("scan enemy name was not prepared")?
             .name;
-        let [x, y, _, _] = scan_rect(scan, actor);
+        let [x, y, _, _] = scan_rect(scan, actor, fraction);
         let mut left = x + 4.;
         for character in name.chars() {
             let glyph = self
@@ -340,8 +346,8 @@ impl Artwork {
         frame: &BattleFrame,
         command: Option<&Frame>,
         inspection: Option<(ActorId, [f32; 3])>,
+        time: HudTime,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         let scan = if frame.recognized_result.is_some() || command.is_some() {
             None
@@ -350,27 +356,26 @@ impl Artwork {
         };
         if let Some(scan) = scan {
             self.windows.render_battle_scan_panel(
-                scan_rect(scan, &frame.actors[scan.target.index()]),
+                scan_rect(scan, &frame.actors[scan.target.index()], time.feedback),
                 &self.font,
                 &self.dialogue,
                 &self.settings,
                 commands,
-                meshes,
             )?;
         }
-        let mut batches = self.draw_scan(frame, scan)?;
+        let mut batches = self.draw_scan(frame, scan, time.feedback)?;
         if let Some((target, anchor)) = inspection {
             draw_inspection(
                 frame,
                 target,
                 anchor,
-                self.numbers.presentation_tick,
+                (self.numbers.presentation_tick, time.visit),
                 &self.art.font,
                 &mut batches,
             )?;
         }
         for (layer, batch) in self.ui.scan.iter_mut().zip(batches) {
-            layer.upload(batch, commands, meshes)?;
+            layer.upload(batch, commands)?;
         }
         Ok(())
     }
@@ -387,28 +392,6 @@ impl Artwork {
 
     pub fn clear_menu(&mut self, commands: &mut Commands) {
         self.windows.clear_page(commands);
-    }
-
-    pub fn render_items(
-        &mut self,
-        frame: Option<&ListFrame>,
-        tick: u32,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<()> {
-        let Some(frame) = frame else {
-            return Ok(());
-        };
-        self.windows.render_battle_items(
-            frame,
-            &self.menu_data,
-            &self.font,
-            &self.dialogue,
-            &self.settings,
-            tick,
-            commands,
-            meshes,
-        )
     }
 }
 
@@ -463,7 +446,7 @@ mod tests {
                 frame,
                 target,
                 frame.actors[0].target_center(),
-                0,
+                (0, 0.),
                 &font,
                 &mut batches,
             )?;

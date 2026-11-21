@@ -93,6 +93,7 @@ pub(super) struct Equipment {
 
 pub(super) struct Layer {
     pub(super) part: u8,
+    pub(super) rig_layer: usize,
     pub(super) preview: PreviewPart,
     pub(super) animation: Option<AttachmentTextureAnimation>,
     pub(super) art: Part,
@@ -100,8 +101,27 @@ pub(super) struct Layer {
 
 pub(super) struct Captured {
     pub(super) shield: bool,
-    pub(super) layers: Vec<(u8, PreviewPart, Option<AttachmentTextureAnimation>)>,
+    pub(super) layers: Vec<CapturedLayer>,
     files: Files,
+}
+
+pub(super) struct CapturedLayer {
+    part: u8,
+    pub(super) rig_layer: usize,
+    pub(super) preview: PreviewPart,
+    pub(super) animation: Option<AttachmentTextureAnimation>,
+}
+
+impl CapturedLayer {
+    pub(super) fn load(self, server: &AssetServer, loads: &crate::loading::LoadTasks) -> Layer {
+        Layer {
+            part: self.part,
+            rig_layer: self.rig_layer,
+            art: Part::load(self.preview.scene.clone(), server, loads),
+            preview: self.preview,
+            animation: self.animation,
+        }
+    }
 }
 
 pub(super) fn capture(
@@ -122,6 +142,7 @@ pub(super) fn capture(
     if let Attachment::Weapon(weapon) | Attachment::Shield(weapon) = attachment {
         for (slot, model) in weapon.parts {
             let controls = weapon.uv_animation.get(&slot);
+            let primary = layers.len();
             for mut preview in model.layers {
                 // Kendamas carry combat-linked motion banks rather than an
                 // autoplay selection. Field scenes use their authored idle.
@@ -147,7 +168,12 @@ pub(super) fn capture(
                 if let Some(animation) = &animation {
                     validate_texture_animation(animation, preview.scene.textures.len())?;
                 }
-                layers.push((slot, preview, animation));
+                layers.push(CapturedLayer {
+                    part: slot,
+                    rig_layer: if independent { layers.len() } else { primary },
+                    preview,
+                    animation,
+                });
             }
         }
     }
@@ -240,16 +266,7 @@ pub(crate) fn prepare(
                     let layers = captured
                         .layers
                         .into_iter()
-                        .map(|(part, preview, animation)| {
-                            let artwork =
-                                Part::load(preview.scene.clone(), &assets.server, &cache.loads);
-                            Layer {
-                                part,
-                                preview,
-                                animation,
-                                art: artwork,
-                            }
-                        })
+                        .map(|layer| layer.load(&assets.server, &cache.loads))
                         .collect();
                     cache.equipment.insert(
                         item,

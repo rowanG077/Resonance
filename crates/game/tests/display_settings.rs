@@ -184,6 +184,7 @@ fn desktop_menu_edits_restore_reset_and_exit_with_committed_choices() -> anyhow:
     data.defaults.display_mode = DisplayMode::Fullscreen;
     data.defaults.resolution = [1920, 1080];
     data.defaults.vsync = true;
+    data.defaults.experimental_high_fps = true;
     let original = CustomizeSettings {
         resolution: [1279, 719],
         ..Default::default()
@@ -195,6 +196,13 @@ fn desktop_menu_edits_restore_reset_and_exit_with_committed_choices() -> anyhow:
     for (action, enabled) in [(Left, true), (Right, false), (Left, true)] {
         press(&mut menu, action);
         assert_eq!(menu.customize.draft.vsync, enabled);
+        assert_eq!(menu.customize.focus, Focus::Options);
+    }
+    menu.customize.row = EXPERIMENTAL_HIGH_FPS_OPTION;
+    menu.customize.first = EXPERIMENTAL_HIGH_FPS_OPTION - 8;
+    for (action, enabled) in [(Left, true), (Right, false), (Left, true)] {
+        press(&mut menu, action);
+        assert_eq!(menu.customize.draft.experimental_high_fps, enabled);
         assert_eq!(menu.customize.focus, Focus::Options);
     }
     menu.customize.row = DISPLAY_MODE_OPTION;
@@ -264,6 +272,7 @@ fn desktop_menu_edits_restore_reset_and_exit_with_committed_choices() -> anyhow:
     assert_eq!(menu.customize.draft.display_mode, DisplayMode::Fullscreen);
     assert_eq!(menu.customize.draft.resolution, [1920, 1080]);
     assert!(menu.preferences().unwrap().vsync);
+    assert!(menu.preferences().unwrap().experimental_high_fps);
     Ok(())
 }
 
@@ -611,7 +620,7 @@ fn backend_dropdown_selects_without_a_countdown_and_applies_on_restart() -> anyh
     let mut menu = Menu::title_customize(CustomizeSettings::default(), data())?;
     press(&mut menu, Idle);
     menu.customize
-        .set_backend_choices(&[Automatic, Dx12, OpenGl], Dx12, false);
+        .set_backend_choices(&[Automatic, Dx12, Vulkan], Dx12, false);
     menu.customize.row = GRAPHICS_BACKEND_OPTION;
     menu.customize.first = GRAPHICS_BACKEND_OPTION - 8;
     press(&mut menu, Accept);
@@ -632,16 +641,16 @@ fn backend_dropdown_selects_without_a_countdown_and_applies_on_restart() -> anyh
     press(&mut menu, Down);
     press(&mut menu, Accept);
     assert_eq!(menu.customize.focus, Focus::Options);
-    assert_eq!(menu.customize.draft.graphics_backend, OpenGl);
+    assert_eq!(menu.customize.draft.graphics_backend, Vulkan);
     assert_eq!(menu.customize.active_backend, Some(Dx12));
     for key in [Left, Right] {
         press(&mut menu, key);
-        assert_eq!(menu.customize.draft.graphics_backend, OpenGl);
+        assert_eq!(menu.customize.draft.graphics_backend, Vulkan);
         assert_eq!(menu.customize.focus, Focus::Options);
     }
     assert_eq!(
         serde_json::to_value(&menu.customize.draft)?["graphics_backend"],
-        "opengl"
+        "vulkan"
     );
     // Display previews still need confirmation and never undo the next-launch backend.
     menu.customize.row = RESOLUTION_OPTION;
@@ -652,9 +661,9 @@ fn backend_dropdown_selects_without_a_countdown_and_applies_on_restart() -> anyh
     ));
     press(&mut menu, Cancel);
     assert_eq!(menu.customize.draft.resolution, [640, 480]);
-    assert_eq!(menu.customize.draft.graphics_backend, OpenGl);
+    assert_eq!(menu.customize.draft.graphics_backend, Vulkan);
     press(&mut menu, Cancel);
-    assert_eq!(menu.customize.draft.graphics_backend, OpenGl);
+    assert_eq!(menu.customize.draft.graphics_backend, Vulkan);
     Ok(())
 }
 
@@ -671,6 +680,14 @@ fn old_options_and_settings_gain_graphics_options_without_recooking() -> anyhow:
         .remove("graphics_backend");
     doc["options"].as_object_mut().unwrap().remove("vsync");
     doc["defaults"].as_object_mut().unwrap().remove("vsync");
+    doc["options"]
+        .as_object_mut()
+        .unwrap()
+        .remove("experimental_high_fps");
+    doc["defaults"]
+        .as_object_mut()
+        .unwrap()
+        .remove("experimental_high_fps");
     let doc: options::Document = serde_json::from_value(doc)?;
     let migrated = doc.prepare()?;
     assert_eq!(migrated.options.len(), CUSTOMIZE_OPTIONS);
@@ -684,9 +701,20 @@ fn old_options_and_settings_gain_graphics_options_without_recooking() -> anyhow:
     );
     assert_eq!(migrated.option_name(VSYNC_OPTION), "VSync");
     assert!(!migrated.defaults.vsync);
+    assert_eq!(
+        migrated.option_name(EXPERIMENTAL_HIGH_FPS_OPTION),
+        "Enable experimental high FPS"
+    );
+    assert!(!migrated.defaults.experimental_high_fps);
     let mut saved = serde_json::to_value(CustomizeSettings::default())?;
     saved.as_object_mut().unwrap().remove("vsync");
-    assert!(!serde_json::from_value::<CustomizeSettings>(saved)?.vsync);
+    saved
+        .as_object_mut()
+        .unwrap()
+        .remove("experimental_high_fps");
+    let saved: CustomizeSettings = serde_json::from_value(saved)?;
+    assert!(!saved.vsync);
+    assert!(!saved.experimental_high_fps);
     Ok(())
 }
 

@@ -3,21 +3,20 @@ import resonance_presentation::effect_color::{quantize, sample_bytes};
 import resonance_presentation::effect_depth::depth_coverage;
 struct Pulse { center: vec4<f32>, right: vec4<f32>, up: vec4<f32>, opacity: vec4<f32>, tint: vec4<f32> };
 struct Settings {
-    clip_from_world: mat4x4<f32>,
     uv: array<vec4<f32>, 2>,
     parameters: vec4<f32>,
     screen_copy: vec4<f32>,
     heat_transform: vec4<f32>,
     heat_uv: vec4<f32>,
 };
-@group(0) @binding(0) var scene: texture_2d<f32>;
-@group(0) @binding(1) var linear_sampler: sampler;
-@group(0) @binding(2) var displacement: texture_2d<f32>;
-@group(0) @binding(3) var<uniform> settings: Settings;
-@group(0) @binding(5) var air_displacement: texture_2d<f32>;
-@group(0) @binding(6) var<storage, read> pulses: array<Pulse>;
-@group(0) @binding(7) var heat_displacement: texture_2d<f32>;
-@group(0) @binding(8) var repeating_sampler: sampler;
+@group(2) @binding(0) var scene: texture_2d<f32>;
+@group(2) @binding(1) var linear_sampler: sampler;
+@group(1) @binding(0) var displacement: texture_2d<f32>;
+@group(1) @binding(4) var<uniform> settings: Settings;
+@group(1) @binding(1) var air_displacement: texture_2d<f32>;
+@group(1) @binding(5) var<storage, read> pulses: array<Pulse>;
+@group(1) @binding(2) var heat_displacement: texture_2d<f32>;
+@group(1) @binding(3) var repeating_sampler: sampler;
 
 fn scene_texel(pixel: vec2<i32>) -> vec4<f32> {
     let size = vec2<i32>(textureDimensions(scene));

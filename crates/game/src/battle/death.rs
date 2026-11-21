@@ -2,12 +2,14 @@
 use anyhow::{Result, ensure};
 use resonance_battle::{ActorId, EffectAppearance, Sound};
 
+#[derive(Clone)]
 pub struct Feedback {
     pub appearance: EffectAppearance,
     pub sound: Option<Sound>,
     pub allies: Vec<AllyReaction>,
 }
 
+#[derive(Clone)]
 pub struct AllyReaction {
     pub victim: ActorId,
     pub recipient: ActorId,

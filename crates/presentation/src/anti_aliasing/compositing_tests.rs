@@ -1,82 +1,37 @@
+//! Later cameras on a shared image either replace it (clear) or draw over it
+//! (load), with every MSAA sample count.
 use super::*;
-use bevy::{
-    camera::{CameraOutputMode, visibility::RenderLayers},
-    core_pipeline::tonemapping::Tonemapping,
-    render::{
-        render_resource::{Extent3d, TextureDimension, TextureUsages},
-        view::screenshot::{Screenshot, ScreenshotCaptured},
-    },
-};
-
-#[test]
-fn automatic_writeback_respects_clears_and_explicit_choices() {
-    use MsaaWriteback::{Always, Auto, Off};
-    use bevy::{core_pipeline::schedule::Core2d, ecs::schedule::ScheduleLabel};
-    let mut app = App::new();
-    app.add_systems(Update, configure_camera_loads);
-    for index in [0, 1, 5] {
-        // Model the render camera produced by extraction, including late views.
-        let entity = app
-            .world_mut()
-            .spawn(ExtractedCamera {
-                target: None,
-                physical_viewport_size: None,
-                physical_target_size: None,
-                viewport: None,
-                schedule: Core2d.intern(),
-                order: index as isize,
-                output_mode: CameraOutputMode::Skip,
-                msaa_writeback: Auto,
-                clear_color: ClearColorConfig::None,
-                sorted_camera_index_for_target: index,
-                exposure: 1.,
-                hdr: false,
-            })
-            .id();
-        for (clear, requested, expected) in [
-            (ClearColorConfig::None, Auto, Auto),
-            (ClearColorConfig::Default, Auto, Off),
-            (ClearColorConfig::Custom(Color::BLACK), Auto, Off),
-            (ClearColorConfig::Custom(Color::NONE), Auto, Off),
-            (ClearColorConfig::None, Off, Off),
-            (ClearColorConfig::Custom(Color::BLACK), Always, Always),
-        ] {
-            // Extraction copies the main camera's choice afresh each frame.
-            let mut camera = app.world_mut().get_mut::<ExtractedCamera>(entity).unwrap();
-            camera.clear_color = clear;
-            camera.msaa_writeback = requested;
-            app.update();
-            assert_eq!(
-                app.world()
-                    .get::<ExtractedCamera>(entity)
-                    .unwrap()
-                    .msaa_writeback,
-                expected,
-                "camera index {index}, {clear:?}, {requested:?}"
-            );
-        }
-    }
-}
-
-#[derive(Resource, Default)]
-struct Capture(Option<Image>);
+use crate::native::MeshMaterial2d;
+use bevy::camera::visibility::RenderLayers;
 
 #[test]
 #[ignore = "requires a GPU; verifies encoded alpha blending before final display conversion"]
 fn output_overlay_preserves_translucency_and_draws_over_scene_fades() -> anyhow::Result<()> {
     use crate::materials::TitleOutput;
+    use bevy::render::render_resource::{Extent3d, TextureDimension, TextureUsages};
     let mut app = App::new();
     app.add_plugins(crate::test_support::render_plugins())
-        .add_plugins(crate::materials::install_output_materials)
-        .init_resource::<Capture>();
-    let began = std::time::Instant::now();
-    while app.plugins_state() == bevy::app::PluginsState::Adding {
-        anyhow::ensure!(began.elapsed().as_secs() < 120, "GPU setup timed out");
-        bevy::tasks::tick_global_task_pools_on_main_thread();
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
-    app.finish();
-    app.cleanup();
+        .add_plugins(crate::materials::install_output_materials);
+    let mut image = Image::new_target_texture(32, 32, TextureFormat::Bgra8UnormSrgb, None);
+    image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
+    let target = app.world_mut().resource_mut::<Assets<Image>>().add(image);
+    // The output camera draws into `target`, as the game's into its window.
+    let scene = app
+        .world_mut()
+        .resource_mut::<Assets<Image>>()
+        .add(Image::new_target_texture(
+            1,
+            1,
+            TextureFormat::Bgra8Unorm,
+            None,
+        ));
+    crate::test_support::native_scene(&mut app, scene.clone());
+    crate::set_display_targets(
+        app.world_mut(),
+        scene,
+        RenderTarget::Image(target.clone().into()),
+    );
+    crate::test_support::finish_app(&mut app)?;
     let mut pixel = || {
         app.world_mut()
             .resource_mut::<Assets<Image>>()
@@ -94,9 +49,6 @@ fn output_overlay_preserves_translucency_and_draws_over_scene_fades() -> anyhow:
     };
     let source = pixel();
     let overlay = pixel();
-    let mut image = Image::new_target_texture(32, 32, TextureFormat::Bgra8UnormSrgb, None);
-    image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
-    let target = app.world_mut().resource_mut::<Assets<Image>>().add(image);
     let material = app
         .world_mut()
         .resource_mut::<Assets<TitleOutput>>()
@@ -117,7 +69,6 @@ fn output_overlay_preserves_translucency_and_draws_over_scene_fades() -> anyhow:
     app.world_mut().spawn((
         Camera2d,
         Msaa::Off,
-        Tonemapping::Linear,
         RenderTarget::Image(target.clone().into()),
         Camera {
             clear_color: Color::BLACK.into(),
@@ -173,28 +124,7 @@ fn output_overlay_preserves_translucency_and_draws_over_scene_fades() -> anyhow:
             app.update();
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
-        app.world_mut().resource_mut::<Capture>().0 = None;
-        app.world_mut()
-            .spawn(Screenshot::image(target.clone()))
-            .observe(
-                |shot: On<ScreenshotCaptured>, mut capture: ResMut<Capture>| {
-                    capture.0 = Some(shot.image.clone());
-                },
-            );
-        while app.world().resource::<Capture>().0.is_none() {
-            anyhow::ensure!(
-                began.elapsed().as_secs() < 120,
-                "overlay readback timed out"
-            );
-            app.update();
-            std::thread::sleep(std::time::Duration::from_millis(2));
-        }
-        let pixels = app
-            .world_mut()
-            .resource_mut::<Capture>()
-            .0
-            .take()
-            .unwrap()
+        let pixels = crate::test_support::capture_image(&mut app, target.clone())?
             .try_into_dynamic()?
             .to_rgba8();
         assert!(
@@ -211,21 +141,24 @@ fn output_overlay_preserves_translucency_and_draws_over_scene_fades() -> anyhow:
 }
 
 #[test]
-#[ignore = "requires a GPU; checks replacement screens and overlays with MSAA"]
-fn shared_targets_respect_clear_and_load_with_msaa() -> anyhow::Result<()> {
+#[ignore = "requires a GPU with MSAA"]
+fn shared_targets_preserve_clear_load_and_scene_history() -> anyhow::Result<()> {
     let mut app = App::new();
     app.add_plugins(crate::test_support::render_plugins())
         .add_plugins(AntiAliasingPlugin)
-        .insert_resource(ClearColor(Color::srgb(1., 1., 0.)))
-        .init_resource::<Capture>();
-    let began = std::time::Instant::now();
-    while app.plugins_state() == bevy::app::PluginsState::Adding {
-        anyhow::ensure!(began.elapsed().as_secs() < 180, "GPU setup timed out");
-        bevy::tasks::tick_global_task_pools_on_main_thread();
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
-    app.finish();
-    app.cleanup();
+        .insert_resource(ClearColor(Color::srgb(1., 1., 0.)));
+    let target = app
+        .world_mut()
+        .resource_mut::<Assets<Image>>()
+        .add(Image::new_target_texture(
+            64,
+            64,
+            TextureFormat::Bgra8Unorm,
+            None,
+        ));
+    crate::test_support::native_scene(&mut app, target.clone());
+    crate::field_dissolve::install(&mut app);
+    crate::test_support::finish_app(&mut app)?;
     app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
         std::time::Duration::ZERO,
     ));
@@ -247,71 +180,78 @@ fn shared_targets_respect_clear_and_load_with_msaa() -> anyhow::Result<()> {
         modes.iter().any(|mode| mode.samples() > 1),
         "this test requires native MSAA support"
     );
-    let target = app
-        .world_mut()
-        .resource_mut::<Assets<Image>>()
-        .add(Image::new_target_texture(
-            64,
-            64,
-            TextureFormat::Bgra8Unorm,
-            None,
-        ));
     let render_target = RenderTarget::Image(target.clone().into());
-    app.world_mut().spawn((
-        Camera3d::default(),
-        Tonemapping::Linear,
-        render_target.clone(),
-        Camera {
-            clear_color: Color::srgb(0., 1., 0.).into(),
-            output_mode: CameraOutputMode::Skip,
-            ..default()
-        },
-    ));
-    let replacement = app
+    let scene = app
         .world_mut()
         .spawn((
-            Camera2d,
-            Tonemapping::Linear,
+            Camera3d::default(),
             render_target.clone(),
-            RenderLayers::layer(1),
             Camera {
-                order: 1,
-                output_mode: CameraOutputMode::Skip,
+                clear_color: Color::srgb(0., 1., 0.).into(),
                 ..default()
             },
         ))
         .id();
-    app.world_mut().spawn((
-        Camera2d,
-        Tonemapping::Linear,
-        render_target.clone(),
-        RenderLayers::layer(2),
-        Camera {
-            order: 2,
-            clear_color: ClearColorConfig::None,
-            output_mode: crate::renderer::COMPOSITED_OUTPUT,
-            ..default()
-        },
-    ));
-    for (layer, color, position, width) in [
+    let replacement = app
+        .world_mut()
+        .spawn((
+            Camera2d,
+            render_target.clone(),
+            RenderLayers::layer(1),
+            Camera {
+                order: 1,
+                ..default()
+            },
+        ))
+        .id();
+    let overlay = app
+        .world_mut()
+        .spawn((
+            Camera2d,
+            render_target.clone(),
+            RenderLayers::layer(2),
+            Camera {
+                order: 2,
+                clear_color: ClearColorConfig::None,
+                ..default()
+            },
+        ))
+        .id();
+    // Opaque rectangles: an image fully covered by the backdrop's color.
+    let white = app
+        .world_mut()
+        .resource_mut::<Assets<Image>>()
+        .add(Image::new_fill(
+            bevy::render::render_resource::Extent3d::default(),
+            bevy::render::render_resource::TextureDimension::D2,
+            &[255; 4],
+            TextureFormat::Rgba8Unorm,
+            default(),
+        ));
+    let [panel, _] = [
         (1, Color::srgb(0., 0., 1.), Vec3::ZERO, 16.),
         (2, Color::srgb(1., 0., 0.), Vec3::new(-20., 20., 0.), 8.),
-    ] {
+    ]
+    .map(|(layer, color, position, width)| {
         let mesh = app
             .world_mut()
             .resource_mut::<Assets<Mesh>>()
             .add(Rectangle::new(width, width));
         let material = app
             .world_mut()
-            .resource_mut::<Assets<ColorMaterial>>()
-            .add(color);
+            .resource_mut::<Assets<crate::menu_backdrop::Material>>()
+            .add(
+                crate::menu_backdrop::Material::visible(white.clone())
+                    .with_cover(color.to_linear().to_vec4()),
+            );
         app.world_mut().spawn((
             Mesh2d(mesh),
-            MeshMaterial2d(material),
+            MeshMaterial2d(material.clone()),
             Transform::from_translation(position),
             RenderLayers::layer(layer),
         ));
-    }
+        material
+    });
     for mode in &modes {
         app.world_mut().resource_mut::<AntiAliasingSettings>().0 = *mode;
         // Reuse the same camera: replacement -> overlay -> replacement,
@@ -332,12 +272,108 @@ fn shared_targets_respect_clear_and_load_with_msaa() -> anyhow::Result<()> {
                 &mut app,
                 &target,
                 expected,
+                [0, 0, 255, 255],
                 format!("{mode:?}/{clear:?}"),
-                began,
             )?;
         }
+        // Model replacements render behind the held field, including during readback.
+        app.world_mut()
+            .get_mut::<Camera>(overlay)
+            .unwrap()
+            .output_mode = bevy::camera::CameraOutputMode::Skip;
+        app.world_mut()
+            .get_mut::<Camera>(scene)
+            .unwrap()
+            .clear_color = Color::BLACK.into();
+        check_capture(
+            &mut app,
+            &target,
+            [0, 255, 0, 255],
+            [0, 0, 255, 255],
+            format!("{mode:?}/held"),
+        )?;
+        app.world_mut()
+            .get_mut::<Camera>(overlay)
+            .unwrap()
+            .output_mode = default();
+        check_capture(
+            &mut app,
+            &target,
+            [0, 0, 0, 255],
+            [0, 0, 255, 255],
+            format!("{mode:?}/released"),
+        )?;
+        app.world_mut()
+            .get_mut::<Camera>(scene)
+            .unwrap()
+            .clear_color = Color::srgb(0., 1., 0.).into();
     }
 
+    // The previous frame has a blue panel. Opening a menu must freeze the green
+    // field behind it, even when the panel samples that capture in this frame.
+    let frozen = app
+        .world_mut()
+        .resource_mut::<Assets<Image>>()
+        .add(Image::new_target_texture(
+            32,
+            32,
+            TextureFormat::Bgra8Unorm,
+            None,
+        ));
+    let green = [0, 255, 0, 255];
+    let mut capture = crate::menu_backdrop::Capture::once(frozen.clone());
+    app.world_mut().entity_mut(scene).insert(capture.clone());
+    check_capture(
+        &mut app,
+        &target,
+        green,
+        [0, 0, 255, 255],
+        "pending resize".into(),
+    )?;
+    assert!(!capture.ready());
+    assert!(capture.fit_source(&target, &mut app.world_mut().resource_mut()));
+    app.world_mut().entity_mut(scene).insert(capture.clone());
+    *app.world_mut()
+        .resource_mut::<Assets<crate::menu_backdrop::Material>>()
+        .get_mut(&panel)
+        .unwrap() = crate::menu_backdrop::Material::visible(frozen);
+    check_capture(&mut app, &target, green, green, "menu backdrop".into())?;
+    assert!(capture.ready());
+    app.world_mut()
+        .get_mut::<Camera>(scene)
+        .unwrap()
+        .clear_color = Color::BLACK.into();
+    let mut field = resonance_events::GameWorld::default();
+    app.world_mut()
+        .entity_mut(scene)
+        .insert(crate::field_dissolve::field_settings(1, &field, None));
+    check_capture(
+        &mut app,
+        &target,
+        [0, 0, 0, 255],
+        green,
+        "frozen backdrop".into(),
+    )?;
+    // The preceding black scene contributes half the first tick. Repeated
+    // renders in check_capture must not keep halving its contribution.
+    app.world_mut()
+        .get_mut::<Camera>(scene)
+        .unwrap()
+        .clear_color = Color::srgb(0., 1., 0.).into();
+    field.frame_feedback = 1;
+    for (tick, expected) in [(1, 127), (2, 191)] {
+        field.tick = tick;
+        app.world_mut()
+            .entity_mut(scene)
+            .insert(crate::field_dissolve::field_settings(1, &field, None));
+        check_capture(
+            &mut app,
+            &target,
+            [0, expected, 0, 255],
+            green,
+            format!("field feedback at tick {tick}"),
+        )?;
+    }
     Ok(())
 }
 
@@ -345,8 +381,8 @@ fn check_capture(
     app: &mut App,
     target: &Handle<Image>,
     background: [u8; 4],
+    panel: [u8; 4],
     context: String,
-    began: std::time::Instant,
 ) -> anyhow::Result<()> {
     // Allow camera extraction and shader preparation to settle.
     for _ in 0..20 {
@@ -354,29 +390,7 @@ fn check_capture(
         crate::playthrough::check_exit(app)?;
         std::thread::sleep(std::time::Duration::from_millis(2));
     }
-    app.world_mut().resource_mut::<Capture>().0 = None;
-    app.world_mut()
-        .spawn(Screenshot::image(target.clone()))
-        .observe(
-            |shot: On<ScreenshotCaptured>, mut capture: ResMut<Capture>| {
-                capture.0 = Some(shot.image.clone());
-            },
-        );
-    while app.world().resource::<Capture>().0.is_none() {
-        anyhow::ensure!(
-            began.elapsed().as_secs() < 180,
-            "{context}: readback timed out"
-        );
-        app.update();
-        crate::playthrough::check_exit(app)?;
-        std::thread::sleep(std::time::Duration::from_millis(2));
-    }
-    let image = app
-        .world_mut()
-        .resource_mut::<Capture>()
-        .0
-        .take()
-        .unwrap()
+    let image = crate::test_support::capture_image(app, target.clone())?
         .try_into_dynamic()?
         .to_rgba8();
     let (width, height) = image.dimensions();
@@ -387,7 +401,7 @@ fn check_capture(
     );
     assert_eq!(
         image.get_pixel(width / 2, height / 2).0,
-        [0, 0, 255, 255],
+        panel,
         "{context}: replacement surface"
     );
     assert_eq!(

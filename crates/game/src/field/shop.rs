@@ -42,7 +42,7 @@ pub enum Focus {
     Empty,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub struct Row {
     pub id: u16,
     pub quantity: u8,
@@ -54,6 +54,7 @@ enum Exit {
     Equip,
 }
 
+#[derive(Clone)]
 pub struct Shop {
     pub resources: Arc<Resources>,
     pub id: u8,
@@ -80,6 +81,11 @@ pub struct Shop {
 }
 
 impl Shop {
+    pub(crate) fn fork_for_prediction(&self, fork: &mut resonance_events::OperationFork) -> Self {
+        let mut next = self.clone();
+        next.operation = fork.fork(&self.operation);
+        next
+    }
     pub fn open(
         id: u8,
         resources: Arc<Resources>,
@@ -306,16 +312,14 @@ impl Shop {
         if self.description_fade == 0 {
             self.description_previous = self.description();
         }
-        let held = [
-            input.direction[0] < -0.5,
-            input.direction[0] > 0.5,
-            input.direction[1] > 0.5,
-            input.direction[1] < -0.5,
-            input.scroll_direction > 0,
-            input.scroll_direction < 0,
-        ];
+        let navigation = input.navigation();
+        let held = navigation.map(|(held, _)| held);
         let directions = std::array::from_fn(|i| {
-            self.repeat[i].step(held[i], held[i] && !self.held[i], self.tick)
+            self.repeat[i].step(
+                held[i],
+                navigation[i].1 || (held[i] && !self.held[i]),
+                self.tick,
+            )
         });
         self.held = held;
         self.scroll = (self.scroll + self.scroll.signum()) % 5;

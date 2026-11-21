@@ -18,17 +18,6 @@ cursor bobs and blinking markers continue normally.
 title, opens and edits Customize, returns, and enters New Game setup. It uses
 the current installed library and the normal input/render path.
 
-The spatial AA GPU regression is independent of cooked assets:
-
-```sh
-cargo run -p resonance-presentation --example antialias_probe -- /tmp/aa-probe
-```
-
-It saves each supported AA mode and compares geometric coverage against a 64-sample spatial
-reference. It also checks unchanged UI pixels, live mode
-switching and identical repeated static frames. It uses a software Vulkan/DX12
-adapter on Linux/Windows and Metal on macOS.
-
 For the production field/refraction path, use a current cooked library:
 
 ```sh
@@ -39,23 +28,14 @@ RESONANCE_TEST_ASSETS="$PWD/local/all-assets" WGPU_SETTINGS_PRIO=webgpu \
 The WebGPU priority keeps this check within software adapters' supported features.
 Set `RESONANCE_AA_CAPTURE` to retain the field screenshot at a chosen PNG path.
 
-All SMAA quality presets have a color-space and composition regression:
+All SMAA quality presets have an asset-independent edge and composition regression:
 
 ```sh
-cargo test -p resonance-presentation --lib regular_smaa_preserves -- --ignored --nocapture
+cargo test -p resonance-presentation --lib native_smaa_smooths_the_scene_and_keeps_ui -- --ignored --nocapture
 ```
 
-It compares sRGB and encoded-unorm targets, verifies edge smoothing, untouched
-UI, loading the preceding camera's scene, resizing and attachment cleanup.
-
-The image probe checks S2x coverage against plain 2× MSAA, alpha cutout
-smoothing, and identical output after leaving/re-entering a mode.
-
-To test the physical GPU on Linux, override the probe's software-adapter default:
-
-```sh
-WGPU_FORCE_FALLBACK_ADAPTER=false cargo run -p resonance-presentation --example antialias_probe -- /tmp/aa-hardware
-```
+It verifies edge smoothing, untouched UI, scene clear color, resizing and
+resource reuse across three simultaneous target sizes.
 
 Select a driver with `VK_DRIVER_FILES` if needed. The field check accepts
 `RESONANCE_AA_MODE=smaa_s2x` (or another serialized AA choice) and asserts that
@@ -67,15 +47,16 @@ Captured-scene mesh effects have a separate asset-independent GPU regression:
 cargo test -p resonance-presentation --lib captured_meshes_obey -- --ignored --nocapture
 ```
 
-It runs every supported AA choice and checks full occlusion, half coverage,
-full visibility, and equal-depth rejection against synthetic per-sample depth.
-This exercises the actual effect pass, including the branch absent from the
-ordinary field checkpoint. It runs on both physical and software adapters.
+It runs every supported AA choice against synthetic per-sample depth, checking
+occlusion, partial coverage, visibility, equal-depth rejection and back-face culling.
+It also checks streamed battle particles with inclusive or disabled depth testing.
+This exercises the native effect pass, including the branch absent from the
+ordinary field checkpoint, on physical or software adapters.
 
 Dialogue-frame joins have an asset-independent GPU regression:
 
 ```sh
-cargo test -p resonance-presentation --lib dialogue_slices_have_no_msaa_seams -- --ignored --nocapture
+cargo test -p resonance-presentation --lib dialogue_slices_have_no_aa_seams -- --ignored --nocapture
 ```
 
 It checks solid and textured clipping masks at fractional joins, opaque and

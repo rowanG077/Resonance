@@ -29,39 +29,48 @@ pub(super) fn prepare(
             .all(|image| server.is_loaded_with_dependencies(image.handle.id()));
 }
 
-#[allow(clippy::too_many_arguments)] // Shared clock with title, movie and field readiness gates.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct ClockGate<'w> {
+    ready: Res<'w, Ready>,
+    movie: Res<'w, movie::Playback>,
+    boot: Res<'w, boot::Playback>,
+    loading: Option<Res<'w, super::loading::Pending>>,
+    resident: Option<Res<'w, super::loading::Resident>>,
+    battle: Option<Res<'w, super::battle::Owner>>,
+    game_over: Option<Res<'w, super::game_over::Active>>,
+}
+
+impl ClockGate<'_> {
+    pub(crate) fn running(&self, session: Option<&super::new_game::Session>) -> bool {
+        let battle = self
+            .battle
+            .as_ref()
+            .is_some_and(|battle| battle.presenting());
+        self.loading.is_none()
+            && (battle
+                || session.is_none()
+                || self
+                    .resident
+                    .as_ref()
+                    .is_none_or(|r| r.active.load(Ordering::Acquire)))
+            && session
+                .is_none_or(|s| !s.events().battle_pending() || self.game_over.is_some() || battle)
+            && session.is_none_or(|s| s.events().world.field_transition.is_none())
+            && (session.is_some() || self.ready.0)
+            && (self.boot.active() || !self.movie.active || self.movie.is_presenting())
+    }
+}
+
 pub(super) fn advance_clock(
     mut clock: ResMut<Clock>,
-    ready: Res<Ready>,
-    movie: Res<movie::Playback>,
-    boot: Res<boot::Playback>,
-    loading: Option<Res<super::loading::Pending>>,
-    resident: Option<Res<super::loading::Resident>>,
+    gate: ClockGate,
     mut session: Option<ResMut<super::new_game::Session>>,
-    battle: Option<Res<super::battle::Owner>>,
-    game_over: Option<Res<super::game_over::Active>>,
 ) {
     // Presentation age continues across movies and title entries;
     // pure loading waits do not advance it.
-    if loading.is_none()
-        && (battle.as_ref().is_some_and(|battle| battle.presenting())
-            || session.is_none()
-            || resident
-                .as_ref()
-                .is_none_or(|r| r.active.load(Ordering::Acquire)))
-        && session.as_ref().is_none_or(|session| {
-            !session.events().battle_pending()
-                || game_over.is_some()
-                || battle.as_ref().is_some_and(|battle| battle.presenting())
-        })
-        && session
-            .as_ref()
-            .is_none_or(|s| s.events().world.field_transition.is_none())
-        && (session.is_some() || ready.0)
-        && (boot.active() || !movie.active || movie.is_presenting())
-    {
+    if gate.running(session.as_deref()) {
         clock.0.advance();
-        if movie.active
+        if gate.movie.active
             && let Some(session) = &mut session
         {
             session.advance_play_time();

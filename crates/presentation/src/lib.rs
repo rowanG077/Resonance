@@ -1,5 +1,6 @@
 //! Desktop presentation for the high-level title controller.
 
+use crate::native::DistanceFog;
 /// Time a scope for `RESONANCE_PREPARATION_TRACE`. Expands to nothing outside
 /// trace-enabled test builds. A named span ends at `profile_span!(end name)`.
 macro_rules! profile_span {
@@ -21,10 +22,12 @@ mod diagnostics;
 pub use diagnostics::{crash_context, write_crash_context_to};
 #[cfg(test)]
 mod test_support;
+#[global_allocator]
+static ALLOCATOR: resonance_simulation_memory::Allocator = resonance_simulation_memory::Allocator;
+
 use anyhow::{Context as ContextExt, Result};
 use bevy::{
     camera::{RenderTarget, ScalingMode, visibility::RenderLayers},
-    core_pipeline::tonemapping::Tonemapping,
     image::{ImageLoaderSettings, ImageSampler},
     prelude::*,
     render::render_resource::{TextureFormat, TextureUsages},
@@ -63,7 +66,8 @@ mod model_asset;
 mod preparation_profile;
 mod renderer;
 mod transition_metrics;
-pub use renderer::native_render_plugins;
+pub use native::{MeshMaterial2d, MeshMaterial3d, set_display_targets};
+pub use renderer::render_plugins;
 mod testing;
 pub use display::Resolution;
 mod choice_cursor;
@@ -96,7 +100,7 @@ use field_ui::{credits, session_screen};
 mod field_resources;
 mod field_view;
 mod game_over;
-mod glow;
+pub(crate) mod glow;
 mod materials;
 mod texture;
 pub use materials::{
@@ -105,6 +109,7 @@ pub use materials::{
 mod menu_backdrop;
 mod model_preview;
 mod movie;
+mod native;
 mod new_game;
 mod overworld;
 pub use overworld::{Probe as OverworldProbe, capture_overworld};
@@ -117,7 +122,10 @@ pub use saves::{
 mod new_game_capture;
 mod performance;
 mod secondary_motion;
-pub use performance::{PerformanceOptions, run_frame_benchmark, run_movie_probe, run_window_probe};
+pub use performance::{
+    PerformanceOptions, ScenarioBenchmark, run_frame_benchmark, run_movie_probe,
+    run_offscreen_benchmark, run_offscreen_title, run_window_benchmark, run_window_probe,
+};
 mod playthrough;
 mod scene;
 mod screenshot;
@@ -139,6 +147,9 @@ struct PendingAudio(Option<PlaybackAssets>);
 
 #[derive(Resource)]
 pub struct RunOptions {
+    /// Force next-tick smoothing on, overriding the saved preference.
+    /// Deterministic captures always disable it.
+    pub speculative: bool,
     pub saves: SaveOptions,
     pub assets: PathBuf,
     /// Enabled mod directories in ascending priority.
@@ -212,7 +223,7 @@ struct FieldCamera;
 #[derive(Component)]
 struct FieldOverlayCamera;
 type FieldCameraFilter = Or<(With<FieldCamera>, With<FieldOverlayCamera>)>;
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Clone)]
 struct PendingInput {
     held: MenuInput,
     pressed: MenuInput,
@@ -292,9 +303,12 @@ pub fn run_with_display(
     failures.finish(result)
 }
 
+#[derive(Clone, Copy)]
 enum DisplaySource {
     Player(Option<Resolution>),
     Fixed(Resolution),
+    /// Live gameplay rendered to a private image, independent of oracle capture.
+    Offscreen(Resolution),
 }
 
 fn build_app_with_display(
@@ -366,6 +380,7 @@ fn build_app(
     });
     app.insert_resource(crate::diagnostics::Diagnostics(diagnostics));
     app.insert_resource(TitleActive);
+    let offscreen = matches!(display_source, DisplaySource::Offscreen(_));
     let interactive_display = matches!(display_source, DisplaySource::Player(_))
         && !options.headless()
         && options.replay.is_none();
@@ -382,7 +397,7 @@ fn build_app(
         ..Default::default()
     };
     let resolution = match display_source {
-        DisplaySource::Fixed(size) => size,
+        DisplaySource::Fixed(size) | DisplaySource::Offscreen(size) => size,
         DisplaySource::Player(override_size) if !interactive_display => {
             override_size.unwrap_or_default()
         }
@@ -412,22 +427,19 @@ fn build_app(
     let recording = options.record_playthrough.clone();
     let silent = options.silent || options.headless();
     let capture_only = options.headless();
+    let no_window = capture_only || offscreen;
     let render_plugin = renderer::plugin(&mut app, interactive_display);
     info!(
         "Installing rendering and window plugins; interactive={interactive_display}, capture={capture_only}, resolution={resolution:?}"
     );
-    let mut plugins = renderer::native_render_plugins(render_plugin)
-        .set(bevy::pbr::PbrPlugin {
-            gltf_enable_standard_materials: false,
-            ..default()
-        })
+    let mut plugins = renderer::render_plugins(render_plugin)
         .set(AssetPlugin {
             file_path: assets.to_string_lossy().into_owned(),
             ..default()
         })
         .set(WindowPlugin {
-            primary_window: (!capture_only).then(|| display::window(resolution)),
-            exit_condition: if capture_only {
+            primary_window: (!no_window).then(|| display::window(resolution)),
+            exit_condition: if no_window {
                 ExitCondition::DontExit
             } else {
                 ExitCondition::OnAllClosed
@@ -437,7 +449,7 @@ fn build_app(
     if bevy::log::tracing::dispatcher::has_been_set() {
         plugins = plugins.disable::<bevy::log::LogPlugin>();
     }
-    if capture_only {
+    if no_window {
         // File captures have neither a window/event loop nor an audio device.
         plugins = plugins
             .disable::<bevy::winit::WinitPlugin>()
@@ -447,7 +459,7 @@ fn build_app(
     let render_ready = RenderReady::default();
     app.insert_resource(render_ready.clone())
         .insert_resource(display::Display(resolution))
-        .insert_resource(if capture_only {
+        .insert_resource(if no_window {
             display::OutputStage::Framebuffer
         } else {
             display::OutputStage::Scanout
@@ -481,7 +493,6 @@ fn build_app(
         .add_plugins(materials::install_output_materials)
         .add_plugins(materials::install_surface_material)
         .add_plugins(glow::install)
-        .add_plugins(draw_order::DrawOrderPlugin)
         .add_plugins(field_view::FieldPlugin)
         .add_plugins(overworld::OverworldPlugin)
         .init_asset::<GameAudio>()
@@ -556,17 +567,33 @@ fn build_app(
         Update,
         field_ui::transition_failure.after(new_game::transition),
     );
+    if app.world().resource::<RunOptions>().speculative && !capture_only {
+        app.world_mut()
+            .resource_mut::<field_view::Prediction>()
+            .reserve()?;
+    }
     session_screen::install(&mut app);
     credits::install(&mut app);
     input::install(&mut app);
     display::install(&mut app);
     testing::install(&mut app);
-    if !capture_only {
+    if offscreen {
+        audio_output::install_offscreen(&mut app).context("initializing offscreen audio clock")?;
+    } else if !capture_only {
         audio_output::install(&mut app, silent).context("initializing audio output")?;
-    } else {
-        app.add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(
-            resonance_game::clock::UPDATE_STEP,
-        ));
+    }
+    if no_window {
+        app.add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(if capture_only {
+            resonance_game::clock::UPDATE_STEP
+        } else {
+            // `RESONANCE_OFFSCREEN_FPS` paces offscreen runs, such as
+            // same-frame audits, that do not need every frame the GPU can draw.
+            std::env::var("RESONANCE_OFFSCREEN_FPS")
+                .ok()
+                .and_then(|fps| fps.parse::<f64>().ok())
+                .filter(|fps| *fps > 0.)
+                .map_or(Duration::ZERO, |fps| Duration::from_secs_f64(1. / fps))
+        }));
     }
     audio::validate_startup(&app, silent, capture_only)?;
     let render_diagnostics = app.world().resource::<diagnostics::Diagnostics>().clone();
@@ -616,7 +643,7 @@ fn setup(
     mut text: ResMut<Assets<TitleText>>,
     mut movie: ResMut<movie::Playback>,
     mut boot: ResMut<boot::Playback>,
-    options: Res<RunOptions>,
+    stage: Res<display::OutputStage>,
     display: Res<display::Display>,
     device: Res<bevy::render::renderer::RenderDevice>,
     mut exit: crate::diagnostics::Fatal,
@@ -633,7 +660,7 @@ fn setup(
     };
     // Convert directly into the window. Offscreen captures use the same pass
     // with an image target, without an additional full-screen sprite copy.
-    let output = options.headless().then(|| {
+    let output = matches!(*stage, display::OutputStage::Framebuffer).then(|| {
         let mut image =
             Image::new_target_texture(size.width, size.height, TextureFormat::Bgra8UnormSrgb, None);
         image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
@@ -671,7 +698,6 @@ fn setup(
     ));
     commands.spawn((
         Camera2d,
-        Tonemapping::Linear,
         Msaa::Off,
         RenderLayers::layer(2),
         display::OutputCamera,
@@ -691,7 +717,6 @@ fn setup(
     ));
     commands.spawn((
         Camera2d,
-        Tonemapping::Linear,
         Msaa::Off,
         Camera {
             order: -3,
@@ -744,7 +769,6 @@ fn setup(
                 .into(),
             ..default()
         },
-        Tonemapping::Linear,
         Msaa::Off,
         Camera {
             order: -4,
@@ -822,6 +846,7 @@ fn skin_bounds(
 fn field_camera(
     scene: Res<title_field::Scene>,
     events: Option<Res<Events>>,
+    prediction: Option<Res<field_view::Prediction>>,
     mut cameras: Query<&mut Transform, With<FieldCamera>>,
 ) {
     let Some(events) = events else {
@@ -835,9 +860,25 @@ fn field_camera(
     let Ok(key) = camera.sample(events.0.tick().saturating_sub(2), track) else {
         return;
     };
-    for mut camera in &mut cameras {
-        *camera = Transform::from_translation(Vec3::from_array(key.position))
+    let mut pose = Transform::from_translation(Vec3::from_array(key.position))
+        .with_rotation(Quat::from_array(key.orientation));
+    if let Some((_, next, alpha)) = prediction
+        .as_ref()
+        .and_then(|p| p.title().map(|(s, e)| (s, e, p.alpha)))
+        && let Some(next_camera) = next
+            .world
+            .camera
+            .as_ref()
+            .filter(|c| c.resource == camera.resource && c.start_tick == camera.start_tick)
+        && let Ok(key) = next_camera.sample(next.tick().saturating_sub(2), track)
+    {
+        let future = Transform::from_translation(Vec3::from_array(key.position))
             .with_rotation(Quat::from_array(key.orientation));
+        pose.translation = pose.translation.lerp(future.translation, alpha);
+        pose.rotation = pose.rotation.slerp(future.rotation, alpha);
+    }
+    for mut camera in &mut cameras {
+        *camera = pose;
     }
 }
 
@@ -984,13 +1025,23 @@ fn layout(
     title_menu: Option<Res<saves::title::TitleMenu>>,
     diagnostics: Res<crate::diagnostics::Diagnostics>,
     mut exit: crate::diagnostics::Fatal,
+    prediction: Option<Res<field_view::Prediction>>,
 ) {
     let state = &menu.0;
+    let next = prediction
+        .as_ref()
+        .and_then(|p| p.title().map(|(s, e)| (s, e, p.alpha)));
+    let smooth = |value: f32, target: fn(&TitleState) -> f32| {
+        next.map_or(value, |(s, _, a)| value + (target(s) - value) * a)
+    };
     TitleOutput::update(&mut outputs, |b| {
         b.x = if movie.active || boot.active() || title_menu.is_some() {
             1.
         } else {
-            events.as_ref().map_or(1., |e| e.0.world.brightness())
+            events.as_ref().map_or(1., |e| {
+                let v = e.0.world.brightness();
+                next.map_or(v, |(_, n, a)| v + (n.world.brightness() - v) * a)
+            })
         };
     });
     for (quad, handle, mut transform) in &mut quads {
@@ -1016,9 +1067,9 @@ fn layout(
             continue;
         }
         let opacity_pulse = Vec4::new(
-            state.opacity as f32 / 255.,
+            smooth(state.opacity as f32, |s| s.opacity as f32) / 255.,
             if selected {
-                state.pulse_alpha() as f32 / 255.
+                smooth(state.pulse_alpha() as f32, |s| s.pulse_alpha() as f32) / 255.
             } else {
                 0.
             },
@@ -1032,7 +1083,12 @@ fn layout(
         let [width, height] = image.size;
         let size = Vec2::new(width as f32, height as f32);
         transform.translation.y = HEIGHT as f32 / 2. - quad.top - size.y / 2.;
-        let expand = quad.row.map_or(0., |r| state.expansion[r].trunc());
+        let expand = quad.row.map_or(0., |r| {
+            next.map_or(state.expansion[r].trunc(), |(n, _, a)| {
+                state.expansion[r].trunc()
+                    + (n.expansion[r].trunc() - state.expansion[r].trunc()) * a
+            })
+        });
         transform.scale = Vec3::new(size.x + expand * 2., size.y + expand * 2., 1.);
     }
 }

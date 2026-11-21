@@ -69,6 +69,34 @@ impl Kind {
             _ => random,
         }
     }
+
+    /// A new gesture replaces the previous arrangement, even if it reuses the same atlas cells.
+    pub fn next_sprites(self, from: u32, to: u32, phase: u32) -> Option<Vec<Sprite>> {
+        (self.gesture(from, phase).0 == self.gesture(to, phase).0).then(|| sprites(self, to, phase))
+    }
+
+    /// Gesture number and zero-based age within that gesture.
+    fn gesture(self, tick: u32, phase: u32) -> (u32, u32) {
+        let elapsed = tick.saturating_sub(1);
+        match self {
+            Self::ColorBurst => {
+                let clock = phase.wrapping_add(elapsed);
+                (clock / FRAME_UPDATES, clock % FRAME_UPDATES)
+            }
+            Self::SweatDrops => (elapsed / 20, elapsed % 20),
+            Self::Hearts => {
+                const BEAT: u32 = 32;
+                let initial = (30 + BEAT - phase % BEAT) % BEAT;
+                if elapsed < initial {
+                    (0, elapsed)
+                } else {
+                    let elapsed = elapsed - initial;
+                    (1 + elapsed / BEAT, elapsed % BEAT)
+                }
+            }
+            _ => (0, elapsed),
+        }
+    }
 }
 
 const ATLAS_SIZE: f32 = 256.;
@@ -127,31 +155,26 @@ pub fn sprites(kind: Kind, tick: u32, phase: u32) -> Vec<Sprite> {
             mark(28., 90., entrance, [left, 112., left + 32., 144.]);
         }
         ColorBurst => {
-            let poses = if (clock / 8).is_multiple_of(2) {
+            let first = kind.gesture(tick, phase).0.is_multiple_of(2);
+            let poses = if first {
                 [
-                    (-20., 24., 50., 192., 50.),
-                    (-4., 24., 90., 128., 30.),
-                    (-1., 44., 70., 96., 10.),
-                    (5., 24., 80., 160., -32.),
-                    (20., 29., 50., 128., -55.),
+                    (-20., 24., 50., 50., 192., 50.),
+                    (-4., 24., 65., 90., 128., 30.),
+                    (-1., 44., 45., 70., 96., 10.),
+                    (5., 24., 90., 80., 160., -32.),
+                    (20., 29., 50., 50., 128., -55.),
                 ]
             } else {
                 [
-                    (-10., 26., 50., 96., 50.),
-                    (-4., 24., 1., 128., 30.),
-                    (-1., 9., 80., 128., 10.),
-                    (5., 32., 50., 96., -32.),
-                    (10., 29., 50., 192., -55.),
+                    (-10., 26., 55., 50., 96., 50.),
+                    (-4., 24., 1., 1., 128., 30.),
+                    (-1., 9., 30., 80., 128., 10.),
+                    (5., 32., 30., 50., 96., -32.),
+                    (10., 29., 30., 50., 192., -55.),
                 ]
             };
-            for ((x, z, size, left, rotation), width) in
-                poses.into_iter().zip(if (clock / 8).is_multiple_of(2) {
-                    [50., 65., 45., 90., 50.]
-                } else {
-                    [55., 1., 30., 30., 30.]
-                })
-            {
-                let mut sprite = glyph(x, z, size, [left, 176., left + 32., 208.]);
+            for (x, z, width, height, left, rotation) in poses {
+                let mut sprite = glyph(x, z, height, [left, 176., left + 32., 208.]);
                 sprite.vertical_anchor = VerticalAnchor::Bottom;
                 sprite.rotation = rotation;
                 sprite.size[0] = width;
@@ -195,8 +218,7 @@ pub fn sprites(kind: Kind, tick: u32, phase: u32) -> Vec<Sprite> {
             sprites.push(sprite);
         }
         SweatDrops => {
-            let elapsed = (tick - 1) % 20;
-            let t = elapsed as f32;
+            let t = kind.gesture(tick, phase).1 as f32;
             for (x, z, vx, vz, rotation) in [
                 (5., 34., 1.5, 3.22, 135.),
                 (20., 28., 1.25, 2.6, 135.),
@@ -218,7 +240,6 @@ pub fn sprites(kind: Kind, tick: u32, phase: u32) -> Vec<Sprite> {
             mark(24., 86., entrance, [left, 144., left + 32., 176.]);
         }
         Hearts => {
-            const HEART_BEAT: u32 = 32;
             const HEARTS: [[(f32, f32, f32); 4]; 2] = [
                 [
                     (-30., 68., 35.),
@@ -233,16 +254,9 @@ pub fn sprites(kind: Kind, tick: u32, phase: u32) -> Vec<Sprite> {
                     (16., 70., 25.),
                 ],
             ];
-            let first_switch = (30 + HEART_BEAT - phase % HEART_BEAT) % HEART_BEAT + 1;
-            let (pose, age) = if tick < first_switch {
-                (0, tick)
-            } else {
-                let elapsed = tick - first_switch;
-                (
-                    ((elapsed / HEART_BEAT + 1) % 2) as usize,
-                    elapsed % HEART_BEAT + 1,
-                )
-            };
+            let (gesture, elapsed) = kind.gesture(tick, phase);
+            let pose = (gesture % 2) as usize;
+            let age = elapsed + 1;
             let scale = (0..age.min(13)).fold(0_f32, |s, _| ((f64::from(s) + 0.08) as f32).min(1.));
             let rise = (0..age).fold(0_f32, |h, _| (f64::from(h) + 0.22) as f32);
             for (x, z, size) in HEARTS[pose] {
@@ -278,12 +292,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn progressive_symbols_start_empty_for_every_random_phase() {
+    fn gesture_sprites_follow_their_native_reveal_and_restart_clocks() {
         for kind in [Kind::Ellipsis, Kind::Blush] {
             for phase in 0..16 {
                 assert_eq!(sprites(kind, 1, phase).len(), 1);
                 assert_eq!(sprites(kind, 17, phase).len(), 2);
             }
+        }
+        for (kind, phase, last) in [
+            (Kind::ColorBurst, 2, 6),
+            (Kind::SweatDrops, 0, 20),
+            (Kind::Hearts, 5, 25),
+            (Kind::Hearts, 5, 57),
+        ] {
+            assert!(kind.next_sprites(last - 1, last, phase).is_some());
+            assert!(kind.next_sprites(last, last + 1, phase).is_none());
+        }
+        for kind in [Kind::Distress, Kind::Sleep] {
+            let current = sprites(kind, 6, 2);
+            let next = kind.next_sprites(6, 7, 2).unwrap();
+            assert_ne!(current[1].uv, next[1].uv);
+            assert_eq!([current[1].size[0], next[1].size[0]], [21., 27.]);
         }
     }
 }

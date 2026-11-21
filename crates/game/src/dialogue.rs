@@ -76,6 +76,7 @@ enum WindowPhase {
     Closing(u8),
     Closed,
 }
+#[derive(Clone)]
 pub struct DialoguePlayer {
     pub operation: Operation,
     pub pages: Vec<Page>,
@@ -99,6 +100,17 @@ pub struct DialoguePlayer {
     color_random: resonance_content::random::Random,
 }
 impl DialoguePlayer {
+    pub(crate) fn fork_for_prediction(&self, fork: &mut resonance_events::OperationFork) -> Self {
+        let mut result = self.clone();
+        result.operation = fork.fork(&self.operation);
+        // Preserve the timing contract with isolated acknowledgement state.
+        result.voice_completion = self
+            .voice_completion
+            .as_ref()
+            .map(|done| fork.fork_flag(done));
+        result
+    }
+
     pub fn status(&self) -> DialogueStatus {
         if !self.operation.is_pending() {
             return DialogueStatus::Closed;

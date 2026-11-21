@@ -9,6 +9,7 @@ test-support = ["resonance-battle/test-support", "resonance-content/test-support
 [dependencies]
 symphonia-constants.workspace = true
 resonance-battle.workspace = true
+resonance-simulation-memory.workspace = true
 serde.workspace = true
 anyhow.workspace = true
 sha2.workspace = true

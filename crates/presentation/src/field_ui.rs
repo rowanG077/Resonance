@@ -1,4 +1,5 @@
 //! Bitmap dialogue composition from cooked images and high-level text state.
+use crate::native::MeshMaterial2d;
 #[path = "battle_ui.rs"]
 mod battle_ui;
 mod bitmap_text;
@@ -16,7 +17,8 @@ pub(super) use failure::update as transition_failure;
 #[path = "field_ui_fade.rs"]
 mod fade;
 pub(super) use battle_ui::{
-    ActorMarkers, Artwork as BattleHud, EnemyHud as BattleEnemyHud, PartyHudInput, RibbonInput,
+    ActorMarkers, Artwork as BattleHud, EnemyHud as BattleEnemyHud, HudTime, PartyHudInput,
+    RibbonInput, TransitionPrediction,
 };
 #[path = "game_over_ui.rs"]
 mod game_over_ui;
@@ -29,8 +31,7 @@ pub(super) use menu::MenuDraws;
 pub(crate) use resident::Resident;
 pub(super) fn install(app: &mut App) {
     app.init_resource::<Resident>();
-    app.add_plugins(bevy::sprite_render::Material2dPlugin::<Surface>::default());
-    bevy::asset::embedded_asset!(app, "field_ui.wesl");
+    crate::native::init_material::<Surface>(app);
     crate::input_icons::install(app);
     skit::install(app);
     app.add_systems(
@@ -56,13 +57,12 @@ use anyhow::{Context as ContextExt, Result};
 use bevy::{
     asset::RenderAssetUsages,
     image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor},
-    mesh::{Indices, MeshVertexAttribute, PrimitiveTopology},
+    mesh::VertexBufferLayout,
     prelude::*,
     render::render_resource::{
-        AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, VertexFormat,
+        BlendComponent, BlendFactor, BlendOperation, BlendState, ShaderType, VertexAttribute,
+        VertexFormat, VertexStepMode,
     },
-    shader::ShaderRef,
-    sprite_render::{AlphaMode2d, Material2d},
 };
 use coverage::Coverage;
 use resonance_content::font::{BitmapFont, DialogueArt};
@@ -138,22 +138,13 @@ mod layer {
     pub const TEXTURES: [usize; 10] = [7, 7, 0, 1, 0, 0, 1, 0, 9, 10];
 }
 
-#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
-#[bind_group_data(SurfaceKey)]
+#[derive(Asset, TypePath, Debug, Clone)]
 pub(super) struct Surface {
-    #[texture(0)]
     source: Handle<Image>,
     /// Reuse another prepared image's sampler without duplicating its pixels.
-    #[texture(7)]
-    #[sampler(1)]
     sampling: Handle<Image>,
-    #[texture(2)]
-    #[sampler(3)]
     frame_mask: Handle<Image>,
-    #[texture(4)]
-    #[sampler(5)]
     color_mask: Handle<Image>,
-    #[uniform(6)]
     coverage: Coverage,
     interpolation: UiInterpolation,
     opaque: bool,
@@ -181,6 +172,31 @@ pub(super) enum TextureEffect {
     GlyphPattern,
 }
 impl Surface {
+    /// Source, sampler source, frame mask and color mask images; the pipeline
+    /// key; and the coverage table when it masks anything.
+    pub(crate) fn native(&self) -> ([AssetId<Image>; 4], SurfaceKey) {
+        (
+            [
+                self.source.id(),
+                self.sampling.id(),
+                self.frame_mask.id(),
+                self.color_mask.id(),
+            ],
+            SurfaceKey::from(self),
+        )
+    }
+    /// Append the coverage table's uniform bytes when it masks anything.
+    pub(crate) fn native_coverage(&self, bytes: &mut Vec<u8>) -> bool {
+        if !self.coverage.is_active() {
+            return false;
+        }
+        let start = bytes.len();
+        bytes.resize(start + Coverage::min_size().get() as usize, 0);
+        bevy::render::render_resource::encase::UniformBuffer::new(&mut bytes[start..])
+            .write(&self.coverage)
+            .expect("coverage encoding");
+        true
+    }
     pub(super) fn images_ready(&self, images: &Assets<Image>) -> bool {
         [
             &self.source,
@@ -194,6 +210,56 @@ impl Surface {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct SurfaceKey(bool, bool, TextureEffect, UiInterpolation);
+/// Pipeline state of a UI surface for the native display-list renderer.
+pub(crate) struct NativeUiState {
+    pub defs: Vec<&'static str>,
+    pub layout: VertexBufferLayout,
+    pub blend: BlendState,
+}
+
+impl SurfaceKey {
+    /// The shader definitions and blending this surface draws with.
+    pub(crate) fn native_state(self, samples: u32) -> NativeUiState {
+        let mut defs = Vec::new();
+        if samples > 1 {
+            match self.3 {
+                UiInterpolation::Center => {}
+                UiInterpolation::Centroid => defs.push("CENTROID_UI"),
+                UiInterpolation::Sample => defs.push("MULTISAMPLED_UI"),
+            }
+        }
+        if self.2 == TextureEffect::RedChannel {
+            defs.push("RED_CHANNEL");
+        }
+        if self.2 == TextureEffect::GlyphPattern {
+            defs.push("GLYPH_PATTERN");
+        }
+        if self.3 == UiInterpolation::Centroid {
+            defs.push("CLAMP_UI_ATLAS");
+        }
+        if self.0 {
+            defs.push("OPAQUE_IMAGE");
+        }
+        let additive = BlendComponent {
+            src_factor: BlendFactor::SrcAlpha,
+            dst_factor: BlendFactor::One,
+            operation: BlendOperation::Add,
+        };
+        NativeUiState {
+            defs,
+            layout: UiVertex::layout(),
+            blend: if self.1 {
+                BlendState {
+                    color: additive,
+                    alpha: additive,
+                }
+            } else {
+                BlendState::ALPHA_BLENDING
+            },
+        }
+    }
+}
+
 impl From<&Surface> for SurfaceKey {
     fn from(surface: &Surface) -> Self {
         Self(
@@ -202,91 +268,6 @@ impl From<&Surface> for SurfaceKey {
             surface.texture_effect,
             surface.interpolation,
         )
-    }
-}
-impl Material2d for Surface {
-    fn vertex_shader() -> ShaderRef {
-        "embedded://resonance_presentation/field_ui.wesl".into()
-    }
-    fn fragment_shader() -> ShaderRef {
-        "embedded://resonance_presentation/field_ui.wesl".into()
-    }
-    fn alpha_mode(&self) -> AlphaMode2d {
-        AlphaMode2d::Blend
-    }
-    fn specialize(
-        _pipeline: &bevy::sprite_render::Material2dPipeline,
-        descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
-        layout: &bevy::mesh::MeshVertexBufferLayoutRef,
-        key: bevy::sprite_render::Material2dKey<Self>,
-    ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
-        descriptor.label = Some("resonance/field-ui".into());
-        if descriptor.multisample.count > 1 {
-            let definition = match key.bind_group_data.3 {
-                UiInterpolation::Center => None,
-                UiInterpolation::Centroid => Some("CENTROID_UI"),
-                UiInterpolation::Sample => Some("MULTISAMPLED_UI"),
-            };
-            if let Some(definition) = definition {
-                descriptor.vertex.shader_defs.push(definition.into());
-                if let Some(fragment) = &mut descriptor.fragment {
-                    fragment.shader_defs.push(definition.into());
-                }
-            }
-        }
-        if key.bind_group_data.2 == TextureEffect::RedChannel
-            && let Some(fragment) = &mut descriptor.fragment
-        {
-            fragment.shader_defs.push("RED_CHANNEL".into());
-        }
-        let atlas = key.bind_group_data.3 == UiInterpolation::Centroid;
-        let pattern = key.bind_group_data.2 == TextureEffect::GlyphPattern;
-        if atlas || pattern {
-            let mut attributes = vec![
-                Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
-                Mesh::ATTRIBUTE_UV_0.at_shader_location(2),
-                Mesh::ATTRIBUTE_COLOR.at_shader_location(4),
-            ];
-            if pattern {
-                attributes.push(Mesh::ATTRIBUTE_UV_1.at_shader_location(3));
-            }
-            if atlas {
-                attributes.push(ATLAS_BOUNDS.at_shader_location(5));
-                descriptor.vertex.shader_defs.push("CLAMP_UI_ATLAS".into());
-                if let Some(fragment) = &mut descriptor.fragment {
-                    fragment.shader_defs.push("CLAMP_UI_ATLAS".into());
-                }
-            }
-            descriptor.vertex.buffers = vec![layout.0.get_layout(&attributes)?];
-        }
-        if pattern {
-            descriptor.vertex.shader_defs.push("GLYPH_PATTERN".into());
-            if let Some(fragment) = &mut descriptor.fragment {
-                fragment.shader_defs.push("GLYPH_PATTERN".into());
-            }
-        }
-        if key.bind_group_data.1
-            && let Some(fragment) = &mut descriptor.fragment
-        {
-            // Radar halo uses source-alpha additive blending.
-            let component = BlendComponent {
-                src_factor: BlendFactor::SrcAlpha,
-                dst_factor: BlendFactor::One,
-                operation: BlendOperation::Add,
-            };
-            for target in fragment.targets.iter_mut().flatten() {
-                target.blend = Some(BlendState {
-                    color: component,
-                    alpha: component,
-                });
-            }
-        }
-        if key.bind_group_data.0
-            && let Some(fragment) = &mut descriptor.fragment
-        {
-            fragment.shader_defs.push("OPAQUE_IMAGE".into());
-        }
-        Ok(())
     }
 }
 
@@ -315,7 +296,7 @@ pub(super) struct Artwork {
 #[derive(Clone)]
 struct Layer {
     entity: Entity,
-    mesh: Handle<Mesh>,
+    geometry: UiGeometry,
     material: Handle<Surface>,
     uploaded: Option<(Batch, [u32; 2])>,
     visible: bool,
@@ -396,8 +377,8 @@ impl MenuOverlay {
         menu: Option<&resonance_game::menu::Menu>,
         presentation_tick: u32,
         resolution: super::Resolution,
+        prediction: Option<&mut crate::field_view::Prediction>,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         self.artwork.render(
             menu::Source::Title(menu),
@@ -405,8 +386,8 @@ impl MenuOverlay {
             &self.dialogue,
             presentation_tick,
             resolution,
+            prediction,
             commands,
-            meshes,
         )
     }
     pub fn despawn(self, world: &mut World) {
@@ -419,28 +400,21 @@ impl MenuOverlay {
     }
 }
 impl Layer {
-    fn new(
-        material: Handle<Surface>,
-        depth: f32,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Self {
-        let mut batch = Batch::default();
-        batch.quad([0., 0., 1., 1.], [0., 0., 1., 1.], [1.; 4]);
-        Self::with_mesh(material, depth, batch.mesh([1, 1]), commands, meshes)
+    fn new(material: Handle<Surface>, depth: f32, commands: &mut Commands) -> Self {
+        Self::with_batch(material, depth, Batch::default(), [1, 1], commands)
     }
-    fn with_mesh(
+    fn with_batch(
         material: Handle<Surface>,
         depth: f32,
-        mesh: Mesh,
+        batch: Batch,
+        size: [u32; 2],
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Self {
-        let mesh = meshes.add(mesh);
+        let geometry = batch.geometry(size);
         let transform = Transform::from_xyz(0., 0., depth);
         let entity = commands
             .spawn((
-                Mesh2d(mesh.clone()),
+                geometry.clone(),
                 MeshMaterial2d(material.clone()),
                 transform,
                 GlobalTransform::from(transform),
@@ -449,39 +423,21 @@ impl Layer {
             .id();
         Self {
             entity,
-            mesh,
+            geometry,
             material,
-            uploaded: None,
+            uploaded: Some((batch, size)),
             visible: false,
         }
     }
-    fn update_mesh(
-        &mut self,
-        batch: Batch,
-        size: [u32; 2],
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<()> {
-        if batch.indices.is_empty() {
-            // Hidden layers retain valid warm/previous geometry. Bevy's mesh
-            // allocator skips zero-vertex allocations but still tries to upload
-            // them; publishing an empty mesh therefore reports use-after-free.
-            meshes
-                .get(&self.mesh)
-                .context("retained UI mesh was removed")?;
-            self.uploaded = Some((batch, size));
-            return Ok(());
-        }
+    fn update(&mut self, batch: Batch, size: [u32; 2]) {
         if self
             .uploaded
             .as_ref()
             .is_none_or(|(old, old_size)| *old != batch || *old_size != size)
         {
-            *meshes
-                .get_mut(&self.mesh)
-                .context("retained UI mesh was removed")? = batch.clone().mesh(size);
+            self.geometry.replace(batch.vertices(size));
             self.uploaded = Some((batch, size));
         }
-        Ok(())
     }
     fn show(&mut self, visible: bool, commands: &mut Commands) {
         let visible = visible
@@ -744,8 +700,9 @@ impl Artwork {
         &mut self,
         session: &FieldSession,
         tick: u32,
+        prediction: Option<&mut crate::field_view::Prediction>,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
+
         images: &Assets<Image>,
         server: &AssetServer,
     ) -> Result<bool> {
@@ -757,8 +714,8 @@ impl Artwork {
                 &self.spec,
                 tick,
                 self.resolution,
+                prediction,
                 commands,
-                meshes,
             )
             .and_then(|()| self.menu.drawn_images_ready(images, server));
         if result.is_err() {
@@ -769,8 +726,9 @@ impl Artwork {
     pub(super) fn render_skit(
         &mut self,
         session: &FieldSession,
+        prediction: Option<&crate::field_view::Prediction>,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
+
         images: &mut Assets<Image>,
         materials: &mut Assets<Surface>,
         server: &AssetServer,
@@ -781,10 +739,10 @@ impl Artwork {
             }
             self.skits.render(
                 session.active_skit.as_ref(),
+                prediction.and_then(|p| p.field()?.active_skit.as_ref().map(|s| (s, p.alpha))),
                 &self.font,
                 self.resolution,
                 commands,
-                meshes,
                 images,
                 materials,
             )?;
@@ -795,33 +753,21 @@ impl Artwork {
         self.menu.visually_settled(menu, tick)
     }
     /// Allocate every supported dialogue slot/layer before its first request.
-    pub(super) fn prepare(
-        &mut self,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-        materials: &mut Assets<Surface>,
-    ) {
-        self.skits.prepare(commands, meshes);
+    pub(super) fn prepare(&mut self, commands: &mut Commands, materials: &mut Assets<Surface>) {
+        self.skits.prepare(commands);
         if let Some(credits) = &mut self.credits {
-            credits.prepare(commands, meshes);
+            credits.prepare(commands);
         }
-        self.prepare_prompt(commands, meshes, materials);
-        self.prepare_damage(commands, meshes);
-        self.overlays.prepare(commands, meshes);
-        self.prepare_fade(commands, meshes);
-        prepare_dialogue(
-            &mut self.layers,
-            &self.surfaces,
-            commands,
-            meshes,
-            materials,
-        );
+        self.prepare_prompt(commands, materials);
+        self.prepare_damage(commands);
+        self.overlays.prepare(commands);
+        self.prepare_fade(commands);
+        prepare_dialogue(&mut self.layers, &self.surfaces, commands, materials);
         if self.subtitle_layer.is_none() {
             let layer = Layer::new(
                 self.surfaces[layer::TEXTURES[layer::FONT]].clone(),
                 1.,
                 commands,
-                meshes,
             );
             commands
                 .entity(layer.entity)
@@ -829,9 +775,7 @@ impl Artwork {
             self.subtitle_layer = Some(layer);
         }
     }
-    pub(super) fn prepared_layers(
-        &self,
-    ) -> impl Iterator<Item = (&Handle<Mesh>, &Handle<Surface>, bool)> {
+    pub(super) fn prepared_layers(&self) -> impl Iterator<Item = (&Handle<Surface>, bool)> {
         self.layers
             .values()
             .chain(self.subtitle_layer.iter())
@@ -841,14 +785,14 @@ impl Artwork {
             .chain(&self.prompt_layers)
             .chain(self.damage_layer.iter())
             .chain(self.credits.iter().flat_map(|credits| &credits.layers))
-            .map(|layer| (&layer.mesh, &layer.material, true))
+            .map(|layer| (&layer.material, true))
             .chain(
                 self.menu
                     .layers
                     .values()
                     .chain(&self.skits.layers)
                     .chain(&self.skits.warm)
-                    .map(|layer| (&layer.mesh, &layer.material, false)),
+                    .map(|layer| (&layer.material, false)),
             )
     }
 
@@ -889,35 +833,40 @@ impl Artwork {
     pub fn render_overlays(
         &mut self,
         world: &resonance_events::GameWorld,
+        prediction: Option<&mut crate::field_view::Prediction>,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<Vec<i32>> {
         self.overlays
-            .render(world, commands, meshes, self.menu.prompt_device())
+            .render(world, prediction, commands, self.menu.prompt_device())
     }
     pub fn render(
         &mut self,
         session: &FieldSession,
+        mut prediction: Option<&mut crate::field_view::Prediction>,
         heads: &BTreeMap<i32, Vec3>,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
+
         materials: &mut Assets<Surface>,
     ) -> Result<()> {
         if let Some(credits) = &mut self.credits {
-            credits.render(session.events.world.screen_request.as_ref(), commands);
+            credits.render(
+                session.events.world.screen_request.as_ref(),
+                prediction.as_ref().map_or(0., |p| p.alpha),
+                commands,
+            );
         }
-        self.render_fade(&session.events.world, commands, meshes)?;
-        self.render_prompt(session, commands, meshes)?;
-        self.render_damage(session, commands, meshes)?;
+        self.render_fade(&session.events.world, prediction.as_deref(), commands)?;
+        self.render_prompt(session, prediction.as_deref_mut(), commands)?;
+        self.render_damage(session, prediction.as_deref(), commands);
         let (world, dialogue) = session.dialogue_scene();
         self.render_dialogue(
             world,
             dialogue,
             &session.events.world,
+            prediction.as_deref(),
             world.tick,
             heads,
             commands,
-            meshes,
             materials,
         )
     }
@@ -927,12 +876,29 @@ impl Artwork {
         world: &resonance_events::GameWorld,
         dialogue: &BTreeMap<u8, DialoguePlayer>,
         camera_world: &resonance_events::GameWorld,
+        prediction: Option<&crate::field_view::Prediction>,
         presentation_tick: u32,
         heads: &BTreeMap<i32, Vec3>,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
+
         materials: &mut Assets<Surface>,
     ) -> Result<()> {
+        let future = prediction.and_then(|p| {
+            let players = p
+                .field()
+                .map(|f| f.dialogue_scene().1)
+                .or_else(|| p.world()?.session.active_skit.as_ref().map(|s| &s.dialogue))?;
+            let next_world = p.field().map_or(camera_world, |f| &f.events.world);
+            let continuous = camera_world
+                .field_camera
+                .as_ref()
+                .is_none_or(|c| p.camera(c).is_some());
+            Some(DialogueEndpoint {
+                players,
+                camera: continuous.then(|| DialogueCamera::field(next_world)),
+                alpha: p.alpha,
+            })
+        });
         DialogueDraw {
             resolution: self.resolution,
             attached_positions: &self.attached_positions,
@@ -948,10 +914,10 @@ impl Artwork {
             world,
             dialogue,
             DialogueCamera::field(camera_world),
+            future,
             presentation_tick,
             heads,
             commands,
-            meshes,
             materials,
         )
     }
@@ -1026,19 +992,8 @@ impl DialogueOverlay {
             choice_trail: Default::default(),
         })
     }
-    pub(super) fn prepare(
-        &mut self,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-        materials: &mut Assets<Surface>,
-    ) {
-        prepare_dialogue(
-            &mut self.layers,
-            &self.surfaces,
-            commands,
-            meshes,
-            materials,
-        );
+    pub(super) fn prepare(&mut self, commands: &mut Commands, materials: &mut Assets<Surface>) {
+        prepare_dialogue(&mut self.layers, &self.surfaces, commands, materials);
     }
     pub(super) fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
         self.layers.values().map(|layer| layer.entity)
@@ -1062,7 +1017,7 @@ fn prepare_dialogue(
     layers: &mut BTreeMap<(u8, usize), Layer>,
     surfaces: &[Handle<Surface>],
     commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
+
     materials: &mut Assets<Surface>,
 ) {
     for slot in 0..DIALOGUE_SLOTS {
@@ -1085,11 +1040,16 @@ fn prepare_dialogue(
                     material,
                     10. + f32::from(slot) * 20. + index as f32,
                     commands,
-                    meshes,
                 ),
             );
         }
     }
+}
+
+struct DialogueEndpoint<'a> {
+    players: &'a BTreeMap<u8, DialoguePlayer>,
+    camera: Option<DialogueCamera<'a>>,
+    alpha: f32,
 }
 
 struct DialogueDraw<'a> {
@@ -1110,10 +1070,11 @@ impl DialogueDraw<'_> {
         world: &resonance_events::GameWorld,
         dialogue: &BTreeMap<u8, DialoguePlayer>,
         camera: DialogueCamera,
+        future: Option<DialogueEndpoint>,
         presentation_tick: u32,
         heads: &BTreeMap<i32, Vec3>,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
+
         materials: &mut Assets<Surface>,
     ) -> Result<()> {
         let mut used = std::collections::BTreeSet::new();
@@ -1138,7 +1099,7 @@ impl DialogueDraw<'_> {
             let Some(request) = displayed_dialogue(player, world.dialogue.get(&slot)) else {
                 continue;
             };
-            let (rect, pointer, above) = layout_with_camera(
+            let (rect, mut pointer, above) = layout_with_camera(
                 self.font,
                 request,
                 player,
@@ -1148,16 +1109,61 @@ impl DialogueDraw<'_> {
                 self.resolution,
             )?;
             let opening = player.opening_fraction();
-            let rect = opening.map_or(rect, |fraction| {
-                expanding_rect(
-                    rect,
-                    pointer.unwrap_or([
-                        rect[0] + ((rect[2] - rect[0]) / 2.).trunc(),
-                        rect[1] + ((rect[3] - rect[1]) / 2.).trunc(),
-                    ]),
-                    fraction,
-                )
-            });
+            let expand = |rect: [f32; 4], pointer: Option<[f32; 2]>, fraction: Option<f32>| {
+                fraction.map_or(rect, |fraction| {
+                    expanding_rect(
+                        rect,
+                        pointer.unwrap_or([
+                            rect[0] + ((rect[2] - rect[0]) / 2.).trunc(),
+                            rect[1] + ((rect[3] - rect[1]) / 2.).trunc(),
+                        ]),
+                        fraction,
+                    )
+                })
+            };
+            let committed_rect = expand(rect, pointer, opening);
+            let mut next_rect = committed_rect;
+            let mut rect = committed_rect;
+            if let Some(endpoint) = &future
+                && let Some(next_camera) = &endpoint.camera
+                && let Some(next) = endpoint
+                    .players
+                    .get(&slot)
+                    .filter(|n| n.operation.id() == player.operation.id() && n.page == player.page)
+            {
+                let camera_world = camera.world;
+                let next_world = next_camera.world;
+                let same_actor = request.speaker_actor.is_none_or(|id| {
+                    match (camera_world.actors.get(&id), next_world.actors.get(&id)) {
+                        (Some(a), Some(b)) => crate::field_view::prediction::continuous_actor(a, b),
+                        (None, None) => true,
+                        _ => false,
+                    }
+                });
+                if same_actor {
+                    let (target, target_pointer, target_above) = layout_with_camera(
+                        self.font,
+                        request,
+                        next,
+                        next_camera,
+                        self.attached_positions,
+                        self.head_heights.get(&request.operation.id()).copied(),
+                        self.resolution,
+                    )?;
+                    // Switching sides of the speaker is a discrete layout change.
+                    if above == target_above {
+                        next_rect = expand(target, target_pointer, next.opening_fraction());
+                        rect = std::array::from_fn(|i| rect[i].lerp(next_rect[i], endpoint.alpha));
+                        pointer = pointer.map(|from| {
+                            target_pointer.map_or(from, |to| {
+                                std::array::from_fn(|i| {
+                                    from[i] + (to[i] - from[i]) * endpoint.alpha
+                                })
+                            })
+                        });
+                    }
+                }
+            }
             let mut batches: [Batch; layer::TEXTURES.len()] =
                 std::array::from_fn(|_| Batch::default());
             let mut highlight = Batch::default();
@@ -1250,18 +1256,34 @@ impl DialogueDraw<'_> {
                     }
                 }
                 let [w, h] = cursor_size.map(|v| v as f32);
-                let bob = super::choice_cursor::bob(&style, presentation_tick);
-                let x = left + bob;
-                let y = y - bob;
-                for ([tx, ty], alpha) in self
+                let position = |rect: [f32; 4], tick| {
+                    let bob = super::choice_cursor::bob(&style, tick);
+                    let y = super::choice_cursor::drawing_y(
+                        rect[1] + f32::from(lines.selected_line) * 25.,
+                    );
+                    Vec2::new(rect[0] + bob, y - bob)
+                };
+                let current = position(committed_rect, presentation_tick);
+                let next_tick = presentation_tick.wrapping_add(1);
+                let next = position(next_rect, next_tick);
+                let fraction = future.as_ref().map_or(0., |endpoint| endpoint.alpha);
+                let [x, y] = current.lerp(next, fraction).to_array();
+                let slots = self
                     .choice_trail
-                    .sample(presentation_tick, [x as i32, y as i32])
-                {
-                    let [tx, ty] = [tx as f32, ty as f32];
+                    .slots(presentation_tick, current.as_ivec2().to_array());
+                let mut predicted_trail = *self.choice_trail;
+                let next_slots = predicted_trail.slots(next_tick, next.as_ivec2().to_array());
+                for ((from, a), (to, b)) in slots.into_iter().zip(next_slots) {
+                    let alpha = f32::from(a).lerp(f32::from(b), fraction);
+                    if alpha == 0. {
+                        continue;
+                    }
+                    let [tx, ty] =
+                        std::array::from_fn(|i| (from[i] as f32).lerp(to[i] as f32, fraction));
                     batches[layer::CURSOR].quad(
                         overlay([tx + 4. - w, ty + 8., tx + 4., ty + 8. + h]),
                         [0., 0., w, h],
-                        [1., 1., 1., f32::from(alpha) / 255.],
+                        [1., 1., 1., alpha / 255.],
                     );
                 }
                 batches[layer::CURSOR].quad(
@@ -1314,7 +1336,18 @@ impl DialogueDraw<'_> {
                         f32::from(glyph.color[0]) / 255.,
                         f32::from(glyph.color[1]) / 255.,
                         f32::from(glyph.color[2]) / 255.,
-                        f32::from(player.glyph_alpha(index)) / 255.,
+                        future
+                            .as_ref()
+                            .and_then(|endpoint| {
+                                let (players, a) = (endpoint.players, endpoint.alpha);
+                                let next = players.get(&slot).filter(|p| {
+                                    p.operation.id() == player.operation.id()
+                                        && p.page == player.page
+                                })?;
+                                let v = f32::from(player.glyph_alpha(index));
+                                Some((v + (f32::from(next.glyph_alpha(index)) - v) * a) / 255.)
+                            })
+                            .unwrap_or(f32::from(player.glyph_alpha(index)) / 255.),
                     ],
                 );
                 x += advance;
@@ -1349,7 +1382,14 @@ impl DialogueDraw<'_> {
             {
                 // Add the pulsing icon after the frame masks so the tail shows through it.
                 let bottom = frame_top(top, rect[3] - top) + (rect[3] - top).max(48.);
-                let phase = (presentation_tick % 90) as f32 * 4.0f32.to_radians();
+                let pulse = |tick| {
+                    let phase = (tick % 90) as f32 * 4.0f32.to_radians();
+                    (phase.sin().abs() * 255.).trunc() / 255.
+                };
+                let opacity = pulse(presentation_tick);
+                let opacity = future.as_ref().map_or(opacity, |endpoint| {
+                    opacity + (pulse(presentation_tick.wrapping_add(1)) - opacity) * endpoint.alpha
+                });
                 batches[layer::TOP_FRAME].quad(
                     [rect[2] - 28., bottom, rect[2] - 4., bottom + 24.],
                     if preferences.is_some_and(|s| s.window == 2) {
@@ -1357,7 +1397,7 @@ impl DialogueDraw<'_> {
                     } else {
                         [224., 120., 248., 144.]
                     },
-                    [1., 1., 1., (phase.sin().abs() * 255.).trunc() / 255.],
+                    [1., 1., 1., opacity],
                 );
             }
             for (index, mut batch) in batches.into_iter().enumerate() {
@@ -1418,7 +1458,7 @@ impl DialogueDraw<'_> {
                     material.source = source.clone();
                     material.sampling = source.clone();
                 }
-                layer.update_mesh(batch, size, meshes)?;
+                layer.update(batch, size);
                 layer.show(true, commands);
             }
         }
@@ -1490,7 +1530,7 @@ pub(super) fn subtitles(
     sinks: Query<&super::audio_output::Sink>,
     mut art: Option<ResMut<Artwork>>,
     images: Res<Assets<Image>>,
-    mut meshes: ResMut<Assets<Mesh>>,
+
     mut failures: super::field_view::Failures,
 ) {
     let (movie, session) = playback;
@@ -1528,7 +1568,6 @@ pub(super) fn subtitles(
         font,
         subtitle_layer,
         &mut commands,
-        &mut meshes,
         &mut failures,
     );
 }
@@ -1538,7 +1577,7 @@ fn draw_subtitle(
     font: &BitmapFont,
     layer: &mut Option<Layer>,
     commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
+
     failures: &mut super::field_view::Failures,
 ) {
     let result = (|| -> Result<()> {
@@ -1566,7 +1605,7 @@ fn draw_subtitle(
             return Ok(());
         }
         let layer = layer.as_mut().context("subtitle layer was not prepared")?;
-        layer.update_mesh(batch, [font.width, font.height], meshes)?;
+        layer.update(batch, [font.width, font.height]);
         layer.show(true, commands);
         Ok(())
     })();
@@ -1616,30 +1655,52 @@ fn expanding_rect(rect: [f32; 4], origin: [f32; 2], fraction: f32) -> [f32; 4] {
     ]
 }
 
+fn scene_ndc(
+    camera: &Transform,
+    fov_degrees: f32,
+    point: Vec3,
+    resolution: super::Resolution,
+) -> Vec3 {
+    let projection =
+        bevy::math::proj::perspective(fov_degrees.to_radians(), resolution.aspect(), 100., 40000.);
+    projection.project_point3(camera.to_matrix().inverse().transform_point3(point))
+}
+
+/// Apply the fixed pixels' rounding error to the continuously projected point.
+fn pixel_aligned_position(from: Vec2, to: Vec2, shown: Vec2, fraction: f32) -> Vec2 {
+    if fraction <= 0. {
+        from.trunc()
+    } else if fraction >= 1. {
+        to.trunc()
+    } else {
+        shown + (from.trunc() - from).lerp(to.trunc() - to, fraction)
+    }
+}
+
+// The 640×448 scene sits inside the 640×480 overlay.
+fn scene_ui_point(ndc: Vec3, resolution: super::Resolution) -> Vec2 {
+    let ui = resolution.ui_size();
+    Vec2::new(
+        320. + ui.x * 0.5 * ndc.x,
+        240. - ui.y * 0.5 + ui.y * (224. / 480.) * (1. - ndc.y),
+    )
+}
+
 fn project_dialogue_point(
     camera: &Transform,
     fov_degrees: f32,
     point: Vec3,
     resolution: super::Resolution,
 ) -> [f32; 2] {
-    let projection =
-        bevy::math::proj::perspective(fov_degrees.to_radians(), resolution.aspect(), 100., 40000.);
-    let ndc = projection.project_point3(camera.to_matrix().inverse().transform_point3(point));
+    let ndc = scene_ndc(camera, fov_degrees, point, resolution);
     if resolution == super::Resolution::default() {
         return [
             (320. * (ndc.x + 1.)).round().clamp(0., 640.),
             (224. * (1. - ndc.y)).round().clamp(0., 480.),
         ];
     }
-    // Project into the 640×448 scene, then use those pixel coordinates directly
-    // in the 640×480 overlay. Scaling Y here would push dialogue downward.
-    let ui = resolution.ui_size();
-    [
-        (320. + ui.x * 0.5 * ndc.x).round().clamp(0., 640.),
-        (240. - ui.y * 0.5 + ui.y * (224. / 480.) * (1. - ndc.y))
-            .round()
-            .clamp(0., 480.),
-    ]
+    let [x, y] = scene_ui_point(ndc, resolution).to_array();
+    [x.round().clamp(0., 640.), y.round().clamp(0., 480.)]
 }
 
 fn layout(
@@ -2033,10 +2094,56 @@ fn body_advance(character: char, advance: u32) -> f32 {
     (advance as f32 * (body_glyph_width(character) / 25.)).trunc()
 }
 
-// Each quad owns its source rectangle; a texture sampler alone clamps only the
-// complete atlas. Keep this separate from glyph-pattern coordinates.
-const ATLAS_BOUNDS: MeshVertexAttribute =
-    MeshVertexAttribute::new("UiAtlasBounds", 0xF11D_0000, VertexFormat::Float32x4);
+/// Packed UI vertices retain atlas bounds and glyph coordinates independently of
+/// the 3D surface stream. No Mesh asset or render-world repacking is involved.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct UiVertex {
+    pub position: [f32; 3],
+    pub uv: [f32; 2],
+    pub pattern_uv: [f32; 2],
+    pub color: [f32; 4],
+    pub bounds: [f32; 4],
+}
+pub(crate) type UiGeometry = crate::materials::GeometryData<UiVertex>;
+impl UiVertex {
+    fn layout() -> VertexBufferLayout {
+        VertexBufferLayout {
+            array_stride: std::mem::size_of::<Self>() as u64,
+            step_mode: VertexStepMode::Vertex,
+            attributes: [
+                (
+                    0,
+                    VertexFormat::Float32x3,
+                    std::mem::offset_of!(Self, position),
+                ),
+                (2, VertexFormat::Float32x2, std::mem::offset_of!(Self, uv)),
+                (
+                    3,
+                    VertexFormat::Float32x2,
+                    std::mem::offset_of!(Self, pattern_uv),
+                ),
+                (
+                    4,
+                    VertexFormat::Float32x4,
+                    std::mem::offset_of!(Self, color),
+                ),
+                (
+                    5,
+                    VertexFormat::Float32x4,
+                    std::mem::offset_of!(Self, bounds),
+                ),
+            ]
+            .into_iter()
+            .map(|(shader_location, format, offset)| VertexAttribute {
+                shader_location,
+                format,
+                offset: offset as u64,
+            })
+            .collect(),
+        }
+    }
+}
 
 #[derive(Default, Clone, PartialEq)]
 struct Batch {
@@ -2049,6 +2156,33 @@ struct Batch {
     indices: Vec<u32>,
 }
 impl Batch {
+    /// Geometry and color may move; changing glyphs, atlas frames and topology
+    /// remain discrete so input speculation cannot morph unrelated UI content.
+    fn interpolate(&mut self, next: &Self, alpha: f32) {
+        if self.indices != next.indices
+            || self.positions.len() != next.positions.len()
+            || self.uv.len() != next.uv.len()
+        {
+            return;
+        }
+        for start in (0..self.positions.len()).step_by(4) {
+            let end = (start + 4).min(self.positions.len());
+            if self.uv[start..end] != next.uv[start..end] {
+                continue;
+            }
+            for i in start..end {
+                for axis in 0..3 {
+                    self.positions[i][axis] +=
+                        (next.positions[i][axis] - self.positions[i][axis]) * alpha;
+                }
+                for channel in 0..4 {
+                    self.colors[i][channel] +=
+                        (next.colors[i][channel] - self.colors[i][channel]) * alpha;
+                }
+            }
+        }
+    }
+
     /// Clip axis-aligned quads after composition, including their gradient colours.
     fn clip_vertical(&mut self, start: usize, top: f32, bottom: f32) {
         for i in (start..self.positions.len()).step_by(4) {
@@ -2119,51 +2253,42 @@ impl Batch {
         });
         [lower[0], lower[1], upper[0], upper[1]]
     }
-    fn mesh(mut self, [width, height]: [u32; 2]) -> Mesh {
-        // Clamping in the fragment shader retains the original UV slope. Merely
-        // insetting the vertices would shrink every sprite's image, including at
-        // native resolution. Keep rectangle edges in normalized coordinates:
-        // replacement images can have a different physical texel size.
-        let bounds: Vec<[f32; 4]> = self
-            .uv
-            .chunks_exact(4)
-            .enumerate()
-            .flat_map(|(index, quad)| {
-                let [left, top, right, bottom] = self
-                    .clipped_bounds
-                    .get(&(index * 4))
-                    .copied()
-                    .unwrap_or_else(|| Self::uv_bounds(quad));
-                let bounds = [
+    fn vertices(&self, [width, height]: [u32; 2]) -> impl Iterator<Item = UiVertex> + '_ {
+        let normalize = move |uv: [f32; 2]| [uv[0] / width as f32, uv[1] / height as f32];
+        let mut cell = (usize::MAX, [0.; 4]);
+        self.indices.iter().map(move |&index| {
+            let index = index as usize;
+            // Clipping retains the unclipped cell: fragment clamping must not
+            // change the authored UV slope or bleed into a neighbouring glyph.
+            let first = index / 4 * 4;
+            if cell.0 != first {
+                cell = (
+                    first,
+                    self.clipped_bounds.get(&first).copied().unwrap_or_else(|| {
+                        Self::uv_bounds(&self.uv[first..(first + 4).min(self.uv.len())])
+                    }),
+                );
+            }
+            let [left, top, right, bottom] = cell.1;
+            UiVertex {
+                position: self.positions[index],
+                uv: normalize(self.uv[index]),
+                pattern_uv: normalize(self.pattern_uv.get(index).copied().unwrap_or_default()),
+                color: self.colors[index],
+                bounds: [
                     left / width as f32,
                     top / height as f32,
                     right / width as f32,
                     bottom / height as f32,
-                ];
-                [bounds; 4]
-            })
-            .collect();
-        for uv in &mut self.uv {
-            uv[0] /= width as f32;
-            uv[1] /= height as f32;
-        }
-        let mut mesh = Mesh::new(
-            PrimitiveTopology::TriangleList,
-            RenderAssetUsages::default(),
-        )
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, self.positions)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, self.uv)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, self.colors)
-        .with_inserted_attribute(ATLAS_BOUNDS, bounds)
-        .with_inserted_indices(Indices::U32(self.indices));
-        if !self.pattern_uv.is_empty() {
-            for uv in &mut self.pattern_uv {
-                uv[0] /= width as f32;
-                uv[1] /= height as f32;
+                ],
             }
-            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, self.pattern_uv);
-        }
-        mesh
+        })
+    }
+
+    fn geometry(&self, size: [u32; 2]) -> UiGeometry {
+        let geometry = UiGeometry::default();
+        geometry.replace(self.vertices(size));
+        geometry
     }
 }
 
@@ -2329,7 +2454,6 @@ mod tests {
                 .world_mut()
                 .remove_resource::<Assets<Surface>>()
                 .unwrap();
-            let mut meshes = app.world_mut().remove_resource::<Assets<Mesh>>().unwrap();
             let mut art = Artwork::load_with(
                 session.field_assets(),
                 session.data().clone(),
@@ -2358,11 +2482,10 @@ mod tests {
             {
                 images.insert(image.id(), Image::default())?;
             }
-            art.prepare(&mut app.world_mut().commands(), &mut meshes, &mut materials);
+            art.prepare(&mut app.world_mut().commands(), &mut materials);
             app.world_mut().flush();
             app.insert_resource(images)
                 .insert_resource(materials)
-                .insert_resource(meshes)
                 .insert_resource(art)
                 .insert_resource(field_art)
                 .insert_resource(session);
@@ -2421,8 +2544,8 @@ mod tests {
             let essential_materials: Vec<_> = world
                 .resource::<Artwork>()
                 .prepared_layers()
-                .filter(|(_, _, essential)| *essential)
-                .map(|(_, material, _)| material.clone())
+                .filter(|(_, essential)| *essential)
+                .map(|(material, _)| material.clone())
                 .collect();
             let draws: Vec<_> = world
                 .query::<(
@@ -2476,18 +2599,12 @@ mod tests {
             let draw = |mut commands: Commands,
                         mut art: ResMut<Artwork>,
                         mut live: ResMut<Session>,
-                        mut meshes: ResMut<Assets<Mesh>>,
                         images: Res<Assets<Image>>,
                         server: Res<AssetServer>,
                         mut failures: crate::field_view::Failures| {
-                if let Err(error) = art.render_menu(
-                    live.field(),
-                    100,
-                    &mut commands,
-                    &mut meshes,
-                    &images,
-                    &server,
-                ) {
+                if let Err(error) =
+                    art.render_menu(live.field(), 100, None, &mut commands, &images, &server)
+                {
                     failures.menu_page(live.field_mut(), error);
                 }
             };
@@ -2670,24 +2787,21 @@ mod tests {
         use bevy::ecs::system::RunSystemOnce;
         use resonance_content::font::{Glyph, SubtitleCue, SubtitleLine};
         for paranoid in [false, true] {
-            for missing_mesh in [false, true] {
+            for unprepared in [false, true] {
                 let mut world = World::new();
                 let diagnostics = resonance_content::diagnostics::Diagnostics::new(paranoid);
                 world.insert_resource(crate::diagnostics::Diagnostics(diagnostics.clone()));
                 world.init_resource::<Messages<AppExit>>();
-                world.init_resource::<Assets<Mesh>>();
                 let entity = world.spawn(Visibility::Inherited).id();
                 world
                     .run_system_once(
-                        move |mut commands: Commands,
-                              mut meshes: ResMut<Assets<Mesh>>,
-                              mut failures: crate::field_view::Failures| {
+                        move |mut commands: Commands, mut failures: crate::field_view::Failures| {
                             let font = BitmapFont {
                                 texture: "font.png".into(),
                                 width: 1,
                                 height: 1,
                                 line_height: 1,
-                                glyphs: if missing_mesh {
+                                glyphs: if unprepared {
                                     [(
                                         'A',
                                         Glyph {
@@ -2707,29 +2821,24 @@ mod tests {
                                     text: "A".into(),
                                 }],
                             };
-                            let mut layer = Some(Layer {
+                            let mut layer = (!unprepared).then(|| Layer {
                                 entity,
-                                mesh: Handle::default(),
+                                geometry: UiGeometry::default(),
                                 material: Handle::default(),
                                 uploaded: None,
                                 visible: true,
                             });
-                            draw_subtitle(
-                                &cue,
-                                &font,
-                                &mut layer,
-                                &mut commands,
-                                &mut meshes,
-                                &mut failures,
-                            );
+                            draw_subtitle(&cue, &font, &mut layer, &mut commands, &mut failures);
                         },
                     )
                     .unwrap();
                 world.flush();
-                assert_eq!(world.get::<Visibility>(entity), Some(&Visibility::Hidden));
+                if !unprepared {
+                    assert_eq!(world.get::<Visibility>(entity), Some(&Visibility::Hidden));
+                }
                 assert_eq!(world.resource::<Messages<AppExit>>().is_empty(), !paranoid);
-                assert!(diagnostics.entries()[0].message.contains(if missing_mesh {
-                    "retained UI mesh was removed"
+                assert!(diagnostics.entries()[0].message.contains(if unprepared {
+                    "subtitle layer was not prepared"
                 } else {
                     "uncooked subtitle glyph"
                 }));
@@ -2738,82 +2847,48 @@ mod tests {
     }
 
     #[test]
-    fn empty_layer_hides_without_uploading_empty_geometry_and_can_show_again() {
+    fn empty_layer_hides_and_can_show_again_without_mesh_assets() {
         let mut world = World::new();
-        let entity = world.spawn(Visibility::Hidden).id();
-        let mut meshes = Assets::<Mesh>::default();
-        let mut warm = Batch::default();
-        warm.quad([0., 0., 1., 1.], [0.; 4], [1.; 4]);
-        let mesh = meshes.add(warm.clone().mesh([1, 1]));
-        let mut layer = Layer {
-            entity,
-            mesh: mesh.clone(),
-            material: Handle::default(),
-            uploaded: None,
-            visible: false,
-        };
-        for previous in [None, Some(warm.clone())] {
-            if let Some(batch) = previous {
-                layer.update_mesh(batch, [1, 1], &mut meshes).unwrap();
-                layer.show(true, &mut world.commands());
-                world.flush();
-                assert_eq!(
-                    world.get::<Visibility>(entity),
-                    Some(&Visibility::Inherited)
-                );
-            }
-            let packed = meshes
-                .get(&mesh)
-                .unwrap()
-                .create_packed_vertex_buffer_data();
-            layer
-                .update_mesh(Batch::default(), [1, 1], &mut meshes)
-                .unwrap();
-            // Some callers, such as a skit's text panel, request visibility
-            // even when their logical batch is empty.
+        let mut layer = Layer::new(Handle::default(), 0., &mut world.commands());
+        world.flush();
+        let mut batch = Batch::default();
+        batch.quad([20., 30., 60., 90.], [0., 0., 8., 16.], [0.5; 4]);
+        for _ in 0..2 {
+            layer.update(batch.clone(), [8, 16]);
             layer.show(true, &mut world.commands());
             world.flush();
-            assert_eq!(world.get::<Visibility>(entity), Some(&Visibility::Hidden));
             assert_eq!(
-                meshes
-                    .get(&mesh)
-                    .unwrap()
-                    .create_packed_vertex_buffer_data(),
-                packed
+                world.get::<Visibility>(layer.entity),
+                Some(&Visibility::Inherited)
             );
-            assert_eq!(meshes.get(&mesh).unwrap().indices().unwrap().len(), 6);
-        }
-        let mut visible = Batch::default();
-        visible.quad([20., 30., 60., 90.], [0., 0., 8., 16.], [0.5; 4]);
-        let expected = visible
-            .clone()
-            .mesh([8, 16])
-            .create_packed_vertex_buffer_data();
-        layer.update_mesh(visible, [8, 16], &mut meshes).unwrap();
-        layer.show(true, &mut world.commands());
-        world.flush();
-        assert_eq!(
-            world.get::<Visibility>(entity),
-            Some(&Visibility::Inherited)
-        );
-        assert_eq!(
-            meshes
-                .get(&mesh)
+            let mut frame = crate::materials::GeometryFrame::default();
+            world
+                .get::<UiGeometry>(layer.entity)
                 .unwrap()
-                .create_packed_vertex_buffer_data(),
-            expected
-        );
-        meshes.remove(mesh.id());
-        assert!(
-            layer
-                .update_mesh(Batch::default(), [1, 1], &mut meshes)
-                .is_err()
-        );
+                .append_to(&mut frame);
+            frame.finish();
+            assert_eq!(frame.vertices.len(), 6);
+            assert_eq!(frame.vertices[0].position, [-300., 210., 0.]);
+            assert_eq!(frame.vertices[1].uv, [1., 1.]);
+            layer.update(Batch::default(), [1, 1]);
+            layer.show(true, &mut world.commands());
+            world.flush();
+            assert_eq!(
+                world.get::<Visibility>(layer.entity),
+                Some(&Visibility::Hidden)
+            );
+            frame.begin();
+            world
+                .get::<UiGeometry>(layer.entity)
+                .unwrap()
+                .append_to(&mut frame);
+            frame.finish();
+            assert!(frame.vertices.is_empty());
+        }
     }
 
     #[test]
     fn clipped_cells_retain_source_bounds_after_reclipping_and_append() {
-        use bevy::mesh::VertexAttributeValues;
         let mut clipped = Batch::default();
         clipped.quad([0., 0., 4., 4.], [4., 4., 0., 0.], [1.; 4]);
         clipped.clip_vertical(0, 239., 237.);
@@ -2825,40 +2900,52 @@ mod tests {
         batch.quad([0., 0., 1., 1.], [0.5; 4], [1.; 4]);
         batch.append(clipped);
         batch.quad([0., 0., 1., 1.], [1., 1., 2., 2.], [1.; 4]);
-        let mesh = batch.mesh([4, 4]);
-        let Some(VertexAttributeValues::Float32x4(bounds)) = mesh.attribute(ATLAS_BOUNDS) else {
-            panic!("wrong atlas bounds format")
-        };
-        assert_eq!(bounds[..4], [[0.125; 4]; 4]);
-        assert_eq!(bounds[4..8], [[0., 0., 1., 1.]; 4]);
-        assert_eq!(bounds[8..], [[0.25, 0.25, 0.5, 0.5]; 4]);
-        assert_eq!(mesh.count_vertices(), 12);
+        let vertices = batch.vertices([4, 4]).collect::<Vec<_>>();
+        let bounds = vertices.iter().map(|v| v.bounds).collect::<Vec<_>>();
+        assert_eq!(bounds[..6], [[0.125; 4]; 6]);
+        assert_eq!(bounds[6..12], [[0., 0., 1., 1.]; 6]);
+        assert_eq!(bounds[12..], [[0.25, 0.25, 0.5, 0.5]; 6]);
+        assert_eq!(vertices.len(), 18);
     }
 
     #[test]
-    fn ordinary_surface_keeps_vertices_without_secondary_stream() {
+    fn streamed_ui_keeps_uvs_and_pattern_coordinates_independent() {
         let mut batch = Batch::default();
         batch.quad(
             [10., 20., 30., 40.],
             [2., 4., 6., 8.],
             [0.25, 0.5, 0.75, 1.],
         );
-        let mesh = batch.clone().mesh([8, 16]);
-        assert!(mesh.attribute(Mesh::ATTRIBUTE_UV_1).is_none());
-        let bevy::mesh::VertexAttributeValues::Float32x2(uv) =
-            mesh.attribute(Mesh::ATTRIBUTE_UV_0).unwrap()
-        else {
-            panic!("wrong UV format")
-        };
-        assert_eq!(uv, &[[0.25, 0.25], [0.75, 0.25], [0.75, 0.5], [0.25, 0.5]]);
+        let vertices = batch.vertices([8, 16]).collect::<Vec<_>>();
+        assert!(vertices.iter().all(|v| v.pattern_uv == [0.; 2]));
+        let uv = vertices.iter().map(|v| v.uv).collect::<Vec<_>>();
+        assert_eq!(
+            uv,
+            [
+                [0.25, 0.25],
+                [0.75, 0.5],
+                [0.75, 0.25],
+                [0.25, 0.25],
+                [0.25, 0.5],
+                [0.75, 0.5]
+            ]
+        );
         batch.pattern_uv = vec![[4., 8.], [8., 8.], [8., 16.], [4., 16.]];
-        let patterned = batch.mesh([8, 16]);
-        let bevy::mesh::VertexAttributeValues::Float32x2(pattern_uv) =
-            patterned.attribute(Mesh::ATTRIBUTE_UV_1).unwrap()
-        else {
-            panic!("wrong pattern UV format")
-        };
-        assert_eq!(pattern_uv, &[[0.5, 0.5], [1., 0.5], [1., 1.], [0.5, 1.]]);
+        let pattern_uv = batch
+            .vertices([8, 16])
+            .map(|v| v.pattern_uv)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            pattern_uv,
+            [
+                [0.5, 0.5],
+                [1., 1.],
+                [1., 0.5],
+                [0.5, 0.5],
+                [0.5, 1.],
+                [1., 1.]
+            ]
+        );
         let image = Handle::<Image>::default();
         let surface = Surface {
             source: image.clone(),
@@ -3073,5 +3160,28 @@ mod tests {
             expanding_rect(rect, [330., 220.], 1.),
             [169., 120., 491., 144.]
         );
+    }
+}
+
+#[cfg(test)]
+mod interpolation_tests {
+    use super::*;
+    #[test]
+    fn ui_motion_and_fades_interpolate_but_glyph_changes_are_discrete() {
+        let mut start = Batch::default();
+        start.quad([10., 20., 30., 40.], [0., 0., 1., 1.], [1.; 4]);
+        let mut next = Batch::default();
+        next.quad([20., 30., 40., 50.], [0., 0., 1., 1.], [0.; 4]);
+        let mut middle = start.clone();
+        middle.interpolate(&next, 0.5);
+        for (a, b) in start.positions.iter().zip(&middle.positions) {
+            assert_eq!(b[0], a[0] + 5.);
+            assert_eq!(b[1], a[1] - 5.);
+        }
+        assert_eq!(middle.colors, vec![[0.5; 4]; 4]);
+        next.uv[0][0] = 0.25;
+        let mut unchanged = start.clone();
+        unchanged.interpolate(&next, 0.5);
+        assert!(unchanged == start);
     }
 }

@@ -1,8 +1,8 @@
 //! Render a documented world observer using the production package and renderer.
 use super::*;
+use crate::native::MeshMaterial2d;
 use bevy::{
     camera::{RenderTarget, ScalingMode, visibility::RenderLayers},
-    core_pipeline::tonemapping::Tonemapping,
     render::{
         render_resource::{TextureFormat, TextureUsages},
         view::screenshot::{Screenshot, ScreenshotCaptured},
@@ -235,6 +235,7 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
         clock.advance();
     }
     let mut app = App::new();
+    super::init_renderer_resources(&mut app);
     crate::loading::install(&mut app, &root, package.files.library());
     *app.world()
         .resource::<crate::loading::Resident>()
@@ -243,11 +244,7 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
         .unwrap() = Some(package.files.clone());
     let render_plugin = crate::renderer::plugin(&mut app, false);
     app.add_plugins(
-        crate::renderer::native_render_plugins(render_plugin)
-            .set(bevy::pbr::PbrPlugin {
-                gltf_enable_standard_materials: false,
-                ..default()
-            })
+        crate::renderer::render_plugins(render_plugin)
             .set(AssetPlugin {
                 file_path: root.to_string_lossy().into_owned(),
                 ..default()
@@ -267,7 +264,6 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
         crate::materials::install_surface_material,
         crate::materials::install_output_materials,
     ))
-    .add_plugins(crate::draw_order::DrawOrderPlugin)
     .init_resource::<crate::display::Display>()
     .init_resource::<crate::scene::SampledImages>()
     .insert_resource(Scene(scene))
@@ -290,7 +286,7 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
             instances,
             bind,
             pose,
-            terrain_order,
+            super::residency::sync_hidden,
             camera,
             particles::render,
             ui,
@@ -342,9 +338,12 @@ fn setup(
     source.sampler = bevy::image::ImageSampler::linear();
     source.texture_descriptor.usage |= TextureUsages::COPY_SRC;
     let source = images.add(source);
+    commands.insert_resource(crate::display::Targets {
+        source: source.clone(),
+        output: Some(final_image.clone()),
+    });
     commands.spawn((
         Camera2d,
-        Tonemapping::Linear,
         Msaa::Off,
         Camera {
             order: 0,
@@ -373,7 +372,6 @@ fn setup(
     ));
     commands.spawn((
         Camera2d,
-        Tonemapping::Linear,
         Msaa::Off,
         RenderLayers::layer(2),
         Camera {
@@ -391,7 +389,7 @@ fn setup(
     ));
     commands.spawn((
         Camera3d::default(),
-        Tonemapping::Linear,
+        crate::native::DistanceFog::default(),
         Msaa::Off,
         RenderTarget::Image(source.into()),
         crate::FieldCamera,
@@ -412,10 +410,11 @@ fn capture(
     parts: Query<(Entity, &Instance, &Visibility)>,
     children: Query<&Children>,
     geometry: Query<(&super::super::materials::MaterialSlot, &Visibility)>,
-    surfaces: Res<Assets<TitleSurface>>,
+    surfaces: Res<Assets<WorldSurface>>,
     framebuffer: Res<crate::Framebuffer>,
     ready: Res<crate::RenderReady>,
     resident: Res<crate::loading::Resident>,
+    cameras: Query<&Projection, With<crate::FieldCamera>>,
     mut exit: crate::diagnostics::Fatal,
 ) {
     if capture.requested {
@@ -448,6 +447,16 @@ fn capture(
     }
     capture.settled += 1;
     if capture.settled < 20 {
+        return;
+    }
+    let native_camera = cameras.single().is_ok_and(|projection| {
+        matches!(projection, Projection::Custom(p) if p.get::<crate::camera::TitleProjection>().is_some())
+    });
+    if !native_camera {
+        exit.fail(
+            "World capture",
+            anyhow::anyhow!("native world camera was not configured"),
+        );
         return;
     }
     capture.requested = true;
@@ -485,7 +494,7 @@ fn capture(
             })
         })
         .collect();
-    let state = serde_json::json!({"kind":"overworld-development-observer", "presentation_tick": clock.0.tick(), "state": scene.0.session.travel.state(), "camera_angle":scene.0.session.camera.angle(), "cinematic":scene.0.session.cinematic.as_ref().map(|c| serde_json::json!({"id":c.id, "ticks":c.ticks(), "camera":c.camera()})), "transition_failure": capture.transition_failure, "instances": parts.iter().count(), "hidden_geometry": hidden_geometry, "enemy_symbols": enemy_symbols, "enemy_materials": enemy_materials, "late_asset_reads": resident.unprepared_reads.load(Ordering::Acquire)});
+    let state = serde_json::json!({"kind":"overworld-development-observer", "native_camera":native_camera, "presentation_tick": clock.0.tick(), "state": scene.0.session.travel.state(), "camera_angle":scene.0.session.camera.angle(), "cinematic":scene.0.session.cinematic.as_ref().map(|c| serde_json::json!({"id":c.id, "ticks":c.ticks(), "camera":c.camera()})), "transition_failure": capture.transition_failure, "instances": parts.iter().count(), "hidden_geometry": hidden_geometry, "enemy_symbols": enemy_symbols, "enemy_materials": enemy_materials, "late_asset_reads": resident.unprepared_reads.load(Ordering::Acquire)});
     commands.spawn(Screenshot(framebuffer.0.clone())).observe(
         move |event: On<ScreenshotCaptured>, mut exit: crate::diagnostics::Fatal| {
             match crate::screenshot::write(&event.image, &path, Some(&state)) {

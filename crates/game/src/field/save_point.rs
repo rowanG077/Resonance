@@ -14,7 +14,7 @@ const RATE_STEP: f32 = 0.04;
 const IDLE_GLOW: f32 = 0.08;
 const SPARK_PERIOD: u32 = 4;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(super) struct SavePoints {
     services: Option<std::sync::Arc<crate::authored::FieldServices>>,
     active: Option<i32>,

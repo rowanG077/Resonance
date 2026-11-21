@@ -3,32 +3,28 @@ use super::*;
 use crate::anti_aliasing::{
     AntiAliasingCapabilities, AntiAliasingPlugin, AntiAliasingSettings, SceneMsaa,
 };
-use bevy::{
-    camera::RenderTarget,
-    core_pipeline::tonemapping::Tonemapping,
-    render::view::screenshot::{Screenshot, ScreenshotCaptured},
-};
+use crate::native::MeshMaterial2d;
+use bevy::camera::RenderTarget;
 use resonance_content::menu_data::AntiAliasing;
-
-#[derive(Resource, Default)]
-struct Capture(Option<Image>);
 
 #[test]
 #[ignore = "requires a GPU; checks full-screen fade coverage with the production camera alignment"]
 fn full_screen_fades_cover_aligned_viewport_with_msaa() -> Result<()> {
     let mut app = App::new();
     app.add_plugins(crate::test_support::render_plugins())
-        .add_plugins(AntiAliasingPlugin)
-        .init_resource::<Capture>();
+        .add_plugins(AntiAliasingPlugin);
     super::super::install(&mut app);
-    let began = std::time::Instant::now();
-    while app.plugins_state() == bevy::app::PluginsState::Adding {
-        anyhow::ensure!(began.elapsed().as_secs() < 180, "fade GPU setup timed out");
-        bevy::tasks::tick_global_task_pools_on_main_thread();
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
-    app.finish();
-    app.cleanup();
+    let target = app
+        .world_mut()
+        .resource_mut::<Assets<Image>>()
+        .add(Image::new_target_texture(
+            640,
+            448,
+            TextureFormat::Bgra8Unorm,
+            None,
+        ));
+    crate::test_support::native_scene(&mut app, target.clone());
+    crate::test_support::finish_app(&mut app)?;
     app.update();
     let modes = app
         .world()
@@ -47,34 +43,22 @@ fn full_screen_fades_cover_aligned_viewport_with_msaa() -> Result<()> {
         modes.iter().any(|mode| mode.samples() > 1),
         "this test requires native MSAA support"
     );
-    let target = app
-        .world_mut()
-        .resource_mut::<Assets<Image>>()
-        .add(Image::new_target_texture(
-            640,
-            448,
-            TextureFormat::Bgra8Unorm,
-            None,
-        ));
     let (_, material) = app
         .world_mut()
         .resource_scope(|world, mut images: Mut<Assets<Image>>| {
             surface(&mut world.resource_mut::<Assets<Surface>>(), &mut images)
         });
-    let mesh = app.world_mut().resource_mut::<Assets<Mesh>>().add(
-        batch(
-            &resonance_events::GameWorld::default(),
-            crate::Resolution::default(),
-        )
-        .mesh([1, 1]),
-    );
+    let geometry = batch(
+        &resonance_events::GameWorld::default(),
+        crate::Resolution::default(),
+    )
+    .geometry([1, 1]);
     app.world_mut()
-        .spawn((Mesh2d(mesh.clone()), MeshMaterial2d(material)));
+        .spawn((geometry.clone(), MeshMaterial2d(material)));
     let camera = app
         .world_mut()
         .spawn((
             Camera2d,
-            Tonemapping::Linear,
             SceneMsaa,
             crate::camera::overlay_alignment(),
             RenderTarget::Image(target.clone().into()),
@@ -95,10 +79,8 @@ fn full_screen_fades_cover_aligned_viewport_with_msaa() -> Result<()> {
                 height: resolution.scene_height(),
                 depth_or_array_layers: 1,
             });
-        *app.world_mut()
-            .resource_mut::<Assets<Mesh>>()
-            .get_mut(&mesh)
-            .unwrap() = batch(&resonance_events::GameWorld::default(), resolution).mesh([1, 1]);
+        geometry
+            .replace(batch(&resonance_events::GameWorld::default(), resolution).vertices([1, 1]));
         app.world_mut()
             .entity_mut(camera)
             .insert(crate::battle::overlay_projection(resolution));
@@ -108,26 +90,7 @@ fn full_screen_fades_cover_aligned_viewport_with_msaa() -> Result<()> {
                 app.update();
                 crate::playthrough::check_exit(&app)?;
             }
-            app.world_mut().resource_mut::<Capture>().0 = None;
-            app.world_mut()
-                .spawn(Screenshot::image(target.clone()))
-                .observe(
-                    |shot: On<ScreenshotCaptured>, mut capture: ResMut<Capture>| {
-                        capture.0 = Some(shot.image.clone());
-                    },
-                );
-            while app.world().resource::<Capture>().0.is_none() {
-                anyhow::ensure!(began.elapsed().as_secs() < 180, "fade readback timed out");
-                app.update();
-                crate::playthrough::check_exit(&app)?;
-                std::thread::sleep(std::time::Duration::from_millis(1));
-            }
-            let image = app
-                .world_mut()
-                .resource_mut::<Capture>()
-                .0
-                .take()
-                .unwrap()
+            let image = crate::test_support::capture_image(&mut app, target.clone())?
                 .try_into_dynamic()?
                 .to_rgba8();
             for (x, y, pixel) in image.enumerate_pixels() {

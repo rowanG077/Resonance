@@ -1,11 +1,11 @@
 //! Field action hints reuse the prepared system atlas and bitmap font.
 use super::*;
+use crate::field_view::prediction::Endpoint;
 
 impl Artwork {
     pub(super) fn prepare_prompt(
         &mut self,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
         materials: &mut Assets<Surface>,
     ) {
         if !self.prompt_layers.is_empty() {
@@ -29,21 +29,11 @@ impl Artwork {
                     index as f32 * 0.01
                 };
             self.prompt_layers
-                .push(Layer::new(material, depth, commands, meshes));
+                .push(Layer::new(material, depth, commands));
         }
     }
 
-    pub(super) fn render_prompt(
-        &mut self,
-        session: &FieldSession,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<()> {
-        // Menus and skits retain the last field presentation, including its
-        // notifications. Their input remains owned by the modal scene.
-        if session.active_skit.is_some() || session.menu_is_open() {
-            return Ok(());
-        }
+    fn sample_prompt(&self, session: &FieldSession) -> Result<[Batch; 3]> {
         let mut batches = [Batch::default(), Batch::default(), Batch::default()];
         if session.allow_incomplete_scripts
             && session
@@ -132,14 +122,35 @@ impl Artwork {
             session.effect_clock.tick() & 32 != 0,
             self.menu.prompt_device(),
         )?;
-        self.upload_prompts(batches, commands, meshes)
+        Ok(batches)
     }
-    pub(super) fn render_world_notifications(
+    pub(super) fn render_prompt(
         &mut self,
-        session: &resonance_game::overworld::Session,
+        session: &FieldSession,
+        prediction: Option<&mut crate::field_view::Prediction>,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
+        // Menus and skits retain the last field presentation, including its
+        // notifications. Their input remains owned by the modal scene.
+        if session.active_skit.is_some() || session.menu_is_open() {
+            return Ok(());
+        }
+        let mut batches = self.sample_prompt(session)?;
+        if let Some(prediction) = prediction
+            && let Some((next, alpha)) = prediction.try_scratch(Endpoint::field, |p, a| {
+                self.sample_prompt(p).map(|b| (b, a))
+            })
+        {
+            for (a, b) in batches.iter_mut().zip(&next) {
+                a.interpolate(b, alpha);
+            }
+        }
+        self.upload_prompts(batches, commands)
+    }
+    fn sample_world_notifications(
+        &self,
+        session: &resonance_game::overworld::Session,
+    ) -> Result<[Batch; 3]> {
         let mut batches = [Batch::default(), Batch::default(), Batch::default()];
         let prompt = if session.active_skit.is_none()
             && session.menu.is_none()
@@ -164,14 +175,27 @@ impl Artwork {
             session.events.tick() & 32 != 0,
             self.menu.prompt_device(),
         )?;
-        self.upload_prompts(batches, commands, meshes)
+        Ok(batches)
     }
-    fn upload_prompts(
+    pub(super) fn render_world_notifications(
         &mut self,
-        batches: [Batch; 3],
+        session: &resonance_game::overworld::Session,
+        prediction: Option<&mut crate::field_view::Prediction>,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
+        let mut batches = self.sample_world_notifications(session)?;
+        if let Some(prediction) = prediction
+            && let Some((next, alpha)) = prediction.try_scratch(Endpoint::world, |p, a| {
+                self.sample_world_notifications(&p.session).map(|b| (b, a))
+            })
+        {
+            for (batch, target) in batches.iter_mut().zip(&next) {
+                batch.interpolate(target, alpha);
+            }
+        }
+        self.upload_prompts(batches, commands)
+    }
+    fn upload_prompts(&mut self, batches: [Batch; 3], commands: &mut Commands) -> Result<()> {
         let texture = &self.spec.textures[0];
         for ((layer, batch), size) in self.prompt_layers.iter_mut().zip(batches).zip([
             [texture.width, texture.height],
@@ -180,7 +204,7 @@ impl Artwork {
         ]) {
             let visible = !batch.indices.is_empty();
             if visible {
-                layer.update_mesh(batch, size, meshes)?;
+                layer.update(batch, size);
             }
             layer.show(visible, commands);
         }

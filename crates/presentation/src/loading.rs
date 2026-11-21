@@ -601,7 +601,7 @@ pub(super) fn black_hold(
             camera.output_mode = if retain {
                 bevy::camera::CameraOutputMode::Skip
             } else {
-                super::renderer::COMPOSITED_OUTPUT
+                default()
             };
         }
     }

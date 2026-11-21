@@ -199,10 +199,34 @@ impl WeaponDefinition {
     }
 }
 
+/// A carried model follows the rendered owner; a detached model has no attachment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WeaponAttachment {
+    Root,
+    Bone(u16),
+}
+impl WeaponAttachment {
+    pub fn world(self, owner: &ModelFrame) -> Matrix {
+        match self {
+            Self::Root => owner.world,
+            Self::Bone(bone) => multiply(owner.world, owner.bones[usize::from(bone)]),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WeaponTextureFrame {
+    pub texture: usize,
+    pub offset: [f32; 2],
+    /// Unwrapped milli-UV position for scrolling layers. Atlas frames have no travel.
+    pub scroll_position: Option<[i64; 2]>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct WeaponFrame {
     pub owner: ActorId,
     pub slot: Option<WeaponSlot>,
+    pub attachment: Option<WeaponAttachment>,
     pub visible: bool,
     pub tint: [u8; 4],
     pub material: ModelMaterial,
@@ -210,9 +234,9 @@ pub struct WeaponFrame {
     pub clip: Option<u16>,
     pub frame: f32,
     pub world: Matrix,
-    pub bones: Arc<Vec<Matrix>>,
+    pub bones: Arc<resonance_content::animation::pose::Palette>,
     pub links: Vec<[u16; 2]>,
-    pub texture_scroll: Option<(usize, [f32; 2])>,
+    pub texture: Option<WeaponTextureFrame>,
 }
 
 #[derive(Debug, Clone)]
@@ -221,7 +245,6 @@ struct Layer {
     action_pose: bool,
     secondary: Vec<Simulation>,
     shown: WeaponFrame,
-    scroll: [i16; 2],
 }
 
 #[derive(Debug, Clone)]
@@ -401,19 +424,20 @@ impl Weapon {
                 )),
             };
             let bones = match &animation {
-                Some((_, pose)) => pose.pose(&layer.skeleton, [false; 3])?.0.global,
-                None => layer.skeleton.bind_pose()?.global,
+                Some((_, pose)) => pose.pose(&layer.skeleton, [false; 3])?.0,
+                None => resonance_content::animation::pose::Palette::bind(&layer.skeleton)?,
             };
             layers.push(Layer {
                 action_pose: false,
                 secondary: vec![Simulation::default(); layer.secondary_motion.len()],
-                scroll: match &layer.texture_animation {
-                    Some(WeaponTextureAnimation::Scroll { initial, .. }) => *initial,
-                    _ => [0; 2],
-                },
                 shown: WeaponFrame {
                     owner: owner.actor,
                     slot: definition.slot,
+                    attachment: Some(
+                        definition
+                            .attachment
+                            .map_or(WeaponAttachment::Root, WeaponAttachment::Bone),
+                    ),
                     visible: owner.visible,
                     tint: owner.tint,
                     material: owner.material,
@@ -429,7 +453,7 @@ impl Weapon {
                     } else {
                         vec![]
                     },
-                    texture_scroll: None,
+                    texture: None,
                 },
                 animation,
             });
@@ -580,19 +604,24 @@ impl Weapon {
         let (_, rotation, _) =
             glam::Mat4::from_cols_array_2d(&world).to_scale_rotation_translation();
         for (layer, definition) in self.layers.iter_mut().zip(&self.definition.layers) {
-            layer.shown.texture_scroll = match &definition.texture_animation {
-                Some(WeaponTextureAnimation::Scroll { texture, step, .. }) => {
-                    if advance {
-                        for (value, step) in layer.scroll.iter_mut().zip(step) {
-                            *value = (*value + step) % UV_REPEAT;
-                        }
-                    }
-                    Some((
-                        *texture,
-                        layer
-                            .scroll
-                            .map(|value| f32::from(value) / f32::from(UV_REPEAT)),
-                    ))
+            layer.shown.texture = match &definition.texture_animation {
+                Some(WeaponTextureAnimation::Scroll {
+                    texture,
+                    initial,
+                    step,
+                }) => {
+                    // Both the wrapped native offset and the fractional draw follow the
+                    // texture clock, including visits that hold the current weapon pose.
+                    let position: [i64; 2] = std::array::from_fn(|i| {
+                        i64::from(initial[i]) + self.texture_age as i64 * i64::from(step[i])
+                    });
+                    Some(WeaponTextureFrame {
+                        texture: *texture,
+                        offset: position.map(|value| {
+                            (value % i64::from(UV_REPEAT)) as f32 / f32::from(UV_REPEAT)
+                        }),
+                        scroll_position: Some(position),
+                    })
                 }
                 Some(WeaponTextureAnimation::Atlas {
                     texture,
@@ -602,7 +631,11 @@ impl Weapon {
                 }) => {
                     let frame = self.texture_age / u64::from(*ticks_per_frame);
                     let row = order[(frame % order.len() as u64) as usize];
-                    Some((*texture, [0., f32::from(row) / f32::from(*rows)]))
+                    Some(WeaponTextureFrame {
+                        texture: *texture,
+                        offset: [0., f32::from(row) / f32::from(*rows)],
+                        scroll_position: None,
+                    })
                 }
                 None => None,
             };
@@ -620,23 +653,30 @@ impl Weapon {
                 }
                 layer.shown.clip = Some(*clip);
                 layer.shown.frame = animation.clock.frame;
-                animation.pose(&definition.skeleton, [false; 3])?.0.global
+                animation.pose(&definition.skeleton, [false; 3])?.0
             } else {
-                definition.skeleton.bind_pose()?.global
+                resonance_content::animation::pose::Palette::bind(&definition.skeleton)?
             };
-            secondary::apply(
-                &definition.secondary_motion,
-                &mut layer.secondary,
-                &mut bones,
-                secondary::Placement {
-                    world,
-                    rotation,
-                    acceleration: glam::Vec3::ZERO,
-                },
-                advance,
-            )?;
+            if !layer.secondary.is_empty() {
+                secondary::apply(
+                    &definition.secondary_motion,
+                    &mut layer.secondary,
+                    &mut bones,
+                    secondary::Placement {
+                        world,
+                        rotation,
+                        acceleration: glam::Vec3::ZERO,
+                    },
+                    advance,
+                )?;
+            }
             layer.shown.bones = Arc::new(bones);
             layer.shown.world = world;
+            layer.shown.attachment = self.detached.is_none().then(|| {
+                self.definition
+                    .attachment
+                    .map_or(WeaponAttachment::Root, WeaponAttachment::Bone)
+            });
             layer.shown.visible = owner.visible && self.visible;
             layer.shown.tint = owner.tint;
             layer.shown.material = owner.material;
@@ -688,13 +728,15 @@ mod tests {
                 ..Default::default()
             }
             .matrix(),
-            bones: Arc::new(vec![
-                Transform {
-                    translation: [10., 20., 30.],
-                    ..Default::default()
-                }
-                .matrix(),
-            ]),
+            bones: Arc::new(resonance_content::animation::pose::Palette::independent(
+                vec![
+                    Transform {
+                        translation: [10., 20., 30.],
+                        ..Default::default()
+                    }
+                    .matrix(),
+                ],
+            )),
         }
     }
 
@@ -799,7 +841,11 @@ mod tests {
         let offsets = |weapon: &Weapon| {
             weapon
                 .frames()
-                .map(|frame| frame.texture_scroll.unwrap())
+                .map(|frame| {
+                    let texture = frame.texture.unwrap();
+                    assert!(texture.scroll_position.is_some());
+                    (texture.texture, texture.offset)
+                })
                 .collect::<Vec<_>>()
         };
         assert_eq!(
@@ -895,10 +941,11 @@ mod tests {
                 weapon.frames().zip(rows).zip([4., 8., 32.]).enumerate()
             {
                 assert_eq!(
-                    frame.texture_scroll,
+                    frame.texture.as_ref().map(|t| (t.texture, t.offset)),
                     Some((texture, [0., row as f32 / total])),
                     "age {age}"
                 );
+                assert!(frame.texture.unwrap().scroll_position.is_none());
             }
         }
         Ok(())
@@ -1013,13 +1060,15 @@ mod tests {
         rigid.layers[0].playback = WeaponPlayback::Rigid;
         let mut owner = owner();
         let mut weapon = Weapon::new(Arc::new(rigid), &owner)?;
-        owner.bones = Arc::new(vec![
-            Transform {
-                translation: [-10., 0., 0.],
-                ..Default::default()
-            }
-            .matrix(),
-        ]);
+        owner.bones = Arc::new(resonance_content::animation::pose::Palette::independent(
+            vec![
+                Transform {
+                    translation: [-10., 0., 0.],
+                    ..Default::default()
+                }
+                .matrix(),
+            ],
+        ));
         weapon.step(&owner, false)?;
         assert_eq!(weapon.layers[0].shown.clip, None);
         assert_eq!(
@@ -1066,6 +1115,7 @@ mod tests {
         let mut owner = owner();
         let mut weapon = Weapon::new(Arc::new(definition()), &owner)?;
         let carried = weapon.layers[0].shown.clone();
+        assert_eq!(carried.attachment, Some(WeaponAttachment::Bone(0)));
         let flight = Transform {
             translation: [-40., 5.1, 80.],
             ..Default::default()
@@ -1076,6 +1126,7 @@ mod tests {
 
         // A held animation still draws the preceding flight callback's world.
         weapon.step(&owner, false)?;
+        assert_eq!(weapon.layers[0].shown.attachment, None);
         assert_eq!(weapon.layers[0].shown.world, flight);
         assert_eq!(weapon.layers[0].shown.frame, carried.frame);
         assert_eq!(weapon.layers[0].shown.bones, carried.bones);

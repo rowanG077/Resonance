@@ -75,7 +75,7 @@ pub enum EnemyBehavior {
     },
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct State {
     initialized: bool,
     station: usize,
@@ -88,7 +88,7 @@ pub(crate) struct State {
     pub(crate) hurt_pending: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct DroppedWeapon {
     world: Matrix,
     vertical_speed: f32,

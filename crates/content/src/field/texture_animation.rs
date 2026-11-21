@@ -144,24 +144,29 @@ impl FieldTextureAnimation {
         Ok(())
     }
     pub fn offset(&self, field_tick: u64, effect_tick: u32) -> [f32; 2] {
-        let tick = match &self.clock {
+        self.motion.offset(self.phase(field_tick, effect_tick))
+    }
+
+    fn phase(&self, field_tick: u64, effect_tick: u32) -> u64 {
+        let tick = match self.clock {
             TextureClock::Effect | TextureClock::UnconditionalEffect => u64::from(effect_tick),
             _ => field_tick,
         };
-        match &self.motion {
-            TextureMotion::Sampled { animation } => animation.offset(tick),
+        match self.motion {
             TextureMotion::Scroll {
-                velocity,
-                wave,
-                restart_ticks,
-            } => {
-                let tick = restart_ticks.map_or(tick, |period| {
-                    if tick == 0 {
-                        0
-                    } else {
-                        1 + (tick - 1) % u64::from(period)
-                    }
-                });
+                restart_ticks: Some(period),
+                ..
+            } if tick > 0 => 1 + (tick - 1) % u64::from(period),
+            _ => tick,
+        }
+    }
+}
+
+impl TextureMotion {
+    fn offset(&self, tick: u64) -> [f32; 2] {
+        match self {
+            TextureMotion::Sampled { animation } => animation.offset(tick),
+            TextureMotion::Scroll { velocity, wave, .. } => {
                 let mut offset = velocity.map(|v| v * tick as f32);
                 if let Some(wave) = wave {
                     offset[usize::from(!wave.horizontal)] +=
@@ -183,9 +188,36 @@ impl FieldTextureAnimation {
 pub struct TextureAnimationState {
     pub offset: [f32; 2],
     tick: u64,
+    phase: u64,
 }
 
 impl TextureAnimationState {
+    fn set_offset(&mut self, animation: &FieldTextureAnimation, field_tick: u64, effect_tick: u32) {
+        self.phase = animation.phase(field_tick, effect_tick);
+        self.offset = animation.motion.offset(self.phase);
+    }
+
+    /// Velocity-based tracks publish unwrapped travel until their authored clock restarts.
+    pub fn render_offset(&self, motion: &TextureMotion, next: Option<(&Self, f32)>) -> [f32; 2] {
+        let Some((next, alpha)) = next else {
+            return self.offset;
+        };
+        let wrapped = match motion {
+            TextureMotion::Scroll { .. } => next.phase < self.phase,
+            TextureMotion::Sampled { animation } if animation.is_scroll() => true,
+            _ => return self.offset,
+        };
+        std::array::from_fn(|i| {
+            let delta = next.offset[i] - self.offset[i];
+            let travel = if wrapped {
+                crate::wrapped_scroll_delta(delta)
+            } else {
+                delta
+            };
+            self.offset[i] + alpha * travel
+        })
+    }
+
     pub fn reset(&mut self, animation: &FieldTextureAnimation, effect_tick: u32) {
         if matches!(
             animation.clock,
@@ -194,7 +226,7 @@ impl TextureAnimationState {
             return;
         }
         self.tick = 0;
-        self.offset = animation.offset(0, effect_tick);
+        self.set_offset(animation, 0, effect_tick);
     }
 
     pub fn advance(
@@ -218,6 +250,7 @@ impl TextureAnimationState {
         );
         if !enabled && !unconditional {
             if matches!(animation.control, Some(TextureControl::ClearWhenDisabled)) {
+                self.phase = 0;
                 self.offset = [0.; 2];
             }
             return;
@@ -240,7 +273,7 @@ impl TextureAnimationState {
             && settings.get(&i32::from(*setting)).copied().unwrap_or(0) == 0
         {
             self.tick = 0;
-            self.offset = animation.offset(0, effect_tick);
+            self.set_offset(animation, 0, effect_tick);
             return;
         }
         if let Some(TextureControl::FinishWhen { setting, tick }) = &animation.control
@@ -264,7 +297,17 @@ impl TextureAnimationState {
             }
             _ => self.tick += 1,
         }
-        self.offset = animation.offset(self.tick.saturating_sub(later), effect_tick);
+        self.set_offset(animation, self.tick.saturating_sub(later), effect_tick);
+    }
+}
+
+impl TextureMotion {
+    pub fn is_scroll(&self) -> bool {
+        match self {
+            Self::Scroll { .. } => true,
+            Self::Sampled { animation } => animation.is_scroll(),
+            Self::Atlas { .. } => false,
+        }
     }
 }
 
@@ -325,6 +368,7 @@ mod tests {
         });
         track.motion = TextureMotion::Sampled {
             animation: crate::TextureAnimation {
+                interpolation: crate::TextureInterpolation::Step,
                 texture: (),
                 delay_ticks: 0,
                 loop_start: 3,
@@ -345,6 +389,24 @@ mod tests {
         assert_eq!(state.offset, [0., 0.]);
         state.advance(&track, true, 0, 0, &BTreeMap::new(), |_| true);
         assert_eq!(state.offset, [0., 0.5]);
+    }
+
+    #[test]
+    fn authored_scroll_keeps_its_velocity_and_wraps_only_on_restart() {
+        let mut track = scroll(1, TextureClock::Field);
+        track.motion = TextureMotion::Scroll {
+            velocity: [0.9, 0.02],
+            wave: None,
+            restart_ticks: Some(101),
+        };
+        let state = |tick| {
+            let mut state = TextureAnimationState::default();
+            state.advance(&track, true, tick, 0, &BTreeMap::new(), |_| true);
+            state
+        };
+        let sample = |tick| state(tick).render_offset(&track.motion, Some((&state(tick + 1), 0.5)));
+        assert_eq!(sample(0), [0.45, 0.01]);
+        assert!((sample(101)[1] - 2.02).abs() < 0.00001);
     }
 
     #[test]

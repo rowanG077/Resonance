@@ -35,7 +35,8 @@ pub(super) struct Trail {
 }
 
 impl Trail {
-    pub(super) fn sample(&mut self, tick: u32, position: [i32; 2]) -> Vec<([i32; 2], u8)> {
+    /// Stable copy indices let a fading copy reach zero opacity between two draws.
+    pub(super) fn slots(&mut self, tick: u32, position: [i32; 2]) -> [([i32; 2], u8); 7] {
         let anchor = *self.anchor.get_or_insert(position);
         if self.tick != Some(tick) {
             if anchor != position {
@@ -50,19 +51,14 @@ impl Trail {
             }
             self.tick = Some(tick);
         }
-        (1..=self.remaining)
-            .filter_map(|i| {
-                let alpha = 128 - i * 16;
-                (alpha != 0).then(|| {
-                    (
-                        std::array::from_fn(|axis| {
-                            position[axis] + i32::from(i) * (anchor[axis] - position[axis]) / 8
-                        }),
-                        alpha,
-                    )
-                })
-            })
-            .collect()
+        let anchor = self.anchor.unwrap_or(position);
+        std::array::from_fn(|index| {
+            let i = index as u8 + 1;
+            let point = std::array::from_fn(|axis| {
+                position[axis] + i32::from(i) * (anchor[axis] - position[axis]) / 8
+            });
+            (point, if i <= self.remaining { 128 - i * 16 } else { 0 })
+        })
     }
 }
 
@@ -97,18 +93,25 @@ mod tests {
     #[test]
     fn cursor_motion_has_a_trail_but_paused_readback_does_not_advance_it() {
         let mut trail = Trail::default();
-        assert!(trail.sample(10, [0, 0]).is_empty());
-        let first = trail.sample(11, [16, 8]);
+        let mut visible = |tick, position| {
+            trail
+                .slots(tick, position)
+                .into_iter()
+                .filter(|(_, alpha)| *alpha != 0)
+                .collect::<Vec<_>>()
+        };
+        assert!(visible(10, [0, 0]).is_empty());
+        let first = visible(11, [16, 8]);
         assert_eq!(first.len(), 7);
         assert_eq!(first[0], ([14, 7], 112));
         assert_eq!(first[6], ([2, 1], 16));
         for _ in 0..20 {
-            assert_eq!(trail.sample(11, [16, 8]), first);
+            assert_eq!(visible(11, [16, 8]), first);
         }
         for tick in 12..19 {
-            assert!(!trail.sample(tick, [16, 8]).is_empty());
+            assert!(!visible(tick, [16, 8]).is_empty());
         }
-        assert!(trail.sample(19, [16, 8]).is_empty());
-        assert!(trail.sample(20, [16, 8]).is_empty());
+        assert!(visible(19, [16, 8]).is_empty());
+        assert!(visible(20, [16, 8]).is_empty());
     }
 }

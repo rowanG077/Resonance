@@ -4,13 +4,21 @@ use resonance_battle::{MAX_ESCAPE_GAUGE, MAX_UNISON_GAUGE, item::ITEM_COOLDOWN_T
 
 pub(super) const COUNT: usize = 7;
 
-pub(super) fn draw(frame: &BattleFrame, art: &Art, batches: &mut [Batch]) -> Result<()> {
+pub(super) fn draw(
+    frame: &BattleFrame,
+    time: HudTime,
+    art: &Art,
+    batches: &mut [Batch],
+) -> Result<()> {
     if frame.recognized_result.is_some() {
         return Ok(());
     }
+    let next = time.next.map_or(frame, |endpoint| &endpoint.frame);
+    let sample = |from: f32, to: f32| from + (to - from) * time.visit;
     if frame.item_cooldown > 0 {
         let remaining = frame.item_cooldown;
-        let fraction = f32::from(remaining) / f32::from(ITEM_COOLDOWN_TICKS);
+        let width = |ticks| (168. * f32::from(ticks) / f32::from(ITEM_COOLDOWN_TICKS)).floor();
+        let width = sample(width(remaining), width(next.item_cooldown.min(remaining)));
         party::slanted_quad(
             &mut batches[0],
             [-12., 68., 160., 84.],
@@ -20,7 +28,7 @@ pub(super) fn draw(frame: &BattleFrame, art: &Art, batches: &mut [Batch]) -> Res
         );
         party::slanted_quad(
             &mut batches[0],
-            [-12., 70., -12. + (168. * fraction).floor(), 82.],
+            [-12., 70., -12. + width, 82.],
             [0.5; 4],
             8.,
             art.feedback.item_bar,
@@ -48,7 +56,10 @@ pub(super) fn draw(frame: &BattleFrame, art: &Art, batches: &mut [Batch]) -> Res
     if let Some(escape) = frame.escape
         && (escape.requested || escape.gauge > 0)
     {
-        let fraction = (f32::from(escape.gauge) / f32::from(MAX_ESCAPE_GAUGE)).clamp(0., 1.);
+        let progress = |gauge| (f32::from(gauge) / f32::from(MAX_ESCAPE_GAUGE)).clamp(0., 1.);
+        let from = progress(escape.gauge);
+        let to = next.escape.map_or(from, |e| progress(e.gauge));
+        let fraction = sample(from, to);
         let right = frame.camera.is_some_and(|camera| {
             frame
                 .actors
@@ -64,7 +75,7 @@ pub(super) fn draw(frame: &BattleFrame, art: &Art, batches: &mut [Batch]) -> Res
                 })
         });
         let [x, y] = art.feedback.escape_positions[usize::from(right)].map(f32::from);
-        let width = (128. * fraction).floor();
+        let width = sample((128. * from).floor(), (128. * to).floor());
         batches[3].quad(
             [x + 4., y + 4., x + 148., y + 84.],
             [304., 208., 448., 288.],
@@ -94,9 +105,8 @@ pub(super) fn draw(frame: &BattleFrame, art: &Art, batches: &mut [Batch]) -> Res
     if frame.unison_available {
         let fraction = (f32::from(frame.unison_gauge) / f32::from(MAX_UNISON_GAUGE)).clamp(0., 1.);
         let ready = frame.unison_gauge >= MAX_UNISON_GAUGE;
-        let wave = ((frame.update * if ready { 4 } else { 2 }) as f32)
-            .to_radians()
-            .sin();
+        let tick = (frame.update % 360) as f32 + time.update;
+        let wave = (tick * if ready { 4. } else { 2. }).to_radians().sin();
         let pulse = (160. + 32. * wave) as u8;
         let color = if ready {
             [pulse, 32, 32, 208]
@@ -115,7 +125,7 @@ pub(super) fn draw(frame: &BattleFrame, art: &Art, batches: &mut [Batch]) -> Res
         );
         batches[2].quad([0., 264., 368., 408.], [0., 368., 352., 512.], [1.; 4]);
         if ready {
-            let alpha = (160. + 80. * ((frame.update * 6) as f32).to_radians().sin()) as u8;
+            let alpha = (160. + 80. * (tick * 6.).to_radians().sin()) as u8;
             let mut colors = art.feedback.unison_text;
             for color in &mut colors {
                 color[3] = alpha;

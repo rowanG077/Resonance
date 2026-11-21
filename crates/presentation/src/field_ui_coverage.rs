@@ -32,6 +32,10 @@ impl Default for Coverage {
     }
 }
 impl Coverage {
+    /// Whether any quad can discard fragments.
+    pub(super) fn is_active(&self) -> bool {
+        self.count.x != 0
+    }
     pub(super) fn frame(batch: &Batch, art: &DialogueArt, opening: bool) -> Result<Self> {
         let mut result = Self::default();
         result.append(batch, art, 0, opening)?;

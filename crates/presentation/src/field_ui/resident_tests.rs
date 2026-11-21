@@ -5,19 +5,27 @@ use super::*;
 #[ignore = "requires RESONANCE_TEST_ASSETS and a native GPU; run serially"]
 fn first_menu_open_reuses_startup_pipelines_and_canvases() -> Result<()> {
     use bevy::{
-        core_pipeline::core_2d::Transparent2d,
-        render::{
-            Render, RenderApp, RenderSystems, render_phase::ViewSortedRenderPhases,
-            render_resource::PipelineCache,
-        },
+        render::{Render, RenderApp, RenderSystems, render_resource::PipelineCache},
         time::TimeUpdateStrategy,
     };
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    use resonance_events::input::Button;
+
+    fn press(scenario: &mut Scenario, button: Button) -> Result<()> {
+        let mut session = scenario
+            .app
+            .world_mut()
+            .resource_mut::<crate::new_game::Session>();
+        let field = session.field_mut();
+        field.step(resonance_game::field::FieldInput {
+            pressed_buttons: [button].into(),
+            ..default()
+        })
+    }
+
     let pipelines = Arc::new(AtomicUsize::new(0));
-    let draws = Arc::new(Mutex::new(std::collections::HashSet::new()));
     let observed = pipelines.clone();
-    let observed_draws = draws.clone();
     let assets = std::env::var_os("RESONANCE_TEST_ASSETS").context("assets required")?;
     let mut options = crate::test_support::run_options(std::path::PathBuf::from(assets));
     if let Some(mods) = std::env::var_os("RESONANCE_TEST_MOD_ASSETS") {
@@ -26,29 +34,15 @@ fn first_menu_open_reuses_startup_pipelines_and_canvases() -> Result<()> {
     let mut scenario = Scenario::boot_with_options(options, "1920x1080".parse().unwrap(), |app| {
         app.sub_app_mut(RenderApp).add_systems(
             Render,
-            (move |cache: Res<PipelineCache>,
-                   phases: Res<ViewSortedRenderPhases<Transparent2d>>| {
+            (move |cache: Res<PipelineCache>| {
                 observed.store(cache.pipelines().count(), Ordering::Release);
-                observed_draws.lock().unwrap().extend(
-                    phases
-                        .0
-                        .values()
-                        .flat_map(|phase| phase.items.values())
-                        .map(|item| item.entity.1.id()),
-                );
             })
             .in_set(RenderSystems::Cleanup),
         );
     })?;
     let startup = pipelines.load(Ordering::Acquire);
     let resident = scenario.app.world().resource::<Resident>().clone();
-    for (&(band, _, _, _), layer) in &resident.0.lock().unwrap().menus {
-        if band == menu::DepthBand::Field as u8 {
-            assert!(
-                draws.lock().unwrap().contains(&layer.entity),
-                "menu canvas was never drawn during startup"
-            );
-        }
+    for layer in resident.0.lock().unwrap().menus.values() {
         assert_eq!(
             scenario.app.world().get::<Visibility>(layer.entity),
             Some(&Visibility::Hidden)
@@ -67,53 +61,68 @@ fn first_menu_open_reuses_startup_pipelines_and_canvases() -> Result<()> {
             .player_has_control()
     })?;
     let entities: std::collections::HashSet<_> = resident.entities().into_iter().collect();
+    // Keep the production fractional clock on the offscreen graphics fixture.
+    let mut options = scenario.app.world_mut().resource_mut::<crate::RunOptions>();
+    options.capture = None;
+    options.speculative = true;
+    scenario
+        .app
+        .insert_resource(TimeUpdateStrategy::ManualDuration(
+            resonance_game::clock::UPDATE_STEP / 3,
+        ));
     for _ in 0..2 {
-        scenario
-            .app
-            .world_mut()
-            .resource_mut::<crate::new_game::Session>()
-            .field_mut()
-            .step(resonance_game::field::FieldInput {
-                pressed_buttons: [resonance_events::input::Button::Menu].into(),
-                ..default()
-            })?;
-        assert!(
-            scenario
-                .app
-                .world()
-                .resource::<crate::new_game::Session>()
-                .menu()
-                .is_some()
-        );
+        press(&mut scenario, Button::Menu)?;
+        let mut previous = None;
+        let mut moved = false;
         scenario.wait("menu did not finish opening", |app| {
             let world = app.world();
-            let menu = &world.resource::<Artwork>().menu;
+            let menu = world.resource::<crate::new_game::Session>().menu().unwrap();
+            let artwork = &world.resource::<Artwork>().menu;
+            if let Some((shade, _)) = artwork
+                .layers
+                .get(&(0, menu::DrawRole::Background, menu::MaterialKey::Font))
+                .filter(|layer| layer.visible)
+                .and_then(|layer| layer.uploaded.as_ref())
+            {
+                let opacity = shade.colors[0][3];
+                moved |= previous.is_some_and(|(tick, alpha)| tick == menu.tick && opacity > alpha);
+                previous = Some((menu.tick, opacity));
+            }
             assert!(
-                menu.layers
+                artwork
+                    .layers
                     .values()
                     .all(|layer| entities.contains(&layer.entity))
             );
             if let Some(draws) = world.get_resource::<MenuDraws>() {
-                for id in &draws.0.lock().unwrap().pipelines {
-                    assert!(id.id() < startup, "menu compiled a new pipeline: {id:?}");
-                }
+                assert!(
+                    draws
+                        .0
+                        .lock()
+                        .unwrap()
+                        .pipelines
+                        .iter()
+                        .all(|id| id.id() < startup),
+                    "menu compiled a pipeline after startup"
+                );
             }
-            world
-                .resource::<crate::new_game::Session>()
-                .menu()
-                .is_some_and(|m| {
-                    !m.main_animating() && menu.ready(world.resource::<Assets<Image>>())
-                })
+            !menu.main_animating() && artwork.ready(world.resource::<Assets<Image>>())
         })?;
-        scenario
-            .app
-            .world_mut()
-            .resource_mut::<crate::new_game::Session>()
-            .field_mut()
-            .step(resonance_game::field::FieldInput {
-                pressed_buttons: [resonance_events::input::Button::Cancel].into(),
-                ..default()
-            })?;
+        assert!(moved, "menu did not move between fixed ticks");
+        {
+            let report = scenario
+                .app
+                .world()
+                .resource::<MenuDraws>()
+                .0
+                .lock()
+                .unwrap();
+            assert!(
+                !report.expected.is_empty() && !report.pipelines.is_empty(),
+                "menu fence observed no draws"
+            );
+        }
+        press(&mut scenario, Button::Cancel)?;
         scenario.wait("menu did not finish closing", |app| {
             app.world()
                 .resource::<crate::new_game::Session>()
@@ -427,7 +436,10 @@ fn save_installation_renders_overworld_and_field_replacements() -> Result<()> {
 #[test]
 #[ignore = "requires RESONANCE_TEST_ASSETS and a GPU; run serially"]
 fn save_loading_and_cached_world_entry_reveal_only_ready_scenes() -> Result<()> {
+    use bevy::time::TimeUpdateStrategy::ManualDuration;
+    use resonance_game::clock::UPDATE_STEP;
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use std::time::Duration;
 
     let mut scenario = Scenario::boot(Default::default(), |_| {})?;
     // Exercise a visible field, including a return to already-resident world graphics.
@@ -481,6 +493,9 @@ fn save_loading_and_cached_world_entry_reveal_only_ready_scenes() -> Result<()> 
         "loading a save skipped its fade in"
     );
     capture(&mut scenario.app, "load-fade-in.png")?;
+    let mut options = scenario.app.world_mut().resource_mut::<crate::RunOptions>();
+    options.capture = None;
+    options.speculative = true;
     // Depart during the saved field's fade in as well as after a cached return.
     for visit in 0..2 {
         let events = scenario
@@ -496,17 +511,9 @@ fn save_loading_and_cached_world_entry_reveal_only_ready_scenes() -> Result<()> 
             to: 0.,
             white: false,
         });
-        scenario
-            .app
-            .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
-                resonance_game::clock::UPDATE_STEP,
-            ));
+        scenario.app.insert_resource(ManualDuration(UPDATE_STEP));
         scenario.update()?;
-        scenario
-            .app
-            .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
-                std::time::Duration::ZERO,
-            ));
+        scenario.app.insert_resource(ManualDuration(Duration::ZERO));
         capture(&mut scenario.app, &format!("{visit}-field.png"))?;
         let previous_brightness = brightness(&scenario.app);
         scenario.request_scene(3000)?;
@@ -517,9 +524,31 @@ fn save_loading_and_cached_world_entry_reveal_only_ready_scenes() -> Result<()> 
             "replacing the load fade caused a brightness jump"
         );
         assert!(crate::new_game::scene_fade::outgoing(scenario.app.world()));
-        for _ in 0..7 {
+        for _ in 0..6 {
             scenario.update()?;
         }
+        let half = UPDATE_STEP / 2;
+        for (elapsed, paused, remaining) in [
+            (half, false, 8.5),
+            (Duration::ZERO, true, 9.),
+            (Duration::ZERO, false, 8.5),
+        ] {
+            scenario.app.insert_resource(ManualDuration(elapsed));
+            scenario
+                .app
+                .world_mut()
+                .resource_mut::<crate::testing::Controls>()
+                .paused = paused;
+            scenario.app.update();
+            assert!(
+                (brightness(&scenario.app) - initial_brightness * remaining / 15.).abs() < 0.001
+            );
+        }
+        scenario
+            .app
+            .insert_resource(ManualDuration(UPDATE_STEP - half));
+        scenario.update()?;
+        scenario.app.insert_resource(ManualDuration(Duration::ZERO));
         assert!(
             scenario
                 .app
@@ -716,7 +745,7 @@ fn common_images_share_identity_and_retirement_keeps_only_resident_entities() {
                     (0, index),
                     Layer {
                         entity,
-                        mesh: Handle::default(),
+                        geometry: UiGeometry::default(),
                         material: Handle::default(),
                         uploaded: None,
                         visible: true,
@@ -737,72 +766,7 @@ fn common_images_share_identity_and_retirement_keeps_only_resident_entities() {
 #[test]
 #[ignore = "requires RESONANCE_TEST_ASSETS and a native GPU; run serially"]
 fn boot_and_field_reentry_reuse_uploaded_ui() -> Result<()> {
-    use bevy::{
-        pbr::PreparedMaterial,
-        render::{Render, RenderApp, RenderSystems, erased_render_asset::ErasedRenderAssets},
-    };
-    #[derive(Default)]
-    struct DelayedBinding {
-        map: Option<u32>,
-        material: Option<bevy::asset::UntypedAssetId>,
-        entity: Option<Entity>,
-        withheld: bool,
-    }
-    let delayed = Arc::new(Mutex::new(DelayedBinding::default()));
-    let mut scenario = Scenario::boot(Default::default(), |app| {
-        let selected = delayed.clone();
-        app.add_systems(
-            Update,
-            (move |world: &mut World| {
-                let mut delay = selected.lock().unwrap();
-                if delay.map.is_some()
-                    && world
-                        .get_resource::<crate::field_view::Art>()
-                        .is_some_and(|art| Some(art.map) == delay.map)
-                    && delay.material.is_none()
-                {
-                    // Add a fresh binding to the retained scene. It must join
-                    // admission even though no model pipeline needs rebuilding.
-                    let material = world
-                        .resource_mut::<Assets<crate::materials::TitleSurface>>()
-                        .add(crate::materials::TitleSurface::default());
-                    let mesh = world
-                        .resource_mut::<Assets<Mesh>>()
-                        .add(Rectangle::default());
-                    delay.material = Some(material.id().untyped());
-                    delay.entity = Some(
-                        world
-                            .spawn((
-                                Mesh3d(mesh),
-                                MeshMaterial3d(material),
-                                Transform::default(),
-                                Visibility::Visible,
-                                bevy::camera::visibility::NoFrustumCulling,
-                            ))
-                            .id(),
-                    );
-                }
-            })
-            .after(crate::field_view::FieldPreparation),
-        );
-        let selected = delayed.clone();
-        app.sub_app_mut(RenderApp).add_systems(Render, (
-            move |mut materials: ResMut<ErasedRenderAssets<PreparedMaterial>>,
-                  mut held: Local<Option<(bevy::asset::UntypedAssetId, PreparedMaterial)>>| {
-                let mut delay = selected.lock().unwrap();
-                if delay.map.is_some() {
-                    if let Some(id) = delay.material
-                        && let Some(material) = materials.remove(id)
-                    {
-                        *held = Some((id, material));
-                        delay.withheld = true;
-                    }
-                } else if let Some((id, material)) = held.take() {
-                    materials.insert(id, material);
-                }
-            }
-        ).after(RenderSystems::PrepareAssets).before(RenderSystems::Queue));
-    })?;
+    let mut scenario = Scenario::boot(Default::default(), |_| {})?;
     let resident = scenario.app.world().resource::<Resident>().clone();
     let common = scenario
         .app
@@ -861,15 +825,11 @@ fn boot_and_field_reentry_reuse_uploaded_ui() -> Result<()> {
     // One route checks field and world reentry through production admission.
     let mut fields = BTreeMap::new();
     let mut world_roots = None;
-    let mut delayed_reentry = false;
+    let mut reentered = false;
     for map in [332, 340, 520, 332, 520, 3000, 332, 3000] {
-        if map == 332 && fields.contains_key(&map) && !delayed_reentry {
+        if map == 332 && fields.contains_key(&map) && !reentered {
             // Field reentry and same-map save reloads both create fresh bindings.
             for reload in [false, true] {
-                *delayed.lock().unwrap() = DelayedBinding {
-                    map: Some(map),
-                    ..Default::default()
-                };
                 if reload {
                     let world = scenario.app.world_mut();
                     let package = world
@@ -880,38 +840,6 @@ fn boot_and_field_reentry_reuse_uploaded_ui() -> Result<()> {
                     let candidate =
                         crate::new_game::Session::load_prepared(package, Some(saved), None)?;
                     crate::saves::install_loaded(world, candidate);
-                } else {
-                    scenario.request_scene(map)?;
-                }
-                scenario.wait("reentry did not reach the delayed material", |app| {
-                    let (material, withheld) = {
-                        let delay = delayed.lock().unwrap();
-                        (delay.material, delay.withheld)
-                    };
-                    if material.is_some() {
-                        assert!(
-                            !app.world()
-                                .resource::<crate::loading::Resident>()
-                                .active
-                                .load(std::sync::atomic::Ordering::Acquire),
-                            "scene admitted before its new material (reload={reload})"
-                        );
-                    }
-                    withheld
-                })?;
-                for _ in 0..3 {
-                    scenario.update()?;
-                    assert!(
-                        !scenario
-                            .app
-                            .world()
-                            .resource::<crate::loading::Resident>()
-                            .active
-                            .load(std::sync::atomic::Ordering::Acquire)
-                    );
-                }
-                delayed.lock().unwrap().map = None;
-                if reload {
                     scenario.wait("reloaded field did not become visible", |app| {
                         super::scenario::scene_ready(app)
                             && !app
@@ -919,14 +847,11 @@ fn boot_and_field_reentry_reuse_uploaded_ui() -> Result<()> {
                                 .contains_resource::<crate::new_game::scene_fade::Fade>()
                     })?;
                 } else {
+                    scenario.request_scene(map)?;
                     scenario.wait_for_scene(map)?;
                 }
-                scenario
-                    .app
-                    .world_mut()
-                    .despawn(delayed.lock().unwrap().entity.take().unwrap());
             }
-            delayed_reentry = true;
+            reentered = true;
         } else {
             scenario.enter(map)?;
         }

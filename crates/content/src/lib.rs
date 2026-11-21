@@ -73,7 +73,7 @@ mod texture_timeline;
 pub mod titles;
 mod ui_art;
 
-pub const CONTENT_VERSION: u32 = 6;
+pub const CONTENT_VERSION: u32 = library::VERSION;
 pub const WIDTH: u32 = 640;
 pub const HEIGHT: u32 = 480;
 /// Authored animation time unit; simulation runs at its separate NTSC cadence.
@@ -299,9 +299,29 @@ pub struct TextureAnimation<Texture = usize> {
     pub loop_start: usize,
     #[serde(rename = "sequence", with = "texture_timeline")]
     pub offsets: Vec<[f32; 2]>,
+    pub interpolation: TextureInterpolation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TextureInterpolation {
+    Step,
+    Scroll,
+}
+
+/// Travel between periodic UV samples, which can restart several repeats apart.
+pub fn wrapped_scroll_delta(delta: f32) -> f32 {
+    if delta.abs() > 0.75 {
+        delta - delta.round()
+    } else {
+        delta
+    }
 }
 
 impl<Texture> TextureAnimation<Texture> {
+    pub fn is_scroll(&self) -> bool {
+        self.interpolation == TextureInterpolation::Scroll
+    }
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
             !self.offsets.is_empty()
@@ -538,3 +558,21 @@ pub mod strategy;
 
 #[cfg(test)]
 mod battle_authoring_tests;
+
+#[cfg(test)]
+mod texture_interpolation_tests {
+    use super::*;
+    #[test]
+    fn cooked_texture_interpolation_is_required_and_round_trips() {
+        let mut data = serde_json::json!({"texture":0,"sequence":[[0.,0.],[0.125,0.]]});
+        assert!(serde_json::from_value::<TextureAnimation>(data.clone()).is_err());
+        data["interpolation"] = "legacy".into();
+        assert!(serde_json::from_value::<TextureAnimation>(data.clone()).is_err());
+        for mode in [TextureInterpolation::Step, TextureInterpolation::Scroll] {
+            data["interpolation"] = serde_json::to_value(mode).unwrap();
+            let animation: TextureAnimation = serde_json::from_value(data.clone()).unwrap();
+            assert_eq!(animation.is_scroll(), mode == TextureInterpolation::Scroll);
+            assert_eq!(serde_json::to_value(animation).unwrap(), data);
+        }
+    }
+}

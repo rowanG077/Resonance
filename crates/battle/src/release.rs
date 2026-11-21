@@ -772,6 +772,7 @@ impl PreparedSpell {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct CastPoseTransition {
     pub parent: ActionId,
     pub action: crate::ActionKey,
@@ -797,7 +798,7 @@ impl CastPoseTransition {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) enum TransferPhase {
     #[default]
     Rising,
@@ -806,6 +807,7 @@ pub(crate) enum TransferPhase {
 }
 
 /// A released spell owns its targeting and clock independently of the caster.
+#[derive(Clone)]
 pub(crate) struct Volley {
     pub definition: Arc<PreparedSpell>,
     pub actor: ActorId,

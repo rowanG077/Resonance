@@ -188,11 +188,14 @@ pub(super) struct HostActions;
 
 /// Resolve host shortcuts once, before any input recorder can finish this frame.
 #[derive(Resource, Default)]
-pub(super) struct HostInput(Vec<StandardAction>);
+pub(super) struct HostInput {
+    actions: Vec<StandardAction>,
+    pub slow_motion: bool,
+}
 
 impl HostInput {
     pub fn pressed(&self, action: StandardAction) -> bool {
-        self.0.contains(&action)
+        self.actions.contains(&action)
     }
 }
 
@@ -280,8 +283,12 @@ fn gather_host_input(
 ) {
     // Consume device edges even while recording so held inputs cannot leak on exit.
     let physical = devices.sample();
-    input.0.clear();
-    if battle.is_some_and(|battle| battle.capturing_arte_binding()) {
+    input.actions.clear();
+    input.slow_motion = false;
+    if battle
+        .as_ref()
+        .is_some_and(|battle| battle.capturing_arte_binding())
+    {
         return;
     }
     let menu = active_menu(
@@ -297,15 +304,33 @@ fn gather_host_input(
     }) {
         return;
     }
-    let party = session
+    let party = battle
         .as_ref()
-        .and_then(|session| session.events().world.party.as_ref());
+        .and_then(|battle| battle.prompt_party())
+        .or_else(|| {
+            session
+                .as_ref()
+                .and_then(|session| session.events().world.party.as_ref())
+        });
     let map = active_keymap(menu, party, preferences.as_deref());
-    input.0.extend(
+    input.actions.extend(
         StandardAction::HOST
             .into_iter()
             .filter(|&action| physical.edge(&map, action)),
     );
+    // Inspection shortcuts obey recorder ownership and never shadow a binding.
+    input.slow_motion = physical.pressed.iter().any(|key| {
+        matches!(key, PhysicalInput::Key(name) if name == "F10")
+            && !map.bindings.iter().any(|inputs| inputs.contains(key))
+            && !party.is_some_and(|party| {
+                party.members.iter().any(|member| {
+                    member
+                        .arte_bindings
+                        .iter()
+                        .any(|binding| binding.chord.0.contains(key))
+                })
+            })
+    });
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -515,7 +540,7 @@ mod tests {
             RawGamepadAxisChangedEvent, RawGamepadButtonChangedEvent, RawGamepadEvent,
         };
         #[derive(Resource, Default)]
-        struct Edges([usize; 3]);
+        struct Edges([usize; 4]);
         let mut app = App::new();
         app.add_plugins(bevy::input::InputPlugin)
             .init_resource::<crate::config::Preferences>()
@@ -531,6 +556,7 @@ mod tests {
                 {
                     edges.0[index] += usize::from(input.pressed(action));
                 }
+                edges.0[3] += usize::from(input.slow_motion);
             });
         install(&mut app);
         let window = app
@@ -554,22 +580,24 @@ mod tests {
                 PhysicalInput::Axis(AxisDirection::RightRight),
             );
         }
-        for (target, state, repeat) in [
-            (window, ButtonState::Pressed, false),
-            (window, ButtonState::Released, false),
-            (window, ButtonState::Pressed, true),
-            (window, ButtonState::Released, false),
-            (other, ButtonState::Pressed, false),
-        ] {
-            app.world_mut().write_message(KeyboardInput {
-                key_code: KeyCode::F2,
-                logical_key: bevy::input::keyboard::Key::F2,
-                state,
-                text: None,
-                repeat,
-                window: target,
-            });
-            app.update();
+        for key_code in [KeyCode::F2, KeyCode::F10] {
+            for (target, state, repeat) in [
+                (window, ButtonState::Pressed, false),
+                (window, ButtonState::Released, false),
+                (window, ButtonState::Pressed, true),
+                (window, ButtonState::Released, false),
+                (other, ButtonState::Pressed, false),
+            ] {
+                app.world_mut().write_message(KeyboardInput {
+                    key_code,
+                    logical_key: bevy::input::keyboard::Key::Character("test".into()),
+                    state,
+                    text: None,
+                    repeat,
+                    window: target,
+                });
+                app.update();
+            }
         }
         app.world_mut()
             .write_message(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(
@@ -588,7 +616,56 @@ mod tests {
                 )));
             app.update();
         }
-        assert_eq!(app.world().resource::<Edges>().0, [1, 1, 2]);
+        assert_eq!(app.world().resource::<Edges>().0, [1, 1, 2, 1]);
+
+        // The inspection key follows recorder ownership, and a player binding
+        // takes precedence after recording ends.
+        use crate::saves::title::TitleMenu;
+        use resonance_game::menu::{Page, input_capture::Capture};
+        for page in [Page::Customize, Page::Tech] {
+            let mut menu = TitleMenu::load();
+            menu.0.page = page;
+            if page == Page::Customize {
+                menu.0.customize.capture = Some(Capture::after_opening([]));
+            } else {
+                menu.0.tech.capture = Some(Capture::chord([]));
+            }
+            app.insert_resource(menu);
+            for state in [
+                ButtonState::Released,
+                ButtonState::Pressed,
+                ButtonState::Released,
+            ] {
+                app.world_mut().write_message(KeyboardInput {
+                    key_code: KeyCode::F10,
+                    logical_key: bevy::input::keyboard::Key::F10,
+                    state,
+                    text: None,
+                    repeat: false,
+                    window,
+                });
+                app.update();
+                assert!(!app.world().resource::<HostInput>().slow_motion);
+            }
+        }
+        app.world_mut().remove_resource::<TitleMenu>();
+        app.world_mut()
+            .resource_mut::<crate::config::Preferences>()
+            .settings
+            .keymap
+            .assign(StandardAction::Fullscreen, PhysicalInput::Key("F10".into()));
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::F10,
+            logical_key: bevy::input::keyboard::Key::F10,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window,
+        });
+        app.update();
+        let input = app.world().resource::<HostInput>();
+        assert!(input.pressed(StandardAction::Fullscreen));
+        assert!(!input.slow_motion);
     }
 
     fn host_axis_app(direction: AxisDirection) -> (App, Entity) {

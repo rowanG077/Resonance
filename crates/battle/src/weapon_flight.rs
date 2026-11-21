@@ -37,6 +37,7 @@ impl WeaponFlightDefinition {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct Flight {
     pub definition: Arc<WeaponFlightDefinition>,
     pub action: ActionId,

@@ -1,5 +1,6 @@
 //! High-level startup logos, rendered from cooked textures.
 use super::*;
+use crate::native::MeshMaterial2d;
 use resonance_content::BootAssets;
 use resonance_game::boot::Logos;
 
@@ -77,7 +78,6 @@ pub(super) fn setup(
     ));
     commands.spawn((
         Camera2d,
-        Tonemapping::Linear,
         Msaa::Off,
         BootCamera,
         RenderLayers::layer(4),
@@ -118,11 +118,13 @@ pub(super) fn advance(
 }
 
 pub(super) fn update(
+    prediction: Option<Res<crate::field_view::Prediction>>,
+    pending: Res<PendingInput>,
+    ready: Res<timing::Ready>,
     boot: Res<Playback>,
     mut cameras: Query<&mut Camera, With<BootCamera>>,
     mut quads: Query<(&MeshMaterial2d<TitleText>, &mut Transform), With<LogoQuad>>,
-    mut materials: ResMut<Assets<TitleText>>,
-    images: Res<Assets<Image>>,
+    (mut materials, images): (ResMut<Assets<TitleText>>, Res<Assets<Image>>),
 ) {
     for mut camera in &mut cameras {
         camera.is_active = boot.active();
@@ -138,7 +140,16 @@ pub(super) fn update(
     if !images.contains(source) {
         return;
     }
-    let alpha = f32::from(logos.alpha) / 255.;
+    let mut alpha = f32::from(logos.alpha) / 255.;
+    if ready.0
+        && let Some(p) = prediction.filter(|p| p.alpha > 0.)
+    {
+        let mut next = logos.clone();
+        next.step(pending.pressed.accept);
+        if next.texture == logos.texture && next.active() == logos.active() {
+            alpha += (f32::from(next.alpha) / 255. - alpha) * p.alpha;
+        }
+    }
     for mut camera in &mut cameras {
         let rgb = logo.background.map(|v| f32::from(v) / 255. * alpha);
         camera.clear_color = ClearColorConfig::Custom(Color::linear_rgb(rgb[0], rgb[1], rgb[2]));
@@ -169,7 +180,9 @@ mod tests {
     fn authored_logo_renders_its_image_size_background_and_empty_sequence() -> Result<()> {
         let mut app = App::new();
         app.init_resource::<Assets<Image>>()
-            .init_resource::<Assets<TitleText>>();
+            .init_resource::<Assets<TitleText>>()
+            .init_resource::<PendingInput>()
+            .init_resource::<timing::Ready>();
         let image = app
             .world_mut()
             .resource_mut::<Assets<Image>>()

@@ -1,5 +1,6 @@
 //! Prepared texture banks and per-instance screen quads in native UI coordinates.
 use super::*;
+use crate::native::MeshMaterial2d;
 use anyhow::ensure;
 use bevy::image::ImageFilterMode;
 use resonance_content::{
@@ -142,7 +143,7 @@ impl Artwork {
         self.images.iter().all(|image| images.contains(image.id()))
     }
 
-    pub fn prepare(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
+    pub fn prepare(&mut self, commands: &mut Commands) {
         if self.prepared {
             return;
         }
@@ -151,7 +152,7 @@ impl Artwork {
             .values()
             .flat_map(|bank| bank.surfaces.iter().flatten())
         {
-            self.warm.push(allocate(surface.clone(), commands, meshes));
+            self.warm.push(allocate(surface.clone(), commands));
         }
         self.prepared = true;
     }
@@ -163,13 +164,11 @@ impl Artwork {
         self.prepared = false;
     }
 
-    pub fn render(
-        &mut self,
+    fn sample(
+        &self,
         world: &GameWorld,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
         device: crate::input_icons::PromptDevice,
-    ) -> Result<Vec<i32>> {
+    ) -> Result<(Vec<Draw>, Vec<i32>)> {
         ensure!(self.prepared, "field overlays were not prepared");
         let defaults = resonance_content::input::Keymap::default();
         let keymap = world
@@ -186,7 +185,7 @@ impl Artwork {
                 .get(&actor.resource)
                 .with_context(|| format!("uncooked overlay resource {:#x}", actor.resource))?;
             let alpha = overlay.alpha(world.tick);
-            let mut emit = |texture: usize, rect, uv, color, scale, depth: f32| {
+            let mut emit = |piece, texture: usize, rect, uv, color, scale, depth: f32| {
                 if bank.surfaces.get(texture).is_some_and(Option::is_some)
                     && actor.visible
                     && !actor.appearance.model_hidden
@@ -195,6 +194,7 @@ impl Artwork {
                     draws.push(Draw {
                         resource: actor.resource,
                         texture,
+                        piece,
                         instance: actor.instance,
                         depth,
                         batch: quad(rect, uv, color, actor.position, scale, actor.heading),
@@ -219,12 +219,16 @@ impl Artwork {
                             .input_atlas
                             .as_ref()
                             .context("scripted input atlas missing")?;
-                        for prompt in crate::input_icons::controller_quads(
+                        for (slot, prompt) in crate::input_icons::controller_quads(
                             atlas, keymap, texture, rect, true, device,
-                        )? {
+                        )?
+                        .into_iter()
+                        .enumerate()
+                        {
                             let [u, v, w, h] = prompt.uv.map(|v| v as f32);
                             let [aw, ah] = atlas.size.map(|v| v as f32);
                             emit(
+                                Piece::Sprite(slot),
                                 texture,
                                 prompt.rect,
                                 [u / aw, v / ah, (u + w) / aw, (v + h) / ah],
@@ -235,6 +239,7 @@ impl Artwork {
                         }
                     } else {
                         emit(
+                            Piece::Sprite(0),
                             texture,
                             rect,
                             [0., 0., 255. / 256., 255. / 256.],
@@ -256,6 +261,7 @@ impl Artwork {
                             // The controller replaces reveal opacity while fading out.
                             let opacity = if alpha == 255 { sprite.alpha } else { alpha };
                             emit(
+                                Piece::Caption([sprite.uv[0], sprite.uv[1]].map(f32::to_bits)),
                                 sprite.texture,
                                 sprite.rect,
                                 sprite.uv,
@@ -269,6 +275,24 @@ impl Artwork {
             }
             handled.push(id);
         }
+        Ok((draws, handled))
+    }
+    pub fn render(
+        &mut self,
+        world: &GameWorld,
+        prediction: Option<&mut crate::field_view::Prediction>,
+        commands: &mut Commands,
+        device: crate::input_icons::PromptDevice,
+    ) -> Result<Vec<i32>> {
+        let (mut draws, handled) = self.sample(world, device)?;
+        if let Some(prediction) = prediction
+            && let Some((mut next, alpha)) = prediction
+                .try_scratch(crate::field_view::prediction::Endpoint::field, |p, a| {
+                    self.sample(&p.events.world, device).map(|(d, _)| (d, a))
+                })
+        {
+            interpolate(&mut draws, &mut next, alpha);
+        }
         // Native positive Z is farther away. Keep authored sprite order at
         // equal depth; resource IDs never affect composition. The UI blend
         // compositor does not yet reproduce inherited native depth writes.
@@ -281,8 +305,7 @@ impl Artwork {
                 .clone();
             if index == self.layers.len() {
                 // All material/vertex-layout combinations were warmed before play.
-                self.layers
-                    .push(allocate(surface.clone(), commands, meshes));
+                self.layers.push(allocate(surface.clone(), commands));
             }
             let layer = &mut self.layers[index];
             if layer.material != surface {
@@ -291,7 +314,7 @@ impl Artwork {
                     .insert(MeshMaterial2d(surface.clone()));
                 layer.material = surface;
             }
-            layer.update_mesh(draw.batch, [1, 1], meshes)?;
+            layer.update(draw.batch, [1, 1]);
             commands.entity(layer.entity).insert(Transform::from_xyz(
                 0.,
                 0.,
@@ -349,12 +372,33 @@ fn sampler(source: &Sampler) -> Result<ImageSamplerDescriptor> {
     })
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Piece {
+    /// A control prompt can repeat the same remapped icon in different slots.
+    Sprite(usize),
+    /// The tile index identifies each letter. Its UV origin distinguishes ornaments sharing a tile.
+    Caption([u32; 2]),
+}
+
 struct Draw {
     resource: u32,
     texture: usize,
+    piece: Piece,
     instance: u64,
     depth: f32,
     batch: Batch,
+}
+
+fn interpolate(draws: &mut [Draw], next: &mut [Draw], alpha: f32) {
+    let key = |draw: &Draw| (draw.instance, draw.resource, draw.texture, draw.piece);
+    next.sort_unstable_by_key(key);
+    for draw in draws {
+        if let Ok(index) = next.binary_search_by_key(&key(draw), key) {
+            let target = &next[index];
+            draw.batch.interpolate(&target.batch, alpha);
+            draw.depth += (target.depth - draw.depth) * alpha;
+        }
+    }
 }
 fn sort(draws: &mut [Draw]) {
     draws.sort_by(|a, b| {
@@ -400,12 +444,8 @@ fn quad(
     batch
 }
 
-fn allocate(
-    material: Handle<Surface>,
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-) -> Layer {
-    Layer::new(material, 2., commands, meshes)
+fn allocate(material: Handle<Surface>, commands: &mut Commands) -> Layer {
+    Layer::new(material, 2., commands)
 }
 
 #[cfg(test)]
@@ -513,8 +553,7 @@ mod tests {
         let render_world = World::new();
         let mut queue = bevy::ecs::world::CommandQueue::default();
         let mut commands = Commands::new(&mut queue, &render_world);
-        let mut meshes = Assets::<Mesh>::default();
-        art.prepare(&mut commands, &mut meshes);
+        art.prepare(&mut commands);
         for id in 0..32 {
             if prompts::PANEL_GLYPHS.contains(&id) {
                 continue;
@@ -527,8 +566,8 @@ mod tests {
             assert_eq!(
                 art.render(
                     &events.world,
+                    None,
                     &mut commands,
-                    &mut meshes,
                     crate::input_icons::PromptDevice::Controller
                 )?,
                 [7]
@@ -592,16 +631,40 @@ mod tests {
         }
         assert_eq!(batch.uv[2], [255. / 256.; 2]);
         assert_eq!(batch.colors[0], [0.2, 0.4, 0.6, 0.8]);
-        let mut draws = [(9, 2, 0.), (1, 3, 0.), (8, 1, 100.), (7, 2, 0.)].map(
-            |(resource, instance, depth)| Draw {
-                resource,
-                instance,
-                depth,
-                texture: 0,
-                batch: Batch::default(),
-            },
-        );
+        let tile = |resource, instance, texture, depth, alpha| Draw {
+            resource,
+            instance,
+            texture,
+            depth,
+            piece: Piece::Caption([0; 2]),
+            batch: quad(
+                rect,
+                [0., 0., 1., 1.],
+                [1., 1., 1., alpha],
+                [0.; 3],
+                [1.; 3],
+                0.,
+            ),
+        };
+        let mut draws = [
+            tile(9, 2, 3, 100., 0.25),
+            tile(1, 3, 0, 80., 1.),
+            tile(17, 1, 0, 180., 1.),
+            tile(9, 2, 4, 100., 0.),
+        ];
+        // A new caption tile starts as two sprites move across its plane.
+        let mut next = [
+            tile(9, 2, 3, 100., 0.75),
+            tile(9, 2, 4, 100., 0.25),
+            tile(9, 2, 5, 100., 0.),
+            tile(1, 3, 0, 140., 1.),
+            tile(17, 1, 0, 20., 1.),
+        ];
+        interpolate(&mut draws, &mut next, 0.5);
         sort(&mut draws);
-        assert_eq!(draws.map(|d| d.resource), [8, 9, 7, 1]);
+        assert_eq!(
+            draws.map(|d| (d.resource, d.texture, d.batch.colors[0][3])),
+            [(1, 0, 1.), (17, 0, 1.), (9, 3, 0.5), (9, 4, 0.125)]
+        );
     }
 }

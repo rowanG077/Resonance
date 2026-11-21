@@ -225,7 +225,15 @@ fn scrolling_wraps_both_directions_within_the_rectangle() {
     p.step(None, None).unwrap();
     assert_eq!(p.frame.state.uv, [11, 29, 8, 10]);
     for tick in 1..=4096 {
+        let before = (tick <= 2).then(|| p.frame.clone());
         p.step(None, None).unwrap();
+        if let Some(before) = before {
+            // A held interval, then +8.5 and -0.5 texels across a wrapping rectangle.
+            assert_eq!(
+                before.scroll_offset(&p.frame, 0.5),
+                if tick == 1 { [0.; 2] } else { [0.5, -0.5] }
+            );
+        }
         let [x, y, width, height] = p.frame.state.uv;
         assert!((10..18).contains(&x) && (20..30).contains(&y));
         assert_eq!((width, height), (8, 10));
@@ -255,11 +263,13 @@ fn model_scroll_keeps_signed_offsets_across_a_texture_repeat() {
     });
     p.advance_uv(true).unwrap();
     assert_eq!(p.frame.state.uv, [0, 0, 2500, 2500]);
+    let start = p.frame.clone();
     for _ in 0..167 {
         p.advance_uv(false).unwrap();
     }
     // The retained material samples cross V=-1 without clamping to the atlas.
     assert_eq!(p.frame.state.uv, [167, -2505, 2500, 2500]);
+    assert_eq!(start.scroll_offset(&p.frame, 0.5), [83.5, -1252.5]);
 }
 
 #[test]

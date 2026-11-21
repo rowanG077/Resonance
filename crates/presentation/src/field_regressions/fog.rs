@@ -1,6 +1,7 @@
 //! Fog updates the camera without invalidating scene materials.
 use super::fixtures::*;
 use super::{configured, enter, mission, skip_battle};
+use crate::native::DistanceFog;
 use crate::{field_view, materials::TitleSurface};
 use anyhow::Result;
 use bevy::{asset::AssetPlugin, prelude::*};
@@ -54,9 +55,7 @@ fn radar_updates_camera_fog_and_restores_the_room_without_material_changes() -> 
             )
         });
         assert_eq!(view.color.to_linear().to_f32_array(), color);
-        assert!(
-            matches!(view.falloff, FogFalloff::Linear { start: a, end: b } if a == start && b == end)
-        );
+        assert!(view.start == start && view.end == end);
         assert!(
             !app.world_mut()
                 .resource_mut::<Messages<AssetEvent<TitleSurface>>>()

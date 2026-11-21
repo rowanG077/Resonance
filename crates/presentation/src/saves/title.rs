@@ -158,12 +158,12 @@ fn advance(
 #[allow(clippy::too_many_arguments)] // Menu state, prepared drawing resources, and the presentation clock.
 fn render(
     mut commands: Commands,
+    mut prediction: ResMut<crate::field_view::Prediction>,
     display: Res<crate::display::Display>,
     menu: Option<Res<TitleMenu>>,
     art: Option<ResMut<MenuOverlay>>,
     images: Res<Assets<Image>>,
     server: Res<AssetServer>,
-    mut meshes: ResMut<Assets<Mesh>>,
     clock: Res<crate::Clock>,
     prompt_device: Res<crate::input_icons::DeviceTracker>,
 ) {
@@ -176,8 +176,8 @@ fn render(
             menu.as_ref().map(|m| &m.0),
             clock.0.tick(),
             display.0,
+            Some(&mut prediction),
             &mut commands,
-            &mut meshes,
         )
         .and_then(|()| art.drawn_images_ready(&images, &server));
     if let Err(error) = ready {
@@ -302,13 +302,12 @@ mod tests {
             app.world_mut().resource_mut::<TitleMenu>().0.take_command();
             app.world_mut().resource_mut::<TitleMenu>().0.finish(None);
             let mut queue = bevy::ecs::world::CommandQueue::default();
-            let mut meshes = Assets::<Mesh>::default();
             overlay.render(
                 Some(&app.world().resource::<TitleMenu>().0),
                 0,
                 crate::Resolution::default(),
+                None,
                 &mut Commands::new(&mut queue, app.world()),
-                &mut meshes,
             )?;
             queue.apply(app.world_mut());
             // Admit only images used by the actual Load drawing. Other menu

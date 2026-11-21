@@ -90,18 +90,16 @@ impl Combos {
         &self,
         font: &BitmapFont,
         art: &ComboArt,
+        fraction: f32,
         bars: &mut Batch,
         text: &mut Batch,
     ) -> Result<()> {
         for (side, summary) in self.displayed.iter().enumerate() {
             let Some(summary) = summary else { continue };
-            let fade = summary
-                .finish_age
-                .unwrap_or(0)
-                .saturating_sub(TRAVEL + HOLD - 1);
-            let opacity =
-                OPACITY.saturating_sub((fade.min(FADE) * u32::from(OPACITY) / FADE) as u8);
-            let outward = if side == 0 { -2. } else { 2. } * fade as f32;
+            let finish_age = summary.finish_age.map(|age| age as f32 + fraction);
+            let fade = (finish_age.unwrap_or(0.) - (TRAVEL + HOLD - 1) as f32).max(0.);
+            let opacity = OPACITY.saturating_sub((fade * f32::from(OPACITY) / FADE as f32) as u8);
+            let outward = if side == 0 { -2. } else { 2. } * fade;
             let x = f32::from(art.anchors[side]) + outward;
             let hits = summary.hits.to_string();
             let count_x = x - (hits.len() - 1) as f32 * 24.;
@@ -133,8 +131,12 @@ impl Combos {
             )?;
 
             // A new contact briefly leaves a larger, translucent count behind the settled one.
-            if summary.pop_age < POP {
-                let growth = (POP - summary.pop_age) as f32 * 6.;
+            let pop_age = summary.pop_age as f32 + fraction;
+            if pop_age < POP as f32 {
+                let remaining = POP as f32 - pop_age;
+                let growth = remaining * 6.;
+                // Fade the last ghost into the settled count before its quad retires.
+                let opacity = 24. * pop_age.min((POP - 1) as f32) * remaining.min(1.);
                 italic(
                     text,
                     font,
@@ -143,11 +145,11 @@ impl Combos {
                     [24. + growth, 36. + growth],
                     12. + growth / 2.,
                     art.number_colors,
-                    (summary.pop_age * 24).min(u32::from(OPACITY)) as u8,
+                    opacity.round() as u8,
                 )?;
             }
-            if let Some(age) = summary.finish_age {
-                let travel = age.min(TRAVEL) as f32 / TRAVEL as f32;
+            if let Some(age) = finish_age {
+                let travel = (age / TRAVEL as f32).min(1.);
                 let point = [
                     summary.origin[0] + (x - summary.origin[0]) * travel,
                     summary.origin[1] + (TOP - summary.origin[1]) * travel + DAMAGE_ROW,

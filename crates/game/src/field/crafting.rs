@@ -23,6 +23,7 @@ pub enum Focus {
     InventoryFull,
 }
 
+#[derive(Clone)]
 pub struct Crafting {
     pub resources: Arc<Resources>,
     pub vendor: u8,
@@ -44,6 +45,11 @@ pub struct Crafting {
 }
 
 impl Crafting {
+    pub(crate) fn fork_for_prediction(&self, fork: &mut resonance_events::OperationFork) -> Self {
+        let mut next = self.clone();
+        next.operation = fork.fork(&self.operation);
+        next
+    }
     pub fn open(vendor: u8, resources: Arc<Resources>, operation: Operation) -> Result<Self> {
         ensure!(
             resources
@@ -120,14 +126,15 @@ impl Crafting {
             return Ok(None);
         }
         self.scroll = (self.scroll + self.scroll.signum()) % 5;
-        let held = [
-            input.direction[1] > 0.5,
-            input.direction[1] < -0.5,
-            input.scroll_direction > 0,
-            input.scroll_direction < 0,
-        ];
+        let [_, _, up, down, page_up, page_down] = input.navigation();
+        let navigation = [up, down, page_up, page_down];
+        let held = navigation.map(|(held, _)| held);
         let [up, down, page_up, page_down] = std::array::from_fn(|i| {
-            self.repeat[i].step(held[i], held[i] && !self.held[i], self.tick)
+            self.repeat[i].step(
+                held[i],
+                navigation[i].1 || (held[i] && !self.held[i]),
+                self.tick,
+            )
         });
         self.held = held;
         if self.description_fade == 0 {

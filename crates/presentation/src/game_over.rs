@@ -1,5 +1,6 @@
 //! Fatal defeat owns the retained caller until loading a save or returning to title.
 use super::{audio, battle_audio, field_ui::GameOverArt, loading, new_game, saves};
+use crate::native::DistanceFog;
 use anyhow::{Result, ensure};
 use bevy::{camera::visibility::RenderLayers, prelude::*};
 use resonance_game::game_over::{Cue, Destination, Screen};
@@ -172,11 +173,12 @@ fn render(world: &mut World) {
         return;
     };
     if !active.loading {
-        let result = world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
-            active
-                .art
-                .render(&active.screen, &mut world.commands(), &mut meshes)
-        });
+        let fraction = world
+            .get_resource::<super::field_view::Prediction>()
+            .map_or(0., |prediction| prediction.alpha);
+        let result = active
+            .art
+            .render(&active.screen, fraction, &mut world.commands());
         if let Err(error) = result {
             world.insert_resource(active);
             fail(world, error);

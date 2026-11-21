@@ -5,9 +5,12 @@ pub(crate) mod appearance;
 mod capture;
 mod event_models;
 mod feedback;
-mod input;
+pub(crate) mod input;
+mod interpolation;
+pub(crate) use interpolation::{continuous_camera, nearby};
 #[cfg(test)]
 mod oracle;
+pub(crate) mod prediction;
 mod rumble;
 mod transition;
 use anyhow::{Context as ContextExt, Result, ensure};
@@ -16,7 +19,6 @@ use bevy::{
         RenderTarget, ScalingMode,
         visibility::{NoFrustumCulling, RenderLayers},
     },
-    core_pipeline::tonemapping::Tonemapping,
     prelude::*,
 };
 use resonance_battle::{ActorId, Battle, BattleFrame, Character, Side};
@@ -150,6 +152,27 @@ impl Owner {
         matches!(&self.phase, Phase::Scene(scene) if scene.lifecycle.capturing_arte_binding())
     }
 
+    pub(crate) fn benchmark_counts(&self) -> Option<[u64; 8]> {
+        let Phase::Scene(scene) = &self.phase else {
+            return None;
+        };
+        let frame = scene.frame.as_ref()?;
+        Some([
+            frame.update,
+            u64::from(scene.core.ledger().combat_ticks),
+            frame
+                .actors
+                .iter()
+                .filter(|a| matches!(a.activity, resonance_battle::Activity::Casting { .. }))
+                .count() as u64,
+            frame.actors.iter().filter(|a| a.cast_releasing).count() as u64,
+            frame.spell_origins.len() as u64,
+            scene.particles.len() as u64,
+            frame.projectiles.len() as u64,
+            frame.actions.len() as u64,
+        ])
+    }
+
     pub(super) fn crash_context(&self) -> String {
         let mut text = String::new();
         let _ = self.write_crash_context(&mut text);
@@ -275,6 +298,8 @@ struct Scene {
     music: u16,
     frame: Option<BattleFrame>,
     published_tick: Option<u32>,
+    prediction_revision: u64,
+    smoothing: interpolation::Cache,
     camera: Option<Entity>,
     target: RenderTarget,
     state: SceneState,
@@ -346,7 +371,7 @@ fn configure_publication(app: &mut App) {
     app.configure_sets(
         PostUpdate,
         PublishBattle
-            .after(super::sparse_animation::affine::propagate)
+            .after(bevy::transform::TransformSystems::Propagate)
             .before(bevy::asset::AssetEventSystems)
             // Layer::show queues Visibility changes. CheckVisibility consumes
             // InheritedVisibility, so these must reach propagation in this
@@ -390,6 +415,7 @@ pub(super) fn install(app: &mut App) {
                 .after(super::field_view::advance_live)
                 .after(super::timing::advance_clock),
         )
+        .add_systems(Update, prediction::update.after(prepare))
         .add_systems(PostUpdate, render.in_set(PublishBattle))
         .add_systems(PostUpdate, rumble::present.after(PublishBattle));
     super::battle_view::install(app);
@@ -1020,6 +1046,8 @@ fn construct_scene(world: &mut World, package: Package, target: RenderTarget) ->
         music: prepared.music,
         frame: None,
         published_tick: None,
+        prediction_revision: 0,
+        smoothing: Default::default(),
         camera: None,
         target,
         state: SceneState::Warming,
@@ -1074,14 +1102,12 @@ fn prepare(
         )? {
             return Ok(());
         }
-        scene
-            .hud
-            .prepare(&mut commands, &mut assets.meshes, display.0);
+        scene.hud.prepare(&mut commands, display.0);
         if let Some(dialogue) = &mut scene.dialogue {
-            dialogue.prepare(&mut commands, &mut assets.meshes, &mut ui_surfaces);
+            dialogue.prepare(&mut commands, &mut ui_surfaces);
         }
         if let Some(art) = &mut scene.game_over {
-            art.prepare(&mut commands, &mut assets.meshes);
+            art.prepare(&mut commands);
         }
         if scene.camera.is_none() {
             scene.camera = Some(
@@ -1089,12 +1115,10 @@ fn prepare(
                     .spawn((
                         Camera2d,
                         Msaa::Off,
-                        Tonemapping::Linear,
                         Camera {
                             order: -3,
                             is_active: false,
                             clear_color: ClearColorConfig::None,
-                            output_mode: super::renderer::COMPOSITED_OUTPUT,
                             ..default()
                         },
                         scene.target.clone(),
@@ -1323,6 +1347,7 @@ fn advance(
     scenario: Option<ResMut<super::saves::ScenarioInput>>,
     transition: Option<Res<transition::State>>,
 ) {
+    let _timer = crate::performance::smoothing_profile::Timer::start(4);
     let Some(mut owner) = owner else {
         controls.clear();
         return;
@@ -1365,80 +1390,32 @@ fn advance(
             .as_mut()
             .context("battle lost its retained session")?;
         session.advance_play_time();
-        let command = input.command_input(
-            scene.lifecycle.command_controller(),
-            scene.core.actors(),
-            scene.lifecycle.command_input_kind(),
-        );
-        let battle_input = resonance_battle::BattleInput {
-            voice_busy: Some(playback.busy_voices()),
-            unison: input.unison_input(
-                scene.core.actors(),
-                scene.frame.as_ref().and_then(|frame| frame.unison.as_ref()),
-            ),
-            controllers: input.actor_inputs(scene.core.actor_ids().map(|actor| {
-                (
-                    actor,
-                    &scene.core.actors()[actor.index()],
-                    scene.core.activity(actor),
-                )
-            })),
-            ..Default::default()
-        };
-        let mut presentation = Presentation {
-            hud: &mut scene.hud,
-            audio: &mut playback,
-            diagnostics: &scene.diagnostics,
-        };
-        let mut frame = {
-            let candidate = scene
+        let voice_busy = playback.busy_voices();
+        let entry_voice_ready = transition.as_ref().is_none_or(|t| t.entry_voice_ready());
+        let mut frame = Simulation {
+            core: &mut scene.core,
+            lifecycle: &mut scene.lifecycle,
+            candidate: scene
                 .candidate
                 .as_mut()
-                .context("battle result candidate was already consumed")?;
-            scene.lifecycle.step(
-                &mut scene.core,
-                lifecycle::Input {
-                    battle: battle_input,
-                    command,
-                    order: input.order(),
-                    confirm: input.confirm(),
-                    cook: input.cook(),
-                },
-                candidate,
-                &mut presentation,
-            )?
-        };
-        let clock = frame.clock;
-        let paused = clock.feedback_paused();
-        let settle = clock == resonance_battle::BattleClock::Running
-            && matches!(
-                scene.core.phase(),
-                resonance_battle::BattlePhase::Entry | resonance_battle::BattlePhase::Combat
-            );
-        if scene.lifecycle.event().is_none() {
-            let entry_voice_ready = transition
-                .as_ref()
-                .is_none_or(|transition| transition.entry_voice_ready());
-            scene
-                .feedback
-                .resolve(&mut frame, entry_voice_ready, |cues| {
-                    scene.core.record_voice_requests(cues)
-                });
+                .context("battle result candidate was already consumed")?,
+            feedback: &mut scene.feedback,
+            effects: &mut scene.effects,
+            event_models: scene.event_models.as_mut(),
+            particles: &mut scene.particles,
         }
-        scene.core.advance_models(&mut frame, clock, settle)?;
-        if let Some(event) = scene.lifecycle.event() {
-            scene
-                .event_models
-                .as_mut()
-                .context("battle event models are not prepared")?
-                .apply(event, &mut frame)?;
-        }
-        if scene.lifecycle.event().is_none() {
-            scene.feedback.resolve_model_effects(&mut frame)?;
-        }
-        let effects = scene.effects.advance(&frame, paused)?;
-        frame.cues.extend(effects);
-        scene.effects.write_frames(&mut scene.particles);
+        .step(
+            &input,
+            scene.frame.as_ref(),
+            &mut Presentation {
+                hud: &mut scene.hud,
+                audio: &mut playback,
+                diagnostics: &scene.diagnostics,
+            },
+            voice_busy,
+            entry_voice_ready,
+        )?;
+        let paused = frame.clock.feedback_paused();
         update_hud(
             &mut scene.hud,
             &frame,
@@ -1490,6 +1467,103 @@ fn advance(
     })();
     if let Err(error) = result {
         scene.failure = Some(error);
+    }
+}
+
+/// The committed visit and its speculative branch run exactly the same CPU work.
+struct Simulation<'a> {
+    core: &'a mut Battle,
+    lifecycle: &'a mut lifecycle::Lifecycle,
+    candidate: &'a mut results::Candidate,
+    feedback: &'a mut feedback::Feedback,
+    effects: &'a mut resonance_battle::Effects,
+    event_models: Option<&'a mut event_models::State>,
+    particles: &'a mut Vec<resonance_battle::ParticleFrame>,
+}
+impl Simulation<'_> {
+    fn input(
+        &self,
+        input: &input::Frame,
+        previous: Option<&BattleFrame>,
+        voice_busy: resonance_battle::ActorSet,
+    ) -> lifecycle::Input {
+        let command = input.command_input(
+            self.lifecycle.command_controller(),
+            self.core.actors(),
+            self.lifecycle.command_input_kind(),
+        );
+        let battle_input = resonance_battle::BattleInput {
+            voice_busy: Some(voice_busy),
+            unison: input.unison_input(
+                self.core.actors(),
+                previous.and_then(|frame| frame.unison.as_ref()),
+            ),
+            controllers: input.actor_inputs(self.core.actor_ids().map(|actor| {
+                (
+                    actor,
+                    &self.core.actors()[actor.index()],
+                    self.core.activity(actor),
+                )
+            })),
+            ..Default::default()
+        };
+        lifecycle::Input {
+            battle: battle_input,
+            command,
+            order: input.order(),
+            confirm: input.confirm(),
+            cook: input.cook(),
+        }
+    }
+
+    fn step(
+        &mut self,
+        input: &input::Frame,
+        previous: Option<&BattleFrame>,
+        presentation: &mut impl results::Presentation,
+        voice_busy: resonance_battle::ActorSet,
+        entry_voice_ready: bool,
+    ) -> Result<BattleFrame> {
+        let input = self.input(input, previous, voice_busy);
+        self.step_input(input, presentation, entry_voice_ready)
+    }
+
+    fn step_input(
+        &mut self,
+        input: lifecycle::Input,
+        presentation: &mut impl results::Presentation,
+        entry_voice_ready: bool,
+    ) -> Result<BattleFrame> {
+        let mut frame = self
+            .lifecycle
+            .step(self.core, input, self.candidate, presentation)?;
+        let clock = frame.clock;
+        let paused = clock.feedback_paused();
+        let settle = clock == resonance_battle::BattleClock::Running
+            && matches!(
+                self.core.phase(),
+                resonance_battle::BattlePhase::Entry | resonance_battle::BattlePhase::Combat
+            );
+        if self.lifecycle.event().is_none() {
+            self.feedback
+                .resolve(&mut frame, entry_voice_ready, |cues| {
+                    self.core.record_voice_requests(cues)
+                });
+        }
+        self.core.advance_models(&mut frame, clock, settle)?;
+        if let Some(event) = self.lifecycle.event() {
+            self.event_models
+                .as_mut()
+                .context("battle event models are not prepared")?
+                .apply(event, &mut frame)?;
+        }
+        if self.lifecycle.event().is_none() {
+            self.feedback.resolve_model_effects(&mut frame)?;
+        }
+        let effects = self.effects.advance(&frame, paused)?;
+        frame.cues.extend(effects);
+        self.effects.write_frames(self.particles);
+        Ok(frame)
     }
 }
 
@@ -1592,13 +1666,12 @@ impl results::Presentation for Presentation<'_> {
 /// The page's drawing and command ownership share one success/failure boundary.
 fn render_menu(
     scene: &mut Scene,
-    tick: u32,
+    time: crate::field_ui::HudTime,
     commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
     images: &Assets<Image>,
     server: &AssetServer,
 ) -> Result<bool> {
-    use resonance_game::battle::command::{InputKind, View};
+    use resonance_game::battle::command::InputKind;
     scene.menu_ready = true;
     if scene.lifecycle.command_input_kind() != InputKind::SharedMenu {
         return Ok(false);
@@ -1611,32 +1684,14 @@ fn render_menu(
             .candidate
             .as_ref()
             .context("battle menu lost its result candidate")?;
-        match &command.view {
-            View::Inventory(list) => scene.hud.render_items(Some(list), tick, commands, meshes),
-            View::Strategy(state) => {
-                scene
-                    .hud
-                    .render_strategy(candidate.strategy_page(state), tick, commands, meshes)
-            }
-            View::Tech(state) => scene.hud.render_tech(
-                candidate.battle_tech_view(state, &command.connected, &scene.core),
-                tick,
-                commands,
-                meshes,
-            ),
-            View::Unison(state) => {
-                scene
-                    .hud
-                    .render_unison(candidate.unison_page(state), tick, commands, meshes)
-            }
-            View::Equipment(state) => scene.hud.render_equipment(
-                candidate.equipment_page(&scene.core, state, scene.lifecycle.equipment_character()),
-                tick,
-                commands,
-                meshes,
-            ),
-            _ => unreachable!(),
-        }
+        scene.hud.render_command_page(
+            candidate,
+            &scene.core,
+            &command,
+            scene.lifecycle.equipment_character(),
+            time,
+            commands,
+        )
     })()
     .and_then(|()| scene.hud.menu_images_ready(images, server));
     if let Ok(ready) = result {
@@ -1645,6 +1700,7 @@ fn render_menu(
     }
     scene.hud.clear_menu(commands);
     scene.diagnostics.attempt("battle menu page", result)?;
+    scene.prediction_revision = scene.prediction_revision.wrapping_add(1);
     scene.lifecycle.recover_command_page(
         &mut scene.core,
         scene
@@ -1658,23 +1714,22 @@ fn render_menu(
 fn render_command_strip(
     scene: &mut Scene,
     command: Option<&resonance_game::battle::command::Frame>,
-    tick: u32,
+    time: crate::field_ui::HudTime,
     commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
 ) -> Result<()> {
     let pending = scene.core.pending_item();
     let result = scene.hud.render_commands(
         command,
         scene.lifecycle.formation_notice(),
-        tick,
+        time,
         pending,
         &scene.characters,
         commands,
-        meshes,
     );
     if result.is_err() {
         scene.hud.hide_commands(commands);
         scene.diagnostics.attempt("battle command strip", result)?;
+        scene.prediction_revision = scene.prediction_revision.wrapping_add(1);
         scene.lifecycle.recover_command_page(
             &mut scene.core,
             scene
@@ -1689,9 +1744,8 @@ fn render_command_strip(
 /// Compose the ordinary HUD, command strip and translucent pages in draw order.
 fn render_hud(
     scene: &mut Scene,
-    tick: u32,
+    time: crate::field_ui::HudTime,
     commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
     images: &Assets<Image>,
     server: &AssetServer,
 ) -> Result<bool> {
@@ -1699,10 +1753,15 @@ fn render_hud(
         scene.hud.hide_for_event(commands);
         return Ok(false);
     }
-    let frame = scene
+    let committed = scene
         .frame
         .as_ref()
         .context("active battle has no held frame")?;
+    let frame = if scene.smoothing.active {
+        scene.smoothing.frame()
+    } else {
+        committed
+    };
     let command = scene.lifecycle.command_frame();
     // Shared windows also draw scan and result panels. Clear an old
     // submenu before the HUD, while retaining an active page's draw fence.
@@ -1738,7 +1797,12 @@ fn render_hud(
         .map(|index| {
             let actor = resonance_battle::ActorId::from_index(index)?;
             Ok(super::field_ui::ActorMarkers {
-                target: scene.view.target_anchor(frame, actor),
+                target: scene.view.target_anchor(committed, actor),
+                presented_target: if scene.smoothing.active {
+                    scene.view.target_anchor(frame, actor)
+                } else {
+                    None
+                },
                 head: scene.effects.head_position(actor, frame)?,
                 effect_tick: scene
                     .effects
@@ -1753,7 +1817,7 @@ fn render_hud(
     scene.diagnostics.attempt(
         "battle HUD",
         scene.hud.render(
-            frame,
+            (committed, frame),
             super::field_ui::PartyHudInput {
                 characters: &scene.characters,
                 queued_techniques: &queued_techniques,
@@ -1767,8 +1831,8 @@ fn render_hud(
                     .map(|center| (target, center))
             }),
             &marker_anchors,
+            time,
             commands,
-            meshes,
         ),
     )?;
     let order = scene.lifecycle.order_selection();
@@ -1781,7 +1845,8 @@ fn render_hud(
         scene.hud.render_ribbons(
             frame,
             super::field_ui::RibbonInput {
-                tick,
+                tick: time.tick,
+                fraction: time.visit,
                 menu_open: command.is_some() || frame.target_selector.is_some(),
                 target,
                 order,
@@ -1789,32 +1854,57 @@ fn render_hud(
                 order_label,
             },
             commands,
-            meshes,
         ),
     )?;
     // A closed menu supplies None; target selection hides the strip.
     if !frame.summon.as_ref().is_some_and(|summon| summon.hide_hud) {
-        render_command_strip(scene, command.as_ref(), tick, commands, meshes)?;
+        render_command_strip(scene, command.as_ref(), time, commands)?;
     }
     // The battle clock holds the scene while a submenu draws above its HUD.
-    render_menu(scene, tick, commands, meshes, images, server)
+    render_menu(scene, time, commands, images, server)
+}
+
+fn battle_cover(
+    frame: &BattleFrame,
+    transition: Option<&resonance_battle::TransitionFrame>,
+) -> Option<resonance_battle::TransitionFrame> {
+    frame
+        .event_fade
+        .clone()
+        .or_else(|| {
+            frame.summon.as_ref().filter(|s| s.flash_active).map(|s| {
+                resonance_battle::TransitionFrame {
+                    color: [255; 3],
+                    alpha: s.flash,
+                    wipe: None,
+                }
+            })
+        })
+        .or_else(|| {
+            frame
+                .enemy_presentation
+                .as_ref()
+                .and_then(|p| p.flash.clone())
+        })
+        .or_else(|| transition.cloned())
 }
 
 #[allow(clippy::too_many_arguments)] // Apply held poses after propagation without another animation clock.
 fn render(
     mut commands: Commands,
     owner: Option<ResMut<Owner>>,
+    prediction: Res<crate::field_view::Prediction>,
     mut globals: Query<&mut GlobalTransform>,
     mut transforms: Query<&mut Transform>,
     mut projections: Query<&mut Projection>,
     mut ui_surfaces: ResMut<Assets<super::field_ui::Surface>>,
     display: Res<super::display::Display>,
     mut surfaces: ResMut<Assets<super::materials::TitleSurface>>,
-    mut meshes: ResMut<Assets<Mesh>>,
     images: Res<Assets<Image>>,
     server: Res<AssetServer>,
     prompt_device: Res<crate::input_icons::DeviceTracker>,
 ) {
+    let _timer = crate::performance::smoothing_profile::Timer::start(5);
     let Some(mut owner) = owner else {
         return;
     };
@@ -1834,33 +1924,64 @@ fn render(
         return;
     }
     let result = (|| -> Result<()> {
-        if scene.published_tick == Some(*input_tick) && scene.menu_ready {
+        let next = prediction.battle();
+        if scene.published_tick == Some(*input_tick)
+            && scene.menu_ready
+            && next.is_none()
+            && !scene.smoothing.active
+        {
             return scene.view.restore_pose(&mut globals);
         }
         let frame = scene
             .frame
             .as_ref()
             .context("active battle has no held frame")?;
+        let visual = match next {
+            Some(next) => scene.smoothing.sample(
+                (*input_tick, prediction.counts()[0]),
+                frame,
+                &scene.particles,
+                next,
+                prediction.alpha,
+            ),
+            None => (frame, scene.particles.as_slice()),
+        };
         scene.diagnostics.attempt(
             "battle rendering",
             scene.view.apply(
-                (frame, &scene.particles),
+                visual,
+                crate::battle_view::interpolation::Input {
+                    source: frame,
+                    next: next.map(|next| &next.frame),
+                    revision: (*input_tick, prediction.counts()[0]),
+                    alpha: if next.is_some() { prediction.alpha } else { 0. },
+                },
                 &mut commands,
                 &mut globals,
                 &mut transforms,
                 &mut projections,
                 &mut surfaces,
-                &mut meshes,
             ),
         )?;
-        render_hud(
-            scene,
-            *input_tick,
-            &mut commands,
-            &mut meshes,
-            &images,
-            &server,
-        )?;
+        scene.smoothing.active = next.is_some();
+        // Feedback ages on the next fixed visit only if that visit runs its clock.
+        let visit = next.map_or(0., |_| prediction.alpha);
+        let time = crate::field_ui::HudTime {
+            tick: *input_tick,
+            next,
+            visit,
+            update: if next.is_some_and(|n| n.frame.update != frame.update) {
+                visit
+            } else {
+                0.
+            },
+            feedback: if next.is_some_and(|n| !n.frame.clock.feedback_paused()) {
+                visit
+            } else {
+                0.
+            },
+        };
+        render_hud(scene, time, &mut commands, &images, &server)?;
         if let Some(dialogue) = &mut scene.dialogue {
             if let Some(event) = scene.lifecycle.event() {
                 scene.hud.render_event_dialogue(
@@ -1871,50 +1992,39 @@ fn render(
                         .frame
                         .as_ref()
                         .context("battle dialogue has no held frame")?,
+                    next.map(|endpoint| (endpoint, prediction.alpha)),
                     display.0,
                     &mut commands,
-                    &mut meshes,
                     &mut ui_surfaces,
                 )?;
             } else {
                 dialogue.hide(&mut commands);
             }
         }
-        let summon_fade = scene
+        let frame = scene
             .frame
             .as_ref()
-            .and_then(|frame| frame.summon.as_ref())
-            .filter(|summon| summon.flash_active)
-            .map(|summon| resonance_battle::TransitionFrame {
-                color: [255; 3],
-                alpha: summon.flash,
-                wipe: None,
-            });
+            .context("battle transition has no held frame")?;
+        let cover = battle_cover(frame, scene.core.transition());
         scene.diagnostics.attempt(
             "battle transition",
             scene.hud.render_transition(
-                scene
-                    .frame
+                cover.as_ref(),
+                frame
+                    .enemy_presentation
                     .as_ref()
-                    .and_then(|frame| frame.event_fade.as_ref())
-                    .or(summon_fade.as_ref())
-                    .or_else(|| {
-                        scene
-                            .frame
-                            .as_ref()?
-                            .enemy_presentation
-                            .as_ref()?
-                            .flash
-                            .as_ref()
-                    })
-                    .or(scene.core.transition()),
-                scene
-                    .frame
-                    .as_ref()
-                    .and_then(|frame| frame.enemy_presentation.as_ref())
                     .map_or(0, |opening| opening.letterbox),
+                next.map(|next| crate::field_ui::TransitionPrediction {
+                    cover: next.cover.as_ref(),
+                    letterbox: next
+                        .frame
+                        .enemy_presentation
+                        .as_ref()
+                        .map_or(0, |opening| opening.letterbox),
+                    hourglass_remaining: next.frame.hourglass_remaining,
+                    alpha: prediction.alpha,
+                }),
                 &mut commands,
-                &mut meshes,
             ),
         )?;
         scene.view.submit_frame();
@@ -2177,7 +2287,7 @@ pub(crate) mod tests {
         let mut app = App::new();
         app.add_plugins((
             MinimalPlugins,
-            bevy::transform::TransformPlugin,
+            crate::renderer::SerialTransformPlugin,
             VisibilityPlugin,
         ))
         .init_resource::<Assets<Mesh>>()

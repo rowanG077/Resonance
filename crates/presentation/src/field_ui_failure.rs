@@ -1,5 +1,6 @@
 //! Retry notice composed from the current scene's already resident bitmap font.
 use super::*;
+use crate::native::MeshMaterial2d;
 
 #[derive(Resource)]
 struct Notice(Entity);
@@ -35,9 +36,6 @@ pub(crate) fn update(world: &mut World) {
         ] {
             skit::centered(&mut batch, &font, text, y, size, 1., false)?;
         }
-        let mesh = world
-            .resource_mut::<Assets<Mesh>>()
-            .add(batch.mesh([font.width, font.height]));
         let material = world.resource_mut::<Assets<Surface>>().add(Surface {
             source: image.clone(),
             sampling: image.clone(),
@@ -51,7 +49,7 @@ pub(crate) fn update(world: &mut World) {
         });
         let entity = world
             .spawn((
-                Mesh2d(mesh),
+                batch.geometry([font.width, font.height]),
                 MeshMaterial2d(material),
                 Transform::from_xyz(0., 0., 20.),
             ))

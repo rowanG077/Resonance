@@ -1,14 +1,15 @@
 //! Prepared battle geometry drawn from gameplay poses and scene-owned particles.
 //! Model matrices already map cooked Z-up bones into battle Y-up coordinates.
+use crate::native::MeshMaterial3d;
 use resonance_events::effect::Blend;
 use resonance_game::battle::encounter::{RenderEffect, RenderInstances, RenderModel, RenderTrail};
 mod effects;
+pub(super) mod interpolation;
 mod model_particles;
 pub(super) use model_particles::Stats as ModelParticleStats;
 mod accessories;
 mod resident_models;
-mod scene_sample;
-mod shadows;
+pub(crate) mod shadows;
 mod stage_color;
 pub(crate) mod startup;
 mod trails;
@@ -23,7 +24,6 @@ use bevy::{
         CameraProjection, RenderTarget, SubCameraView,
         visibility::{NoCpuCulling, NoFrustumCulling, RenderLayers},
     },
-    core_pipeline::tonemapping::Tonemapping,
     ecs::system::SystemParam,
     gltf::Gltf,
     image::{ImageLoaderSettings, ImageSampler},
@@ -49,14 +49,13 @@ use std::{
 };
 
 pub(super) const LAYER: usize = 26;
-pub(super) const WARM_LAYER: usize = 27;
 // Scene cloning runs after these commands, so budget queued roots rather than enqueue time.
 const PREPARATION_ROOTS_PER_UPDATE: usize = 64;
 
-fn model_uv(rectangle: [i16; 4]) -> [f32; 2] {
+fn model_uv(rectangle: [i16; 4], offset: [f32; 2]) -> [f32; 2] {
     std::array::from_fn(|axis| {
         if rectangle[axis + 2] > 0 {
-            f32::from(rectangle[axis]) / f32::from(rectangle[axis + 2])
+            (f32::from(rectangle[axis]) + offset[axis]) / f32::from(rectangle[axis + 2])
         } else {
             0.
         }
@@ -203,44 +202,52 @@ impl Report {
 }
 
 pub(super) fn install(app: &mut App) {
-    scene_sample::install(app);
     let warmup = Warmup::default();
     app.world()
         .resource::<crate::gpu_prepare::Registry>()
         .watch(
             &warmup.0,
             |report| &mut report.draws,
-            None,
             |report, world, observer| {
                 rendered(
                     report,
-                    world.resource::<scene_sample::Pipeline>(),
+                    world.resource::<crate::native::render::SamplePipelines>(),
                     world.resource::<crate::loading::Resident>(),
                     observer,
                 );
             },
         );
-    app.insert_resource(warmup).add_systems(
-        PostUpdate,
-        capture_frame.after(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
-    );
+    app.insert_resource(warmup)
+        .add_systems(Last, capture_frame.after(crate::native::Compile));
 }
 
 // Admission follows the real initial frame, including visible model effects,
 // dialogue and HUD. Hidden variants still join the report's pipeline/upload gate.
 fn capture_frame(
     shared: Res<Warmup>,
-    draws: Query<(Entity, &ViewVisibility, &RenderLayers), Or<(With<Mesh3d>, With<Mesh2d>)>>,
+    compiled: Res<crate::native::Compiled>,
+    cameras: Query<(Entity, &RenderLayers), With<Camera>>,
+    layers: Query<&RenderLayers>,
 ) {
     let mut report = shared.0.lock().unwrap();
     if report.frame_ready && !report.draws.submitted {
         let layer = RenderLayers::layer(LAYER);
-        report.draws.expected = draws
-            .iter()
-            .filter(|(_, visible, layers)| visible.get() && layers.intersects(&layer))
-            .map(|(entity, _, _)| entity.into())
+        // Wait until a battle camera has been compiled. Its visibility list
+        // includes draws that are still waiting for their material records.
+        if !cameras.iter().any(|(entity, layers)| {
+            layers.intersects(&layer) && compiled.views.contains_key(&entity)
+        }) {
+            return;
+        }
+        report.draws.expected = compiled
+            .views
+            .values()
+            .flatten()
+            .filter(|entity| layers.get(**entity).is_ok_and(|l| l.intersects(&layer)))
+            .map(|entity| (*entity).into())
             .collect();
-        report.draws.armed = true;
+        // A later clearing camera can still cover the whole battle during entry.
+        report.draws.armed = !report.draws.expected.is_empty();
     }
 }
 
@@ -248,11 +255,20 @@ fn capture_frame(
 pub(crate) fn check_entry_frame(world: &mut World) -> Result<()> {
     use bevy::render::sync_world::MainEntity;
     use std::collections::HashSet;
-    let expected: HashSet<MainEntity> = world.query_filtered::<
-        (Entity, &ViewVisibility, &RenderLayers), Or<(With<Mesh3d>, With<Mesh2d>)>
-    >().iter(world)
-        .filter(|(_, visible, layers)| visible.get() && layers.intersects(&RenderLayers::layer(LAYER)))
-        .map(|(entity, _, _)| entity.into()).collect();
+    let layer = RenderLayers::layer(LAYER);
+    // Visibility is established before resolving materials into GPU draws.
+    let expected: HashSet<MainEntity> = world
+        .resource::<crate::native::Compiled>()
+        .views
+        .values()
+        .flatten()
+        .filter(|entity| {
+            world
+                .get::<RenderLayers>(**entity)
+                .is_some_and(|layers| layers.intersects(&layer))
+        })
+        .map(|entity| (*entity).into())
+        .collect();
     let report = world.resource::<Warmup>().0.lock().unwrap();
     ensure!(
         report.draws.completed.load(Ordering::Acquire) && report.draws.submitted,
@@ -262,19 +278,11 @@ pub(crate) fn check_entry_frame(world: &mut World) -> Result<()> {
         report.draws.requests.is_empty() && report.draws.pending.is_empty(),
         "battle admitted with unfinished pipelines or draws"
     );
-    let surfaces = world.resource::<Assets<TitleSurface>>();
-    ensure!(
-        report
-            .draws
-            .material_bindings
-            .iter()
-            .filter_map(|(_, id)| id.try_typed::<TitleSurface>().ok())
-            .all(|id| surfaces.contains(id)),
-        "battle released preparation materials before admission"
-    );
     ensure!(
         expected == report.draws.expected,
-        "entry fence omitted visible draws"
+        "entry fence omitted visible draws: current={}, captured={}",
+        expected.len(),
+        report.draws.expected.len(),
     );
     ensure!(
         expected
@@ -285,7 +293,7 @@ pub(crate) fn check_entry_frame(world: &mut World) -> Result<()> {
     ensure!(
         expected
             .iter()
-            .any(|e| world.get::<Mesh2d>(e.id()).is_some()),
+            .any(|e| world.get::<crate::field_ui::UiGeometry>(e.id()).is_some()),
         "entry check missed the HUD"
     );
     Ok(())
@@ -293,7 +301,7 @@ pub(crate) fn check_entry_frame(world: &mut World) -> Result<()> {
 
 fn rendered(
     report: &mut Report,
-    scene_sample: &scene_sample::Pipeline,
+    scene_sample: &crate::native::render::SamplePipelines,
     resident: &crate::loading::Resident,
     observer: &gpu::Observer,
 ) {
@@ -335,6 +343,7 @@ pub(super) struct AssetsForView<'w> {
     pub inverse_bindposes: Res<'w, Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
     model_bindings: Option<Res<'w, ResidentModels>>,
     effect_bindings: Option<Res<'w, ResidentBindings>>,
+    geometry_mesh: Res<'w, crate::materials::GeometryMesh>,
 }
 
 /// A static suffix after the nearest sampled bone. Applying global matrices
@@ -407,6 +416,13 @@ enum Key {
     Accessory(ActorId, u8, bool),
 }
 
+#[derive(Clone, Copy)]
+struct TextureFrame {
+    layers: [u8; 4],
+    tick: u64,
+    next: Option<(u64, f32)>,
+}
+
 pub(super) struct View {
     diagnostics: Diagnostics,
     stage: Stage,
@@ -429,6 +445,7 @@ pub(super) struct View {
     prepared: bool,
     active: bool,
     held_pose: Vec<(Entity, GlobalTransform)>,
+    sampling: interpolation::Cache,
 }
 
 fn actor_visible(frame: &BattleFrame, actor: ActorId) -> bool {
@@ -633,6 +650,7 @@ impl View {
             prepared: false,
             active: false,
             held_pose: Vec::new(),
+            sampling: Default::default(),
         })
     }
 
@@ -689,7 +707,6 @@ impl View {
                 commands
                     .spawn((
                         scene_camera(),
-                        Tonemapping::Linear,
                         Msaa::Off,
                         Camera {
                             order: -4,
@@ -733,7 +750,7 @@ impl View {
                 None,
                 &BTreeSet::new(),
                 false,
-                Some((self.camera.unwrap(), &mut warmup.0.lock().unwrap().draws)),
+                Some(&mut warmup.0.lock().unwrap().draws),
             );
             if let Err(error) = result {
                 self.diagnostics
@@ -761,7 +778,7 @@ impl View {
                         model.weapon_style,
                         &model.suppressed_nodes,
                         model.weapon_style.is_none(),
-                        (index == 0).then(|| (self.camera.unwrap(), &mut warm_report.draws)),
+                        (index == 0).then(|| &mut warm_report.draws),
                     );
                     if let Err(error) = result {
                         self.diagnostics.report(
@@ -780,7 +797,6 @@ impl View {
         profile_span!(end model_profile);
         profile_span!("battle effect preparation");
         if !self.model_particles.prepare(
-            self.camera.unwrap(),
             &mut warmup.0.lock().unwrap().draws,
             server,
             assets,
@@ -794,18 +810,18 @@ impl View {
 
         self.effects.prepare(
             commands,
-            &mut assets.meshes,
+            &assets.geometry_mesh.0,
             &mut assets.surfaces,
             &mut assets.images,
             &mut self.sampled,
             assets.effect_bindings.as_deref(),
-            (self.camera.unwrap(), &mut warmup.0.lock().unwrap().draws),
+            &mut warmup.0.lock().unwrap().draws,
         )?;
         self.trails.prepare(
             commands,
             assets,
             &mut self.sampled,
-            (self.camera.unwrap(), &mut warmup.0.lock().unwrap().draws),
+            &mut warmup.0.lock().unwrap().draws,
         )?;
 
         if !self.scenery.iter().all(|(_, p)| p.bound)
@@ -913,17 +929,17 @@ impl View {
 
     #[expect(
         clippy::too_many_arguments,
-        reason = "The scene borrows independently owned ECS transforms, projections, materials, and meshes."
+        reason = "The scene borrows independently owned ECS transforms, projections, and materials."
     )]
     pub fn apply(
         &mut self,
         (frame, particles): (&BattleFrame, &[resonance_battle::ParticleFrame]),
+        sampling_input: interpolation::Input<'_>,
         commands: &mut Commands,
         globals: &mut Query<&mut GlobalTransform>,
         camera_transforms: &mut Query<&mut Transform>,
         projections: &mut Query<&mut Projection>,
         surfaces: &mut Assets<TitleSurface>,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         ensure!(self.active, "battle view is not active");
         self.check()?;
@@ -933,7 +949,14 @@ impl View {
         let camera_pose = Transform::from_translation(Vec3::from_array(camera.eye))
             .looking_at(Vec3::from_array(camera.focus), Vec3::Y);
         let camera_entity = self.camera.context("missing battle camera")?;
-        crate::field_dissolve::battle(commands, camera_entity, frame, &self.activation_feedback);
+        crate::field_dissolve::battle(
+            commands,
+            camera_entity,
+            frame,
+            sampling_input.next,
+            sampling_input.alpha,
+            &self.activation_feedback,
+        );
         *camera_transforms.get_mut(camera_entity)? = camera_pose;
         *globals.get_mut(camera_entity)? = camera_pose.into();
         let lens = frame
@@ -957,46 +980,11 @@ impl View {
             camera.eye[2] - camera.focus[2],
         )
         .length();
-        let previous_scenery_tick = self.scenery_tick;
-        if self.scenery_update != Some(frame.update) {
-            if !frame.clock.paused() {
-                self.scenery_tick += self
-                    .scenery_update
-                    .map_or(0, |last| frame.update.saturating_sub(last));
-            }
-            self.scenery_update = Some(frame.update);
-        }
-        let scenery_poses = self
-            .scenery_models
-            .iter()
-            .map(|(&slot, model)| model.pose(self.scenery_tick).map(|pose| (slot, pose)))
-            .collect::<Result<BTreeMap<_, _>>>()?;
-        let mut accessory_frames = Vec::new();
-        let mut independent_positions = Vec::new();
-        for accessory in &mut self.accessories {
-            for pose in accessory.sample(frame)? {
-                let key = if accessory.source.attachment.is_none() {
-                    let index = independent_positions.len();
-                    let [x, y, z, _] = pose.world[3];
-                    independent_positions.push([x, y, z]);
-                    Key::Independent(index)
-                } else {
-                    Key::Accessory(
-                        accessory.source.owner,
-                        pose.pass,
-                        matches!(
-                            accessory.source.style,
-                            resonance_game::battle::encounter::AccessoryStyle::Ordinary
-                        ),
-                    )
-                };
-                accessory_frames.push((accessory.source.resource, key, pose));
-            }
-        }
-        let order = ActorOrder::new(frame, &independent_positions)?;
-        let scenery_elapsed = self.scenery_tick - previous_scenery_tick;
-        let camera_position = Vec2::new(camera.eye[0], camera.eye[2]);
-        let camera_focus = Vec2::new(camera.focus[0], camera.focus[2]);
+        let mut sampling = std::mem::take(&mut self.sampling);
+        sampling.sample(self, &sampling_input, frame)?;
+        let scenery_poses = &sampling.scenery_poses;
+        let accessory_frames = &sampling.accessories;
+        let order = ActorOrder::new(frame, &sampling.independent)?;
         for (slot, part) in &self.scenery {
             let result = (|| -> Result<()> {
                 let attachment = match self.stage.scenery_bones.get(slot) {
@@ -1006,38 +994,7 @@ impl View {
                 let world = stage_world
                     * attachment
                     * Mat4::from_translation(Vec3::from_array(part.spec.scene.translation));
-                let mut color = self.stage_color.color();
-                if let Some(fade) = &self.stage.scenery_fade
-                    && let Some(&minimum) = fade.minimum_alpha.get(slot)
-                {
-                    // Attached scenery can move far from its attachment through
-                    // its own animation. Fade against the rendered root position.
-                    let anchor = scenery_poses[slot].first().map_or(Vec3::ZERO, |root| {
-                        Vec3::new(root[3][0], root[3][1], root[3][2])
-                    });
-                    let anchor = world.transform_point3(anchor);
-                    // Only nearer scenery can obscure the combat focus. Off-axis
-                    // scenery may be in front of the focus but still farther away.
-                    let target = if scenery_in_foreground(
-                        camera_position,
-                        camera_focus,
-                        Vec2::new(anchor.x, anchor.z),
-                    ) {
-                        minimum
-                    } else {
-                        u8::MAX
-                    };
-                    let alpha = self.scenery_alpha.entry(*slot).or_insert(u8::MAX);
-                    let step = u64::from(fade.step)
-                        .saturating_mul(scenery_elapsed)
-                        .min(u64::from(u8::MAX)) as u8;
-                    *alpha = if *alpha > target {
-                        alpha.saturating_sub(step).max(target)
-                    } else {
-                        alpha.saturating_add(step).min(target)
-                    };
-                    color[3] = (u16::from(color[3]) * u16::from(*alpha) / 255) as u8;
-                }
+                let color = sampling.color(*slot, sampling_input.alpha);
                 part.visible(commands, color[3] != 0);
                 part.apply(world, &scenery_poses[slot], globals)?;
                 let material = if frame.hourglass_remaining != 0 {
@@ -1059,7 +1016,10 @@ impl View {
                         .texture_animations
                         .get(slot)
                         .map_or(&[], Vec::as_slice),
-                    self.scenery_tick,
+                    (
+                        self.scenery_tick,
+                        (sampling.next_tick, sampling_input.alpha),
+                    ),
                     self.stage.fog.as_ref(),
                     fog_distance,
                     surfaces,
@@ -1129,7 +1089,18 @@ impl View {
                 model.depth_write,
                 &model.world,
                 &model.bones,
-                Some((model.texture_layers, model.texture_tick)),
+                Some(TextureFrame {
+                    layers: model.texture_layers,
+                    tick: model.texture_tick,
+                    next: sampling_input
+                        .next
+                        .and_then(|next| {
+                            next.models.iter().find(|next| {
+                                next.actor == model.actor && next.resource == model.resource
+                            })
+                        })
+                        .map(|next| (next.texture_tick, sampling_input.alpha)),
+                }),
                 model.light,
                 None,
                 &order,
@@ -1151,14 +1122,14 @@ impl View {
                 &model.bones,
                 None,
                 None,
-                model.texture_scroll,
+                model.texture.as_ref().map(|t| (t.texture, t.offset)),
                 &order,
                 commands,
                 globals,
                 surfaces,
             )?;
         }
-        for &(resource, key, ref wing) in &accessory_frames {
+        for &(resource, key, ref wing) in accessory_frames {
             self.model(
                 resource,
                 key,
@@ -1243,28 +1214,17 @@ impl View {
             (frame, &actor_shadows),
             &self.models,
             particles,
-            self.accessories
-                .iter()
-                .find(|wing| wing.source.sparkle_texture().is_some())
-                .map_or(&[], accessories::State::sparkles),
+            &sampling.sparkles,
             Mat3::from_quat(camera_pose.rotation),
-            meshes,
             commands,
             &order,
         );
-        let scene_samples = match result {
-            Ok(draws) => draws,
-            Err(error) => {
-                self.diagnostics.report("battle effects", error)?;
-                scene_sample::Draws::default()
-            }
-        };
-        commands
-            .entity(self.camera.context("missing battle camera")?)
-            .insert(scene_samples);
+        if let Err(error) = result {
+            self.diagnostics.report("battle effects", error)?;
+        }
         let result = self
             .trails
-            .apply(frame, commands, meshes, &order, &self.models);
+            .apply(frame, &sampling_input, commands, &order, &self.models);
         if let Err(error) = result {
             self.diagnostics.report("battle trails", error)?;
         }
@@ -1289,6 +1249,7 @@ impl View {
             .extend_from_slice(self.model_particles.held_pose());
         self.held_pose
             .push((camera_entity, *globals.get(camera_entity)?));
+        self.sampling = sampling;
         Ok(())
     }
 
@@ -1309,9 +1270,9 @@ impl View {
         depth_write: bool,
         world: &Matrix,
         bones: &[Matrix],
-        texture_layers: Option<([u8; 4], u64)>,
+        texture_layers: Option<TextureFrame>,
         light: Option<[f32; 3]>,
-        texture_scroll: Option<(usize, [f32; 2])>,
+        texture_offset: Option<(usize, [f32; 2])>,
         actor_order: &ActorOrder,
         commands: &mut Commands,
         globals: &mut Query<&mut GlobalTransform>,
@@ -1368,17 +1329,11 @@ impl View {
                         depth_write,
                         surfaces,
                     )?;
-                    if let Some((texture, uv)) = texture_scroll {
+                    if let Some((texture, uv)) = texture_offset {
                         part.scroll_uv(depth_write, Some(texture), uv, surfaces)?;
                     }
-                    if let Some((layers, tick)) = texture_layers {
-                        part.expression(
-                            &model.texture_channels,
-                            layers,
-                            tick,
-                            depth_write,
-                            surfaces,
-                        )?;
+                    if let Some(texture) = texture_layers {
+                        part.expression(&model.texture_channels, texture, depth_write, surfaces)?;
                     }
                     for &(draw, index) in &part.draws {
                         let material = part.appearance_materials(depth_write)?[index].clone();
@@ -1633,7 +1588,7 @@ impl Part {
         weapon_style: Option<WeaponStyle>,
         suppressed_nodes: &BTreeSet<usize>,
         body: bool,
-        warm: Option<(Entity, &mut gpu::Report)>,
+        warm: Option<&mut gpu::Report>,
     ) -> Result<()> {
         if self.bound {
             return Ok(());
@@ -1689,7 +1644,7 @@ impl Part {
         template: &crate::model_asset::Data,
         bone_count: usize,
         suppressed_nodes: &BTreeSet<usize>,
-        mut warm: Option<(Entity, &mut gpu::Report)>,
+        mut warm: Option<&mut gpu::Report>,
     ) -> Result<()> {
         profile_span!("battle model instantiation");
         let root = commands
@@ -1750,7 +1705,7 @@ impl Part {
                 },
                 suppressed_nodes,
             )?;
-            if let Some((camera, report)) = &mut warm {
+            if let Some(report) = &mut warm {
                 for material in self
                     .materials
                     .get(index)
@@ -1758,9 +1713,12 @@ impl Part {
                     .chain(self.depth_materials.get(index))
                 {
                     report.prepare(
-                        *camera,
+                        gpu::View::Battle,
                         draw.mesh.id(),
-                        material.id().untyped(),
+                        assets
+                            .surfaces
+                            .get(material)
+                            .expect("prepared battle model material"),
                         false,
                         None,
                     );
@@ -1796,17 +1754,14 @@ impl Part {
                 .context("missing battle material data")?,
             skin.is_some(),
         )?;
-        commands
-            .entity(entity)
-            .remove::<MeshMaterial3d<StandardMaterial>>()
-            .insert((
-                MeshMaterial3d(self.materials[index].clone()),
-                DrawOrder(
-                    Layer::Scene(self.spec.scene.materials[index].draw_order),
-                    0,
-                    0,
-                ),
-            ));
+        commands.entity(entity).insert((
+            MeshMaterial3d(self.materials[index].clone()),
+            DrawOrder(
+                Layer::Scene(self.spec.scene.materials[index].draw_order),
+                0,
+                0,
+            ),
+        ));
         self.draws.push((entity, index));
         if bone.is_some_and(|bone| suppressed_nodes.contains(&bone)) {
             // Hide the object while retaining anchors and skinning transforms for
@@ -1981,7 +1936,7 @@ impl Part {
     fn stage_materials(
         &self,
         animations: &[resonance_content::battle_stage::TextureAnimation],
-        tick: u64,
+        (tick, next): (u64, (u64, f32)),
         fog: Option<&resonance_content::battle_stage::Fog>,
         fog_distance: f32,
         surfaces: &mut Assets<TitleSurface>,
@@ -2000,12 +1955,22 @@ impl Part {
             .zip(self.appearance_materials(true)?)
         {
             let uv = [&material.color, &material.multiply].map(|binding| {
-                binding.as_ref().map_or([0.; 2], |binding| {
-                    animations
-                        .iter()
-                        .find(|a| a.texture == binding.texture)
-                        .map_or([0.; 2], |animation| binding.scaled(animation.offset(tick)))
-                })
+                let uv = binding
+                    .as_ref()
+                    .and_then(|binding| animations.iter().find(|a| a.texture == binding.texture))
+                    .map_or([0.; 2], |animation| {
+                        let from = animation.offset(tick);
+                        if matches!(
+                            animation.motion,
+                            resonance_content::battle_stage::TextureMotion::Scroll { .. }
+                        ) {
+                            let to = animation.offset(next.0);
+                            std::array::from_fn(|i| from[i] + (to[i] - from[i]) * next.1)
+                        } else {
+                            from
+                        }
+                    });
+                binding.as_ref().map_or(uv, |binding| binding.scaled(uv))
             });
             let uv_offsets = Vec4::new(uv[0][0], uv[0][1], uv[1][0], uv[1][1]);
             let surface = surfaces.get(handle).context("missing stage material")?;
@@ -2025,8 +1990,7 @@ impl Part {
     fn expression(
         &self,
         channels: &[resonance_content::AtlasChannel],
-        layers: [u8; 4],
-        tick: u64,
+        TextureFrame { layers, tick, next }: TextureFrame,
         depth_write: bool,
         surfaces: &mut Assets<TitleSurface>,
     ) -> Result<()> {
@@ -2044,7 +2008,19 @@ impl Part {
                         .iter()
                         .find(|animation| animation.texture == binding.texture)
                 }) {
-                    let offset = binding.as_ref().unwrap().scaled(animation.offset(tick));
+                    let mut offset = animation.offset(tick);
+                    if animation.is_scroll()
+                        && let Some((tick, alpha)) = next
+                    {
+                        let to = animation.offset(tick);
+                        let value = crate::field_view::prediction::uv_offsets(
+                            Vec4::new(offset[0], offset[1], 0., 0.),
+                            Vec4::new(to[0], to[1], 0., 0.),
+                            alpha,
+                        );
+                        offset = [value.x, value.y];
+                    }
+                    let offset = binding.as_ref().unwrap().scaled(offset);
                     uv[channel * 2] += offset[0];
                     uv[channel * 2 + 1] += offset[1];
                 }
@@ -2085,8 +2061,8 @@ impl Part {
     }
 }
 
-/// Reject malformed mesh bindings before they disappear inside Bevy's pipeline
-/// specialization (where no pipeline ID exists for the submitted-draw fence).
+/// Reject malformed mesh bindings before they reach pipeline creation, where no
+/// pipeline ID would exist for the submitted-draw fence.
 fn validate_draw_mesh(mesh: &Mesh, surface: &TitleSurface, skinned: bool) -> Result<()> {
     ensure!(
         mesh.contains_attribute(Mesh::ATTRIBUTE_POSITION) && mesh.count_vertices() > 0,
@@ -2222,7 +2198,7 @@ fn scenery_in_foreground(camera: Vec2, focus: Vec2, scenery: Vec2) -> bool {
 }
 
 #[derive(Debug, Clone)]
-struct BattleProjection(crate::camera::TitleProjection);
+pub(super) struct BattleProjection(crate::camera::TitleProjection);
 impl BattleProjection {
     fn depth(&self, mut clip: Mat4) -> Mat4 {
         // Keep finite near and far planes and raster alignment while converting depth to
@@ -2264,7 +2240,7 @@ fn scene_camera() -> Camera3d {
     }
 }
 
-fn battle_projection() -> Projection {
+pub(super) fn battle_projection() -> Projection {
     // Configure the vertical field of view, clipping planes, and display aspect.
     Projection::custom(BattleProjection(crate::camera::TitleProjection(
         PerspectiveProjection {
@@ -2677,7 +2653,7 @@ mod tests {
                         ..default()
                     },
                     RenderTarget::Image(warm.clone().into()),
-                    RenderLayers::layer(WARM_LAYER),
+                    RenderLayers::layer(LAYER + 1),
                     projection(),
                 ))
                 .id()
@@ -2938,7 +2914,16 @@ mod tests {
                 depth,
                 &mut surfaces,
             )?;
-            body.expression(&channels, [2, 3, 0, 0], 0, depth, &mut surfaces)?;
+            body.expression(
+                &channels,
+                TextureFrame {
+                    layers: [2, 3, 0, 0],
+                    tick: 0,
+                    next: None,
+                },
+                depth,
+                &mut surfaces,
+            )?;
             let surface = surfaces.get(&body.appearance_materials(depth)?[0]).unwrap();
             assert_eq!(surface.depth_write, depth);
             assert_eq!(surface.red_channel, material == ModelMaterial::RedChannel);
@@ -2981,19 +2966,30 @@ mod tests {
         // Texture animation composes with expression layers and base offsets.
         Arc::make_mut(&mut body.spec).scene.texture_animations = vec![
             resonance_content::TextureAnimation {
+                interpolation: resonance_content::TextureInterpolation::Step,
                 texture: 0,
                 delay_ticks: 0,
                 loop_start: 0,
                 offsets: vec![[0.; 2], [0.125, 0.25]],
             },
             resonance_content::TextureAnimation {
+                interpolation: resonance_content::TextureInterpolation::Step,
                 texture: 1,
                 delay_ticks: 0,
                 loop_start: 0,
                 offsets: vec![[0.; 2], [0.25, 0.5]],
             },
         ];
-        body.expression(&channels, [2, 3, 0, 0], 1, false, &mut surfaces)?;
+        body.expression(
+            &channels,
+            TextureFrame {
+                layers: [2, 3, 0, 0],
+                tick: 1,
+                next: None,
+            },
+            false,
+            &mut surfaces,
+        )?;
         assert_eq!(
             surfaces.get(&body.depth_materials[0]).unwrap().uv_offsets,
             Vec4::new(0.25, 1., 0.625, 1.375)

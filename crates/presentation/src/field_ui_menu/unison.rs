@@ -155,29 +155,14 @@ impl Drawing<'_> {
         main_anchor(page.state)
     }
 }
-impl MenuArtwork {
-    #[allow(clippy::too_many_arguments)] // One borrowed page and its prepared drawing resources.
-    pub(crate) fn render_battle_unison(
-        &mut self,
-        page: UnisonPage<'_>,
-        font: &BitmapFont,
-        dialogue: &DialogueArt,
-        preferences: &resonance_content::menu_data::CustomizeSettings,
-        tick: u32,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<()> {
-        self.set_page(Some(ActivePage::Menu(Page::Unison)));
-        let mut draw = self.begin_drawing(font, dialogue, Some(preferences), tick)?;
-        draw.opacity = 255;
+impl Drawing<'_> {
+    pub(super) fn battle_unison(&mut self, page: UnisonPage<'_>) -> Result<()> {
+        self.opacity = 255;
         // A field caller already owns its background.
-        draw.shade(draw.screen);
-        draw.plane = 1;
-        draw.unison_page(page)?;
-        let trail = draw.trail;
-        let drawing = draw.batches;
-        self.trail = trail;
-        self.submit_drawing(drawing, commands, meshes)
+        self.shade(self.screen);
+        self.plane = 1;
+        self.unison_page(page)?;
+        Ok(())
     }
 }
 impl Drawing<'_> {

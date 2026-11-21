@@ -138,7 +138,6 @@ impl Batch {
         world.resource::<crate::gpu_prepare::Registry>().watch(
             &uploads,
             |report| report,
-            None,
             |report, _, observer| observer.uploaded(report),
         );
         Self {

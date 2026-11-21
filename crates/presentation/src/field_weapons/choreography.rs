@@ -202,14 +202,16 @@ impl Mapping {
 }
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-pub(crate) fn apply(
+pub(crate) fn apply<const VISIT: u8>(
     state: State,
     art: Res<Art>,
     cache: Res<EquipmentCache>,
     actors: Query<(&ActorPart, &crate::field_animation::Rig)>,
+    attachments: crate::field_pose::AttachedActors,
     parents: Query<&ChildOf>,
     mut roots: Query<(Entity, &mut Instance), With<crate::model_asset::Instance>>,
     mut visibility: Query<&mut Visibility, Without<Instance>>,
+    mut surfaces: ResMut<Assets<TitleSurface>>,
     mut transforms: ParamSet<(Helper, (Query<&mut Transform>, ResMut<Locals>))>,
     mut failures: Failures,
 ) {
@@ -217,6 +219,11 @@ pub(crate) fn apply(
     let mut root_scales = Vec::new();
     {
         let helper = transforms.p0();
+        let attached_roots = if VISIT != DRAW {
+            attachments.roots(&state.get().events.world, &helper, |_, _, _| {})
+        } else {
+            BTreeMap::new()
+        };
         for (entity, mut root) in &mut roots {
             let root = &mut *root;
             if !root.sampled {
@@ -231,7 +238,11 @@ pub(crate) fn apply(
             if !owner.prepared {
                 continue;
             }
-            let layer = &cache.equipment[&root.item].layers[root.layer];
+            let model = &cache.equipment[&root.item];
+            if VISIT != DRAW && !model.has_dynamics(root.layer) {
+                continue;
+            }
+            let layer = &model.layers[root.layer];
             let source = &art.models[&owner.resource][owner.part].spec;
             let result = (|| -> Result<()> {
                 if root
@@ -252,7 +263,9 @@ pub(crate) fn apply(
                     )?);
                 }
                 let map = root.choreography.as_ref().unwrap();
-                let owner_world = helper.compute_global_transform(root.owner)?.affine();
+                let owner_world = helper
+                    .global_with(root.owner, &attached_roots, None)?
+                    .affine();
                 let translation =
                     Affine3A::from_translation(Vec3::from_array(layer.preview.scene.translation));
                 let deltas: BTreeMap<_, _> = map
@@ -263,7 +276,8 @@ pub(crate) fn apply(
                             index,
                             match inverse {
                                 Some(inverse) => {
-                                    helper.compute_global_transform(bone)?.affine() * inverse
+                                    helper.global_with(bone, &attached_roots, None)?.affine()
+                                        * inverse
                                 }
                                 None => owner_world,
                             },
@@ -293,6 +307,15 @@ pub(crate) fn apply(
                     targets.push(pose);
                 }
                 let world = deltas[&map.default] * translation;
+                if VISIT == DRAW {
+                    root.winding.apply(
+                        &mut surfaces,
+                        &root.materials,
+                        &layer.art.spec,
+                        world,
+                        false,
+                    );
+                }
                 let mut scale = Vec3::new(
                     world.matrix3.x_axis.length(),
                     world.matrix3.y_axis.length(),
@@ -323,7 +346,9 @@ pub(crate) fn apply(
                 continue;
             }
             root.prepared = true;
-            if let Some(actor) = state.get().events.world.field_model_actor(root.actor) {
+            if VISIT == DRAW
+                && let Some(actor) = state.get().events.world.field_model_actor(root.actor)
+            {
                 for &(material, mesh) in &root.geometry {
                     let hidden = mesh_hidden(
                         source,

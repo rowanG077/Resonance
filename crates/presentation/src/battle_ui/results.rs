@@ -50,9 +50,10 @@ impl Results {
     fn ready(&self) -> bool {
         self.slide_age.is_none() && self.page + 1 == self.pages()
     }
-    fn visible_pages(&self) -> impl Iterator<Item = (usize, f32)> {
+    fn visible_pages(&self, fraction: f32) -> impl Iterator<Item = (usize, f32)> {
         let travel = self.slide_age.map(|age| {
-            age.min(PAGE_SLIDE_TICKS) as f32 / PAGE_SLIDE_TICKS as f32 * self.slide_width
+            (age as f32 + fraction).min(PAGE_SLIDE_TICKS as f32) / PAGE_SLIDE_TICKS as f32
+                * self.slide_width
         });
         travel
             .map(|distance| (self.page - 1, -distance))
@@ -62,8 +63,8 @@ impl Results {
                 travel.map_or(0., |distance| self.slide_width - distance),
             )))
     }
-    pub(super) fn page_characters(&self) -> impl Iterator<Item = (Character, f32)> {
-        self.visible_pages().filter_map(|(page, offset)| {
+    pub(super) fn page_characters(&self, fraction: f32) -> impl Iterator<Item = (Character, f32)> {
+        self.visible_pages(fraction).filter_map(|(page, offset)| {
             self.page_rows(page)
                 .0
                 .first()
@@ -309,7 +310,7 @@ impl Artwork {
             state.advance(elapsed);
         }
     }
-    fn draw_results(&self) -> Result<[Batch; 4]> {
+    fn draw_results(&self, fraction: f32) -> Result<[Batch; 4]> {
         let mut batches: [Batch; 4] = Default::default();
         let Some(state) = &self.results else {
             return Ok(batches);
@@ -371,7 +372,7 @@ impl Artwork {
                 color,
             )?;
         }
-        for (page, offset) in state.visible_pages() {
+        for (page, offset) in state.visible_pages(fraction) {
             let (rows, items) = state.page_rows(page);
             if rows.is_empty() {
                 continue;
@@ -426,27 +427,22 @@ impl Artwork {
         }
         Ok(batches)
     }
-    pub(super) fn render_results(
-        &mut self,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-    ) -> Result<()> {
+    pub(super) fn render_results(&mut self, fraction: f32, commands: &mut Commands) -> Result<()> {
         let result = (|| {
-            let batches = self.draw_results()?;
+            let batches = self.draw_results(fraction)?;
             if let Some(state) = &self.results {
                 self.windows.render_battle_results_panel(
-                    state.visible_pages().filter_map(|(page, offset)| {
+                    state.visible_pages(fraction).filter_map(|(page, offset)| {
                         (!state.page_rows(page).0.is_empty()).then_some(offset)
                     }),
                     &self.font,
                     &self.dialogue,
                     &self.settings,
                     commands,
-                    meshes,
                 )?;
             }
             for (layer, batch) in self.ui.results.iter_mut().zip(batches) {
-                layer.upload(batch, commands, meshes)?;
+                layer.upload(batch, commands)?;
             }
             Ok(())
         })();
@@ -538,7 +534,7 @@ mod tests {
             state.next_page();
             assert!(!state.ready());
             assert_eq!(
-                state.visible_pages().collect::<Vec<_>>(),
+                state.visible_pages(0.).collect::<Vec<_>>(),
                 [(0, 0.), (1, width)]
             );
             state.next_page();
@@ -547,18 +543,18 @@ mod tests {
             assert_eq!(state.sounds, [1]);
             state.advance(10);
             assert_eq!(
-                state.visible_pages().collect::<Vec<_>>(),
-                [(0, -width / 2.), (1, width / 2.)]
+                state.visible_pages(0.5).collect::<Vec<_>>(),
+                [(0, -width * 0.525), (1, width - width * 0.525)]
             );
             assert_eq!(
-                state.page_characters().collect::<Vec<_>>(),
-                [(Character::Lloyd, width / 2.)]
+                state.page_characters(0.5).collect::<Vec<_>>(),
+                [(Character::Lloyd, width - width * 0.525)]
             );
             state.next_page();
             state.advance(10);
             assert!(!state.ready());
             assert_eq!(
-                state.visible_pages().collect::<Vec<_>>(),
+                state.visible_pages(0.).collect::<Vec<_>>(),
                 [(0, -width), (1, 0.)]
             );
             // Both pages start/end outside the complete viewport, including sidebands.
@@ -566,7 +562,7 @@ mod tests {
             assert!(616. - width < 320. - width / 2.);
             state.advance(1);
             assert!(state.ready());
-            assert_eq!(state.visible_pages().collect::<Vec<_>>(), [(1, 0.)]);
+            assert_eq!(state.visible_pages(0.).collect::<Vec<_>>(), [(1, 0.)]);
             state.next_page();
             assert_eq!(state.sounds, [1]);
             assert_eq!(state.model.rewards.items[0].count, 1);
@@ -637,7 +633,7 @@ mod tests {
         assert_eq!(hud.results.as_ref().unwrap().rows[1].text, "Learned Mirage");
         assert!(hud.results.as_ref().unwrap().rows[0].overflow);
         assert!(!hud.results_on_last_page());
-        let default_prompts = hud.draw_results()?;
+        let default_prompts = hud.draw_results(0.)?;
         assert_eq!(default_prompts[3].positions.len(), 4);
         hud.settings.keymap.assign(
             resonance_content::input::StandardAction::Alternate,
@@ -647,7 +643,7 @@ mod tests {
             resonance_content::input::StandardAction::Alternate,
             resonance_content::input::PhysicalInput::Button("RightTrigger2".into()),
         );
-        let remapped_prompts = hud.draw_results()?;
+        let remapped_prompts = hud.draw_results(0.)?;
         assert_ne!(
             default_prompts[3].uv, remapped_prompts[3].uv,
             "Cook must follow the configured input"
@@ -695,7 +691,7 @@ mod tests {
         hud.synchronize_results(&model, &diagnostics)?;
         for page in 0..hud.results.as_ref().unwrap().pages() {
             hud.results.as_mut().unwrap().page = page;
-            let draw = hud.draw_results()?;
+            let draw = hud.draw_results(0.)?;
             assert!(draw[..3].iter().all(|b| !b.indices.is_empty()));
             assert!(
                 draw.iter()
@@ -705,11 +701,9 @@ mod tests {
         }
         let mut world = World::new();
         world.insert_resource(materials);
-        let mut meshes = Assets::<Mesh>::default();
         let mut queue = bevy::ecs::world::CommandQueue::default();
         hud.prepare(
             &mut Commands::new(&mut queue, &world),
-            &mut meshes,
             crate::Resolution::default(),
         );
         queue.apply(&mut world);
@@ -729,10 +723,10 @@ mod tests {
             );
             model.character_names[Character::Regal.index()] = chef;
             hud.synchronize_results(&model, &Diagnostics::new(true))?;
-            hud.render_results(&mut Commands::new(&mut queue, &world), &mut meshes)?;
+            hud.render_results(0., &mut Commands::new(&mut queue, &world))?;
             queue.apply(&mut world);
             let glyph = hud.font.glyphs.remove(&'C').unwrap();
-            let rendered = hud.render_results(&mut Commands::new(&mut queue, &world), &mut meshes);
+            let rendered = hud.render_results(0., &mut Commands::new(&mut queue, &world));
             queue.apply(&mut world);
             assert_eq!(
                 diagnostics.attempt("battle HUD", rendered).is_err(),

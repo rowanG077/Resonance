@@ -1,11 +1,13 @@
 //! Kendama strings use the same camera-facing segments as battle rendering.
 use super::*;
+use crate::native::MeshMaterial3d;
 use crate::{sparse_animation::affine::Helper, weapon_geometry::Vertices};
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render(
     mut commands: Commands,
     state: State,
+    prediction: Res<super::super::field_view::Prediction>,
     cache: Res<EquipmentCache>,
     mut roots: Query<(Entity, &mut Instance)>,
     mut transforms: ParamSet<(Helper, ResMut<Locals>)>,
@@ -18,7 +20,7 @@ pub(crate) fn render(
     let Some(camera) = &world.field_camera else {
         return;
     };
-    let view = crate::field_view::camera_transform(camera);
+    let view = prediction.camera_transform(camera);
     let mut draws = Vec::new();
     {
         let helper = transforms.p0();
@@ -60,7 +62,7 @@ pub(crate) fn render(
                         view.translation,
                         view.rotation,
                         width,
-                        camera.fov_degrees().to_radians(),
+                        prediction.camera_fov(camera).to_radians(),
                     );
                 }
             }

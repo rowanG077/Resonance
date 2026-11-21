@@ -27,6 +27,7 @@ pub mod techniques;
 pub mod unison;
 pub mod world_map;
 
+#[derive(Clone)]
 pub struct Resources {
     pub session: Arc<resonance_content::session::SessionData>,
     pub data: Arc<resonance_content::menu_data::MenuData>,
@@ -274,6 +275,7 @@ pub struct Popup {
     pub opacity: u8,
 }
 
+#[derive(Clone)]
 pub struct Menu {
     pub grade_shop: grade_shop::State,
     pub resources: Option<Arc<Resources>>,
@@ -282,7 +284,7 @@ pub struct Menu {
     synopsis_data: Option<menu_data::SynopsisData>,
     customize_data: Option<menu_data::CustomizeData>,
     rename_data: Option<menu_data::RenameData>,
-    failure: Option<anyhow::Error>,
+    failure: Option<Arc<anyhow::Error>>,
     /// Index into the party's formation, independent of the current list row.
     pub character: usize,
     pub first_character: usize,
@@ -394,12 +396,14 @@ impl Menu {
             && let Err(error) = resources.files.diagnostics().report(context, error)
             && self.failure.is_none()
         {
-            self.failure = Some(error);
+            self.failure = Some(Arc::new(error));
         }
     }
 
     pub fn take_failure(&mut self) -> Option<anyhow::Error> {
-        self.failure.take()
+        self.failure.take().map(|error| {
+            Arc::try_unwrap(error).unwrap_or_else(|error| anyhow::anyhow!("{error:#}"))
+        })
     }
 
     fn select_main(&mut self, page: Page) {
@@ -587,6 +591,9 @@ impl Menu {
             checkpoint.set_played_ticks(time.total());
         }
     }
+    pub fn has_command(&self) -> bool {
+        self.command.is_some()
+    }
     pub fn take_command(&mut self) -> Option<Command> {
         self.command.take()
     }
@@ -720,16 +727,14 @@ impl Menu {
     }
 
     fn step_input(&mut self, input: crate::field::FieldInput) -> Option<i16> {
-        let held = [
-            input.direction[0] < -0.5,
-            input.direction[0] > 0.5,
-            input.direction[1] > 0.5,
-            input.direction[1] < -0.5,
-            input.scroll_direction > 0,
-            input.scroll_direction < 0,
-        ];
+        let navigation = input.navigation();
+        let held = navigation.map(|(held, _)| held);
         let [left, right, up, down, page_up, page_down] = std::array::from_fn(|i| {
-            self.repeat[i].step(held[i], held[i] && !self.held[i], self.tick)
+            self.repeat[i].step(
+                held[i],
+                navigation[i].1 || (held[i] && !self.held[i]),
+                self.tick,
+            )
         });
         // Block only an uninterrupted horizontal hold across display confirmation.
         // Quiet repeat ticks are still held; a fresh press after neutral is allowed.
@@ -1067,6 +1072,37 @@ mod tests {
     use super::*;
     use crate::field::FieldInput;
     use resonance_events::input::Button;
+
+    #[test]
+    fn released_directional_taps_navigate_once_and_match_prediction() {
+        let mut menu = Menu::new(Page::Main, None, false);
+        menu.selected = 2;
+        for (button, direction, expected) in [
+            (Button::Left, [-1., 0.], 1),
+            (Button::Right, [1., 0.], 2),
+            (Button::Down, [0., -1.], 2 + MAIN_COLUMNS),
+            (Button::Up, [0., 1.], 2),
+        ] {
+            let tapped = FieldInput {
+                pressed_buttons: [button].into(),
+                ..Default::default()
+            };
+            let mut predicted = menu.clone();
+            predicted.step(FieldInput {
+                direction,
+                ..tapped
+            });
+            menu.step(tapped);
+            assert_eq!(menu.selected, expected);
+            assert_eq!(menu.selected, predicted.selected);
+            // Render frames cannot consume the tap, and its one fixed update
+            // must not synthesize a held direction on the following update.
+            for _ in 0..40 {
+                menu.step(Default::default());
+                assert_eq!(menu.selected, expected);
+            }
+        }
+    }
 
     #[test]
     #[ignore = "requires prepared menu/session data; no devices"]
@@ -1453,6 +1489,17 @@ mod tests {
 }
 
 impl Menu {
+    /// Whether polling physical input can change this menu's recorder or notice.
+    pub fn needs_physical_capture(&self) -> bool {
+        match self.page {
+            Page::Customize => {
+                self.customize.capture.is_some() || self.customize.binding_error.is_some()
+            }
+            Page::Tech => self.checkpoint.is_some() && self.tech.capture.is_some(),
+            _ => false,
+        }
+    }
+
     /// Physical recording is shared by title, field and world menus.
     pub fn capture_physical(
         &mut self,

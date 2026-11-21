@@ -18,7 +18,6 @@ impl Artwork {
         skits: std::sync::Arc<resonance_content::skit::SkitCatalog>,
         server: &AssetServer,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
         materials: &mut Assets<Surface>,
         images: &mut Assets<Image>,
         resident: &Resident,
@@ -38,11 +37,11 @@ impl Artwork {
             images,
             resident,
         )?;
-        common.prepare(commands, meshes, materials);
+        common.prepare(commands, materials);
         common.images.extend(common.menu.prepare_world_maps()?);
         let graphics = match resident.0.lock().unwrap().world.clone() {
             Some(graphics) => graphics,
-            None => Graphics::prepare(&common.menu, &common.surfaces[9], commands, meshes)?,
+            None => Graphics::prepare(&common.menu, &common.surfaces[9], commands)?,
         };
         Ok(Self {
             common,
@@ -63,10 +62,10 @@ impl Artwork {
     pub fn render(
         &mut self,
         session: &resonance_game::overworld::Session,
+        mut prediction: Option<&mut crate::field_view::Prediction>,
         text: &resonance_content::session::GameText,
         resolution: crate::Resolution,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
         images: &mut Assets<Image>,
         materials: &mut Assets<Surface>,
     ) -> Result<()> {
@@ -98,10 +97,23 @@ impl Artwork {
                 false,
             )?;
         }
-        self.graphics
-            .map
-            .render(session, &mut batch, commands, meshes)?;
+        self.graphics.map.render(
+            session,
+            prediction
+                .as_ref()
+                .and_then(|p| p.world().map(|w| (&w.session, p.alpha))),
+            &mut batch,
+            commands,
+        )?;
         if let Some((line, alpha)) = session.cinematic.as_ref().and_then(|c| c.dialogue()) {
+            let alpha = prediction
+                .as_ref()
+                .and_then(|p| {
+                    let (next, b) = p.world()?.session.cinematic.as_ref()?.dialogue()?;
+                    (next.text == line.text && next.speaker == line.speaker)
+                        .then_some(alpha + (b - alpha) * p.alpha)
+                })
+                .unwrap_or(alpha);
             let lines: Vec<_> = line.text.lines().collect();
             let y = 424. - lines.len() as f32 * 26.;
             batch.quad(
@@ -175,23 +187,28 @@ impl Artwork {
             None => None,
         };
         self.common
-            .render_world_notifications(session, commands, meshes)?;
+            .render_world_notifications(session, prediction.as_deref_mut(), commands)?;
         if !batch.indices.is_empty() {
-            self.graphics.layer.update_mesh(
+            self.graphics.layer.update(
                 batch.clone(),
                 [self.common.font.width, self.common.font.height],
-                meshes,
-            )?;
+            );
         }
         self.graphics
             .layer
             .show(!batch.indices.is_empty(), commands);
         self.common.skits.render(
             session.active_skit.as_ref(),
+            prediction.as_ref().and_then(|p| {
+                p.world()?
+                    .session
+                    .active_skit
+                    .as_ref()
+                    .map(|s| (s, p.alpha))
+            }),
             &self.common.font,
             resolution,
             commands,
-            meshes,
             images,
             materials,
         )?;
@@ -207,13 +224,13 @@ impl Artwork {
             world,
             dialogue,
             world,
+            prediction.as_deref(),
             session
                 .active_skit
                 .as_ref()
                 .map_or(session.events.tick(), |skit| skit.events.tick()),
             &BTreeMap::new(),
             commands,
-            meshes,
             materials,
         )?;
         self.common.menu.render(
@@ -225,8 +242,8 @@ impl Artwork {
                 .as_ref()
                 .map_or(session.events.tick(), |m| m.tick),
             resolution,
+            prediction,
             commands,
-            meshes,
         )
     }
 }
@@ -283,10 +300,9 @@ impl Graphics {
         menu: &menu::MenuArtwork,
         font: &Handle<Surface>,
         commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
     ) -> Result<Self> {
-        let map = map::Artwork::prepare(menu, commands, meshes)?;
-        let layer = Layer::new(font.clone(), 3., commands, meshes);
+        let map = map::Artwork::prepare(menu, commands)?;
+        let layer = Layer::new(font.clone(), 3., commands);
         Ok(Self { layer, map })
     }
     pub(super) fn layers(&self) -> impl Iterator<Item = &Layer> {

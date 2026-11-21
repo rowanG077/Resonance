@@ -20,7 +20,7 @@ pub struct SkitPrompt<'a> {
     pub title_visible: bool,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct Skits {
     data: Option<Arc<SkitCatalog>>,
     control_ticks: u32,

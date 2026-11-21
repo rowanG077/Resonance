@@ -29,6 +29,14 @@ enum Phase {
     Opening(f32),
 }
 
+impl DoorExit {
+    pub(crate) fn fork(&self, fork: &mut crate::OperationFork) -> Self {
+        let mut result = self.clone();
+        result.request.operation = fork.fork(&self.request.operation);
+        result
+    }
+}
+
 impl GameWorld {
     pub(crate) fn begin_field_exit(
         &mut self,

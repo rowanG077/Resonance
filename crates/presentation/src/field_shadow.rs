@@ -1,6 +1,7 @@
 //! Ordinary textured quads attached to animated joints and the field floor.
 use super::{ActorPart, Art, State};
 use crate::field_audit::{Applied, Request};
+use crate::native::MeshMaterial3d;
 use crate::sparse_animation::affine::Helper as TransformHelper;
 use crate::{draw_order::DrawOrder, materials::TitleSurface};
 use bevy::{
@@ -228,10 +229,11 @@ pub(super) fn sync(
     }
 }
 
-#[allow(clippy::type_complexity)] // Separate reads of animated joints from writes to shadow quads.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)] // Independent joint, surface and prediction resources.
 pub(super) fn pose(
     art: Res<Art>,
     state: State,
+    mut prediction: Option<ResMut<super::Prediction>>,
     actors: Query<(Entity, &ActorPart)>,
     mut transforms: ParamSet<(
         TransformHelper,
@@ -279,12 +281,26 @@ pub(super) fn pose(
         })
         .collect();
     let collision = state.get().collision();
+    // Moving floors belong to the speculative world too. The temporary mesh
+    // uses the existing scratch arena and is released before the next consumer.
+    let future_collision = prediction
+        .as_deref_mut()
+        .and_then(|p| p.scratch(|s, _| s.collision()));
     for (mut shadow, mut transform, mut visibility, mut order, material) in &mut transforms.p1() {
         let Some(actor) = state.get().events.world.field_model_actor(shadow.0) else {
             continue;
         };
         let pose = actor.field_model_pose();
-        let alpha = f32::from(pose.shadow_alpha) / 255.;
+        let future = prediction.as_ref().and_then(|p| {
+            let next = p.field()?.events.world.field_model_actor(shadow.0)?;
+            (super::prediction::continuous_actor(actor, next)
+                && pose.casts_shadow == next.field_model_pose().casts_shadow)
+                .then_some((next, p.alpha))
+        });
+        let mut alpha = f32::from(pose.shadow_alpha) / 255.;
+        if let Some((next, fraction)) = future {
+            alpha += (f32::from(next.field_model_pose().shadow_alpha) / 255. - alpha) * fraction;
+        }
         if materials
             .get(&material.0)
             .is_some_and(|m| m.tint.w != alpha)
@@ -308,7 +324,7 @@ pub(super) fn pose(
             && pose.casts_shadow
             && let Some((anchor, ground_point)) = anchor
         {
-            place(
+            let on_floor = place(
                 &mut transform,
                 *anchor,
                 *ground_point,
@@ -316,6 +332,23 @@ pub(super) fn pose(
                 art.shadows.spec.height_offset,
                 shadow.1 != actor.instance,
             );
+            // Attached positions are local to the parent's bone; the predicted
+            // pose already moves their animated root.
+            if let Some((next, fraction)) = future
+                && actor.attachment.is_none()
+                && next.attachment.is_none()
+                && let Some(collision) = &future_collision
+            {
+                let surface = collision.ground_surface(next.position);
+                let height =
+                    surface.map_or(next.position[2], |s| s.height) + art.shadows.spec.height_offset;
+                transform.translation.z += (height - transform.translation.z) * fraction;
+                if let Some(surface) = surface.filter(|_| on_floor) {
+                    let rotation =
+                        Quat::from_rotation_arc(Vec3::Z, Vec3::from_array(surface.normal));
+                    transform.rotation = transform.rotation.slerp(rotation, fraction);
+                }
+            }
             shadow.1 = actor.instance;
             *visibility = Visibility::Inherited;
             applied.ack(Request::Shadow(shadow.0));
@@ -330,7 +363,7 @@ fn place(
     collision: &resonance_game::field::navigation::WalkMesh,
     height_offset: f32,
     replacement: bool,
-) {
+) -> bool {
     let surface = collision.ground_surface(ground_point);
     // A missing floor keeps the actor's height and last floor tilt.
     // A replacement actor starts with a horizontal shadow.
@@ -344,6 +377,7 @@ fn place(
     } else if replacement {
         transform.rotation = Quat::IDENTITY;
     }
+    surface.is_some()
 }
 
 #[cfg(test)]

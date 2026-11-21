@@ -13,7 +13,7 @@ import effect_defaults
 import effect_sources
 import resolved_content
 
-CONTENT_VERSION = 109
+CONTENT_VERSION = 111
 
 
 def logical(path):

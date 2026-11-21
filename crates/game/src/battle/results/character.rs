@@ -38,7 +38,7 @@ impl Candidate {
         for (slot, &(_, character)) in next.iter().enumerate() {
             self.party.formation[slot] = character as u8;
         }
-        self.setup.actors = next;
+        Arc::make_mut(&mut self.setup).actors = next;
         self.menu_party = None;
         self.refresh_menu_roster(battle);
         Ok(Some(self.setup.actors[0].0))

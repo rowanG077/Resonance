@@ -1,5 +1,6 @@
 //! Small travel effects share five draw batches; no entity per particle.
 use super::*;
+use crate::native::MeshMaterial3d;
 use bevy::{
     asset::RenderAssetUsages, camera::visibility::NoFrustumCulling, mesh::PrimitiveTopology,
 };
@@ -29,21 +30,26 @@ enum Kind {
     Holy,
     Dark,
 }
+#[derive(Clone)]
 struct Particle {
+    id: u64,
     kind: Kind,
     position: Position,
     velocity: Vec3,
     rotation: f32,
     life: u16,
 }
+#[derive(Clone)]
 struct Gait {
     actor: u16,
     slot: u16,
     elapsed: f32,
     phase: Option<bool>,
 }
-#[derive(Default)]
+#[derive(Clone, Default)]
+
 pub(super) struct Particles {
+    next_id: u64,
     live: Vec<Particle>,
     gait: Option<Gait>,
     random: u32,
@@ -62,7 +68,12 @@ impl Particles {
         (self.random >> 8) % range
     }
     fn spawn(&mut self, kind: Kind, position: Position, velocity: Vec3, rotation: f32) {
+        self.next_id = self
+            .next_id
+            .checked_add(1)
+            .expect("world particle id exhausted");
         self.live.push(Particle {
+            id: self.next_id,
             kind,
             position,
             velocity,
@@ -250,7 +261,6 @@ impl Particles {
 struct Draw {
     entity: Entity,
     mesh: Handle<Mesh>,
-    material: Handle<TitleSurface>,
 }
 pub(super) struct Artwork {
     images: Vec<Handle<Image>>,
@@ -284,6 +294,9 @@ impl Artwork {
             world.entity_mut(draw.entity).insert(Visibility::Hidden);
         }
     }
+    pub(super) fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
+        self.draws.iter().flatten().map(|draw| draw.entity)
+    }
     pub(super) fn despawn(self, world: &mut World) {
         for draw in self.draws.into_iter().flatten() {
             world.despawn(draw.entity);
@@ -291,7 +304,7 @@ impl Artwork {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Batch {
     positions: Vec<[f32; 3]>,
     colors: Vec<[f32; 4]>,
@@ -351,10 +364,11 @@ impl Batch {
 pub(super) fn render(
     mut commands: Commands,
     owner: State,
+    prediction: Res<crate::field_view::Prediction>,
     mut art: Option<ResMut<Art>>,
     camera: Query<&Transform, With<super::super::FieldCamera>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<TitleSurface>>,
+    (mut materials, mut records): (ResMut<Assets<WorldSurface>>, ResMut<WorldRecords>),
 ) {
     let Some(scene) = owner.get() else {
         return;
@@ -367,14 +381,39 @@ pub(super) fn render(
     };
     let mut batches: [Batch; 5] = Default::default();
     let origin = scene.session.travel.state().position;
-    for p in &scene.effects.particles.live {
+    let render_origin = super::render_origin(scene);
+    let future = prediction
+        .world()
+        .filter(|next| interpolation::continuous(scene, next));
+    let next_origin = future.map_or(origin, |next| next.session.travel.state().position);
+    let alpha = future.map_or(0., |_| prediction.alpha);
+    let next = future.map_or(&scene.effects.particles.live, |next| {
+        &next.effects.particles.live
+    });
+    for (from, to) in particle_pairs(&scene.effects.particles.live, next) {
+        let p = from.or(to).unwrap();
         if matches!(p.kind, Kind::Snow) && origin.distance_to(p.position) >= 10000. {
             continue;
         }
-        let delta = origin.displacement_to(p.position);
-        let center = Vec3::new(delta[0], delta[1], p.position.map()[2]);
-        let fade = (f32::from(p.life) / 10.).min(1.);
-        let rotation = Quat::from_rotation_z(p.rotation);
+        let center_at = |origin: Position, p: &Particle| {
+            if let Some(anchor) = render_origin {
+                return interpolation::render_position(anchor, origin, p.position);
+            }
+            let delta = origin.displacement_to(p.position);
+            Vec3::new(delta[0], delta[1], p.position.map()[2])
+        };
+        let center = center_at(origin, from.unwrap_or(p))
+            .lerp(center_at(next_origin, to.unwrap_or(p)), alpha);
+        let opacity = match (from.is_some(), to.is_some()) {
+            (true, true) => 1.,
+            (true, false) => 1. - alpha,
+            _ => alpha,
+        };
+        let life = f32::from(from.unwrap_or(p).life)
+            + (f32::from(to.unwrap_or(p).life) - f32::from(from.unwrap_or(p).life)) * alpha;
+        let fade = (life / 10.).min(1.) * opacity;
+        let rotation = Quat::from_rotation_z(from.unwrap_or(p).rotation)
+            .slerp(Quat::from_rotation_z(to.unwrap_or(p).rotation), alpha);
         let batch = &mut batches[0];
         match p.kind {
             Kind::Footprint(rotation) => batch.fan(
@@ -389,8 +428,8 @@ pub(super) fn render(
                 center,
                 Quat::from_euler(
                     EulerRot::XYZ,
-                    f32::from(p.life) * 3f32.to_radians(),
-                    f32::from(p.life) * 4f32.to_radians(),
+                    life * 3f32.to_radians(),
+                    life * 4f32.to_radians(),
                     0.,
                 ),
                 Vec2::new(4., 10.),
@@ -401,12 +440,12 @@ pub(super) fn render(
             Kind::Dust(texture) => batches[texture + 1].square(
                 center,
                 camera.rotation,
-                100. - f32::from(p.life),
+                100. - life,
                 [
                     189. / 255.,
                     182. / 255.,
                     113. / 255.,
-                    f32::from(p.life) / 60. * 128. / 255.,
+                    life / 60. * 128. / 255. * opacity,
                 ],
             ),
             Kind::Snow => batch.fan(
@@ -425,7 +464,7 @@ pub(super) fn render(
                     240. / 255.,
                     240. / 255.,
                     240. / 255.,
-                    (f32::from(p.life) / 30.).min(1.),
+                    (life / 30.).min(1.) * opacity,
                 ],
                 0.,
                 true,
@@ -434,13 +473,12 @@ pub(super) fn render(
                 center,
                 camera.rotation,
                 Vec2::splat(15.),
-                [0., 0., 0., (f32::from(p.life) / 30.).min(1.)],
+                [0., 0., 0., (life / 30.).min(1.) * opacity],
                 0.,
                 false,
             ),
         }
     }
-    let far = scene.session.travel.camera_distance() + 10000.;
     for (i, batch) in batches.into_iter().enumerate() {
         if batch.positions.is_empty() {
             if let Some(draw) = &art.particles.draws[i] {
@@ -450,17 +488,19 @@ pub(super) fn render(
         }
         if art.particles.draws[i].is_none() {
             let color = i.checked_sub(1).map(|i| art.particles.images[i].clone());
-            let material = materials.add(TitleSurface {
-                color: color.clone(),
-                sampling: color,
-                blend: Some(Blend::Alpha),
-                field_fog: false,
-                fog_color: super::FOG_COLOR,
-                depth_test: true,
-                depth_write: false,
-                cull: resonance_content::CullFace::None,
-                ..default()
-            });
+            let material = records.add(
+                WorldSurface {
+                    color,
+                    blend: Some(Blend::Alpha),
+                    world_fog: true,
+                    fog_color: super::FOG_COLOR,
+                    depth_test: true,
+                    depth_write: false,
+                    cull: resonance_content::CullFace::None,
+                    ..default()
+                },
+                &mut materials,
+            );
             let mesh = meshes.add(batch.mesh());
             let entity = commands
                 .spawn((
@@ -475,20 +515,12 @@ pub(super) fn render(
                     NoFrustumCulling,
                 ))
                 .id();
-            art.particles.draws[i] = Some(Draw {
-                entity,
-                mesh,
-                material,
-            });
+            art.particles.draws[i] = Some(Draw { entity, mesh });
         } else {
             let draw = art.particles.draws[i].as_ref().unwrap();
             commands.entity(draw.entity).insert(Visibility::Inherited);
             *meshes.get_mut(&draw.mesh).unwrap() = batch.mesh();
         }
-        materials
-            .get_mut(&art.particles.draws[i].as_ref().unwrap().material)
-            .unwrap()
-            .fog_range = Vec4::new(far * 0.5, far * 0.75, 0., 0.);
     }
 }
 
@@ -634,4 +666,52 @@ fn world_movement_emits_footsteps_and_stops_when_idle() -> Result<()> {
         }
     }
     Ok(())
+}
+
+// Births and deaths retain their identity; deleting a particle never shifts another endpoint.
+fn particle_pairs<'a>(
+    from: &'a [Particle],
+    to: &'a [Particle],
+) -> impl Iterator<Item = (Option<&'a Particle>, Option<&'a Particle>)> {
+    let mut from = from.iter().peekable();
+    let mut to = to.iter().peekable();
+    std::iter::from_fn(move || match (from.peek(), to.peek()) {
+        (Some(a), Some(b)) if a.id == b.id => Some((from.next(), to.next())),
+        (Some(a), Some(b)) if a.id < b.id => Some((from.next(), None)),
+        (Some(_), Some(_)) => Some((None, to.next())),
+        (Some(_), None) => Some((from.next(), None)),
+        (None, Some(_)) => Some((None, to.next())),
+        (None, None) => None,
+    })
+}
+
+#[cfg(test)]
+mod interpolation_tests {
+    use super::*;
+    #[test]
+    fn particle_pairs_keep_identity_when_the_middle_particle_survives() -> Result<()> {
+        let mut from = Particles::default();
+        let origin = Position::from_map([0.; 3])?;
+        for _ in 0..3 {
+            from.spawn(Kind::Grass, origin, Vec3::ZERO, 0.);
+        }
+        let mut next = from.clone();
+        next.live.remove(0);
+        next.live.remove(1);
+        next.spawn(Kind::Grass, origin, Vec3::ZERO, 0.);
+        let pairs: Vec<_> = particle_pairs(&from.live, &next.live)
+            .map(|(a, b)| (a.map(|p| p.id), b.map(|p| p.id)))
+            .collect();
+        assert_eq!(
+            pairs,
+            [
+                (Some(1), None),
+                (Some(2), Some(2)),
+                (Some(3), None),
+                (None, Some(4))
+            ]
+        );
+        assert_eq!(from.live.len(), 3);
+        Ok(())
+    }
 }
