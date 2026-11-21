@@ -456,7 +456,7 @@ fn manage(world: &mut World) {
                 entry,
                 world.resource::<super::loading::Resident>(),
             )?;
-            transition::begin(world, seed, request.formation_count())?;
+            transition::begin(world, seed, &request)?;
             Ok(pending)
         });
         let phase = match result {
