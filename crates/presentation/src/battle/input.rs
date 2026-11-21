@@ -2,10 +2,14 @@
 use bevy::prelude::*;
 use resonance_battle::ControllerPort;
 use resonance_battle::{Actor, ActorId, ButtonInput as BattleButton, Control, ControlInput, Side};
-use resonance_content::{input::StandardAction, menu_data::CustomizeSettings};
+use resonance_content::{
+    input::{PhysicalInput, StandardAction},
+    menu_data::CustomizeSettings,
+};
 use resonance_game::battle::command::{Input as CommandInput, InputKind};
 use resonance_game::battle::lifecycle::QuickOrder;
 use resonance_game::menu::{Input as SharedMenuInput, MenuAction};
+use std::collections::{BTreeMap, BTreeSet};
 
 // Battle movement uses signed controller units; navigation reads the same range.
 const STICK_RANGE: f32 = 70.;
@@ -467,8 +471,10 @@ pub(super) struct Controls {
     pads: [Option<Entity>; 4],
     keyboard: LocalControls,
     assigned_artes: Vec<(ActorId, resonance_battle::TechniqueId)>,
-    held_bindings: std::collections::BTreeSet<(usize, usize)>,
-    consumed_inputs: [std::collections::BTreeSet<resonance_content::input::PhysicalInput>; 4],
+    held_bindings: BTreeSet<(usize, usize)>,
+    consumed_inputs: [BTreeSet<PhysicalInput>; 4],
+    keyboard_presses: BTreeMap<PhysicalInput, bool>,
+    pad_presses: BTreeMap<Entity, BTreeMap<PhysicalInput, bool>>,
 }
 impl Controls {
     pub(super) fn devices(&self) -> [Option<Entity>; 4] {
@@ -525,9 +531,8 @@ impl Controls {
         if !accepting {
             self.assigned_artes.clear();
         }
-        let held = physical.capture_inputs(map);
         let consumed = &mut self.consumed_inputs[port];
-        consumed.retain(|input| held.contains(input));
+        physical.retain_held(consumed);
         if accepting {
             consumed.extend(resolution.consumed);
         }
@@ -596,6 +601,14 @@ impl Controls {
             }
         }
         filtered
+    }
+
+    fn press_origins(&self, port: usize) -> impl Iterator<Item = (&PhysicalInput, &bool)> + Clone {
+        (port == 0)
+            .then_some(&self.keyboard_presses)
+            .into_iter()
+            .chain(self.pads[port].and_then(|pad| self.pad_presses.get(&pad)))
+            .flatten()
     }
 
     fn assign_pads(&mut self, connected: &[Entity]) {
@@ -700,7 +713,7 @@ pub(super) fn gather(
         .map(|(entity, _)| entity)
         .collect();
     controls.assign_pads(&connected);
-    let capture_port = owner
+    let menu_port = owner
         .as_ref()
         .and_then(|o| {
             if let super::Phase::Scene(scene) = &o.phase {
@@ -709,22 +722,31 @@ pub(super) fn gather(
                 None
             }
         })
-        .map(|p| p.index())
-        .unwrap_or(0);
-    let mut capture_physical = if capture_port == 0 {
-        keyboard_physical.clone()
-    } else {
-        Default::default()
-    };
-    if let Some((_, pad)) = controls.pads[capture_port].and_then(|entity| pads.get(entity).ok()) {
-        capture_physical.merge(&crate::input::PhysicalState::gamepad(pad));
+        .map(|port| port.index());
+    let mut physical_ports: [_; 4] =
+        std::array::from_fn(|_| crate::input::PhysicalState::default());
+    keyboard_physical.track_menu_presses(&mut controls.keyboard_presses, menu_port.is_some());
+    physical_ports[0] = keyboard_physical;
+    // A pad can begin a partial tilt before its first button press claims a
+    // port. Track every device even while the Tech recorder owns the menu.
+    controls.pad_presses.retain(|pad, _| pads.contains(*pad));
+    for (entity, pad) in &pads {
+        let physical = crate::input::PhysicalState::gamepad(pad);
+        physical.track_menu_presses(
+            controls.pad_presses.entry(entity).or_default(),
+            menu_port.is_some(),
+        );
+        if let Some(port) = controls.pads.iter().position(|pad| *pad == Some(entity)) {
+            physical_ports[port].merge(&physical);
+        }
     }
     if let Some(owner) = &mut owner
         && let super::Phase::Scene(scene) = &mut owner.phase
         && let Some(candidate) = &mut scene.candidate
-        && scene
-            .lifecycle
-            .capture_arte_binding(candidate, &capture_physical.capture_inputs(map))
+        && scene.lifecycle.capture_arte_binding(
+            candidate,
+            &physical_ports[menu_port.unwrap_or(0)].capture_inputs(map),
+        )
     {
         controls.discard();
         // Discard recorder buttons as well as their pending edges.
@@ -734,17 +756,8 @@ pub(super) fn gather(
         scene.published_tick = None;
         return;
     }
-    let mut held_bindings = std::collections::BTreeSet::new();
-    for index in 0..4 {
-        let mut physical = if index == 0 {
-            keyboard_physical.clone()
-        } else {
-            Default::default()
-        };
-        if let Some((_, pad)) = controls.pads[index].and_then(|entity| pads.get(entity).ok()) {
-            physical.merge(&crate::input::PhysicalState::gamepad(pad));
-        }
-
+    let mut held_bindings = BTreeSet::new();
+    for (index, mut physical) in physical_ports.into_iter().enumerate() {
         if let Some(owner) = &owner
             && let super::Phase::Scene(scene) = &owner.phase
             && let Some(candidate) = &scene.candidate
@@ -752,10 +765,10 @@ pub(super) fn gather(
             // Regular arte assignments replace the fixed technique and assist slots.
             // The logical arte button still serves casting EX interactions.
             let party = candidate.persistent_party();
-            let held = physical.capture_inputs(map);
             let resolution = crate::input::resolve_arte_bindings(
                 index,
-                &held,
+                &physical.capture_inputs(map),
+                controls.press_origins(index),
                 map,
                 scene
                     .core
@@ -774,7 +787,7 @@ pub(super) fn gather(
                     }),
             );
             held_bindings.extend(resolution.active.iter().copied());
-            let accepting = scene.lifecycle.command_frame().is_none()
+            let accepting = menu_port.is_none()
                 && scene.lifecycle.event().is_none()
                 && scene.state == super::SceneState::Active
                 && scene.core.phase() == resonance_battle::BattlePhase::Combat
@@ -804,13 +817,16 @@ mod tests {
         let controller = app.world_mut().spawn(Gamepad::default()).id();
         app.update();
         assert_eq!(app.world().resource::<Controls>().devices(), [None; 4]);
-        app.world_mut()
-            .get_mut::<Gamepad>(hid)
-            .unwrap()
-            .digital_mut()
-            .press(GamepadButton::Other(123));
+        let mut idle_pad = app.world_mut().get_mut::<Gamepad>(hid).unwrap();
+        idle_pad.digital_mut().press(GamepadButton::Other(123));
+        idle_pad.analog_mut().set(GamepadAxis::LeftStickX, 0.25);
         app.update();
-        assert_eq!(app.world().resource::<Controls>().devices(), [None; 4]);
+        let controls = app.world().resource::<Controls>();
+        assert_eq!(controls.devices(), [None; 4]);
+        // This tilt is large enough for an arte but too small to claim a port.
+        let right = PhysicalInput::Axis(resonance_content::input::AxisDirection::LeftRight);
+        assert!(controls.pad_presses[&hid].contains_key(&right));
+        assert!(controls.press_origins(0).next().is_none());
 
         let mut pad = app.world_mut().get_mut::<Gamepad>(controller).unwrap();
         pad.analog_mut().set(GamepadAxis::LeftStickX, 1.);
@@ -872,20 +888,31 @@ mod tests {
         bindings: &[resonance_content::input::ArteBinding],
         accepting: bool,
     ) -> Frame {
-        let map = resonance_content::input::Keymap::default();
         let physical = crate::input::PhysicalState::keyboard(keys);
+        keys.clear();
+        routed_sample(controls, physical, &Default::default(), bindings, accepting)
+    }
+
+    fn routed_sample(
+        controls: &mut Controls,
+        physical: crate::input::PhysicalState,
+        map: &resonance_content::input::Keymap,
+        bindings: &[resonance_content::input::ArteBinding],
+        accepting: bool,
+    ) -> Frame {
         let actor = actor(ControllerPort::One, Control::Manual);
+        physical.track_menu_presses(&mut controls.keyboard_presses, !accepting);
         let resolution = crate::input::resolve_arte_bindings(
             0,
-            &physical.capture_inputs(&map),
-            &map,
+            &physical.capture_inputs(map),
+            controls.press_origins(0),
+            map,
             [(ActorId::from_index(0).unwrap(), &actor, 0, bindings)],
         );
         let active = resolution.active.clone();
-        let filtered = controls.route_artes(0, physical, &map, resolution, accepting);
-        controls.slots[0].gather(Sample::physical(&filtered, &map));
+        let filtered = controls.route_artes(0, physical, map, resolution, accepting);
+        controls.slots[0].gather(Sample::physical(&filtered, map));
         controls.held_bindings = active;
-        keys.clear();
         controls.sample(&Default::default())
     }
     fn binding(keys: &[&str]) -> resonance_content::input::ArteBinding {
@@ -933,36 +960,110 @@ mod tests {
         let mut keys = ButtonInput::default();
         let bindings = [binding(&["Escape"])];
         keys.press(KeyCode::Escape);
-        let frame = routed_frame(&mut controls, &mut keys, &bindings, true);
-        assert_eq!(frame.assigned_artes.len(), 1);
-        assert!(!frame.slots[0].cancel.pressed);
-        assert!(
-            routed_frame(&mut controls, &mut keys, &bindings, true)
-                .assigned_artes
-                .is_empty()
-        );
-        let transition = routed_frame(&mut controls, &mut keys, &bindings, false);
-        assert!(
-            !transition.slots[0].cancel.pressed && !transition.slots[0].selection[1].pressed,
-            "a held arte input must not become a fresh menu or Unison confirmation"
-        );
+        let combat = routed_frame(&mut controls, &mut keys, &bindings, true);
+        assert_eq!(combat.assigned_artes.len(), 1);
+        assert!(!combat.slots[0].cancel.pressed);
+
+        let held = routed_frame(&mut controls, &mut keys, &bindings, false);
+        assert!(!held.slots[0].cancel.pressed && !held.slots[0].selection[1].pressed);
+        // The release and re-press both arrive on the render that closes the menu.
         keys.release(KeyCode::Escape);
-        routed_frame(&mut controls, &mut keys, &bindings, true);
         keys.press(KeyCode::Escape);
         let menu = routed_frame(&mut controls, &mut keys, &bindings, false);
-        assert!(menu.assigned_artes.is_empty());
         assert_eq!(menu.slots[0].menu, Some(MenuAction::Cancel));
-        assert!(
-            menu.slots[0].selection[1].pressed,
-            "Unison confirmation keeps the physical face buttons"
-        );
-        assert!(
-            routed_frame(&mut controls, &mut keys, &bindings, true)
-                .assigned_artes
-                .is_empty(),
-            "closing a menu while holding Cancel must not cast"
-        );
+        assert!(menu.slots[0].selection[1].pressed);
+        assert!(menu.assigned_artes.is_empty());
+
+        let resumed = routed_frame(&mut controls, &mut keys, &bindings, true);
+        assert!(resumed.assigned_artes.is_empty());
+        keys.release(KeyCode::Escape);
+        keys.press(KeyCode::Escape);
+        keys.release(KeyCode::Escape);
+        let fresh = routed_frame(&mut controls, &mut keys, &bindings, true);
+        assert_eq!(fresh.assigned_artes.len(), 1);
     }
+    #[test]
+    fn neither_half_of_an_arte_shortcut_can_carry_over_from_the_menu() {
+        let bindings = [binding(&["KeyX", "KeyD"])];
+        for (menu_key, combat_key, fresh_key) in [
+            (KeyCode::KeyX, KeyCode::KeyD, KeyCode::KeyX),
+            (KeyCode::KeyD, KeyCode::KeyX, KeyCode::KeyD),
+            // D stays down while the player uses an equivalent arrow key.
+            (KeyCode::KeyD, KeyCode::KeyX, KeyCode::ArrowRight),
+        ] {
+            let mut controls = Controls::default();
+            let mut keys = ButtonInput::default();
+            keys.press(menu_key);
+            routed_frame(&mut controls, &mut keys, &bindings, false);
+            keys.press(KeyCode::Escape);
+            let closing = routed_frame(&mut controls, &mut keys, &bindings, false);
+            assert_eq!(closing.slots[0].menu, Some(MenuAction::Cancel));
+            keys.release(KeyCode::Escape);
+            keys.press(combat_key);
+            let resumed = routed_frame(&mut controls, &mut keys, &bindings, true);
+            assert!(resumed.assigned_artes.is_empty());
+            assert!(resumed.slots[0].stick[0] > 0);
+
+            if fresh_key == menu_key {
+                keys.release(menu_key);
+            }
+            keys.press(fresh_key);
+            let fresh = routed_frame(&mut controls, &mut keys, &bindings, true);
+            assert_eq!(fresh.assigned_artes.len(), 1);
+        }
+    }
+
+    #[test]
+    fn a_menu_stick_tilt_rearms_after_centering() {
+        use crate::input::PhysicalState;
+        use resonance_content::input::{ArteBinding, AxisDirection, InputChord, Keymap};
+
+        let map = Keymap::default();
+        let right = PhysicalInput::Axis(AxisDirection::LeftRight);
+        let button = PhysicalInput::Button("RightThumb".into());
+        let bindings =
+            [(66, vec![button.clone()]), (67, vec![button, right])].map(|(technique, inputs)| {
+                ArteBinding {
+                    technique,
+                    chord: InputChord(inputs),
+                }
+            });
+        let mut controls = Controls::default();
+        let mut pad = Gamepad::default();
+        for (tilt, owns_menu, button_down, expected) in [
+            // A tilt that began in combat remains available after the menu.
+            (0.9, false, false, None),
+            (0.9, true, false, None),
+            (0.9, false, true, Some(67)),
+            (0., false, false, None),
+            // A tilt first sampled in the menu stays blocked through partial tilts.
+            (0.4, true, false, None),
+            (0.4, false, true, None),
+            (0.9, false, true, None),
+            (0., false, false, None),
+            (0., false, true, Some(66)),
+            (0.4, false, true, Some(67)),
+        ] {
+            pad.analog_mut().set(GamepadAxis::LeftStickX, tilt);
+            pad.digital_mut().clear();
+            if button_down {
+                pad.digital_mut().press(GamepadButton::RightThumb);
+            } else {
+                pad.digital_mut().release(GamepadButton::RightThumb);
+            }
+            let physical = PhysicalState::gamepad(&pad);
+            let frame = routed_sample(&mut controls, physical, &map, &bindings, !owns_menu);
+            assert_eq!(
+                frame
+                    .assigned_artes
+                    .first()
+                    .map(|(_, technique)| technique.0),
+                expected,
+                "tilt {tilt}"
+            );
+        }
+    }
+
     #[test]
     fn protected_single_inputs_keep_their_normal_combat_actions() {
         for (key, name, action) in [
