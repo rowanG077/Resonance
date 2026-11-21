@@ -1205,10 +1205,11 @@ impl FieldSession {
             let voices = if input.skip_dialogue && choice_slot.is_none() {
                 player.skip_step()?
             } else {
-                player.step(
+                player.step_with_choice(
                     (input.pressed(Button::Accept) || input.pressed(Button::Cancel))
                         && (choice_slot.is_none() || before_selection_page && accepts_input),
                     input.held_buttons.contains(Button::Accept) && accepts_input,
+                    self.events.world.choices.get(slot),
                 )?
             };
             crate::dialogue::publish_field_audio(&mut self.events.world, voices);

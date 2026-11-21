@@ -2,6 +2,7 @@ use crate::Operation;
 
 /// Dialogue style and behavior bits supplied by script bindings.
 pub mod flags {
+    pub const TIMED: u16 = 0x01;
     pub const PERSISTENT: u16 = 0x02;
     pub const FRAMELESS: u16 = 0x04;
     pub const RED: u16 = 0x08;

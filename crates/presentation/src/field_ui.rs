@@ -1340,10 +1340,11 @@ impl DialogueDraw<'_> {
                 && player.accepts_input()
                 && request.flags & flags::FRAMELESS == 0
                 && (player.page + 1 < player.pages.len()
-                    || !world
-                        .choices
-                        .get(&slot)
-                        .is_some_and(|c| c.operation.is_pending()))
+                    || request.flags & flags::TIMED == 0
+                        && !world
+                            .choices
+                            .get(&slot)
+                            .is_some_and(|c| c.operation.is_pending()))
             {
                 // Add the pulsing icon after the frame masks so the tail shows through it.
                 let bottom = frame_top(top, rect[3] - top) + (rect[3] - top).max(48.);
