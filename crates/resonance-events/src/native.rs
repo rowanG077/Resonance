@@ -1186,10 +1186,12 @@ impl NativeHost<'_> {
                     return Ok(NativeResult::Continue(None));
                 }
                 if a[1] == 0 {
-                    if let Some(actor) = self.world.actors.get_mut(&a[0]) {
-                        actor.scripted_animation = false;
-                    }
+                    let selecting = self.world.step_field_animation_decision(a[0]);
                     let actor = self.world.actors.get_mut(&a[0]).unwrap();
+                    actor.scripted_animation = false;
+                    if selecting {
+                        return Ok(NativeResult::Continue(None));
+                    }
                     if let Some(model) = self.resources.model(actor.resource) {
                         let dialogue = self.world.dialogue.values().any(|d| d.operation.is_pending()
                             && matches!(d.anchor, crate::dialogue::DialogueAnchor::Actor(speaker) if speaker == a[0]));
@@ -1260,6 +1262,7 @@ impl NativeHost<'_> {
                     ..Animation::new(resource, slot, clips[&slot].duration_ticks, self.world.tick)
                 });
                 actor.scripted_animation = true;
+                self.world.step_field_animation_decision(a[0]);
             }
             NativeCall::PlayCameraTrack => {
                 let resource = self.resolve(a[0], ResourceKind::Camera)?;

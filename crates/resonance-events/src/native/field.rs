@@ -1430,8 +1430,7 @@ impl NativeHost<'_> {
                     if crate::emote::SCRIPT_IDS.contains(&a[0])
                         && self.world.actors.contains_key(&target)
                     {
-                        // Negative script IDs label pooled objects; they do not replace
-                        // earlier reactions, even on the same actor.
+                        // Give each reaction its own lifetime when a script reuses an ID.
                         let Some(instance) =
                             (0..200).find(|slot| !self.world.emotes.contains_key(slot))
                         else {

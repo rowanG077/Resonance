@@ -4028,7 +4028,7 @@ fn touch_metadata_updates_the_first_touch_shape_without_changing_activation() {
 
 #[test]
 fn repeated_emote_ids_keep_independent_targets_lifetimes_and_draw_slots() {
-    // Hakonesia's first Koton conversation repeats -100 for actors 1..=4.
+    // Lloyd, Colette, Genis and Raine react together during Koton's conversation.
     let mut setup = Vec::new();
     for actor in 1..=4 {
         native(
@@ -5043,6 +5043,55 @@ fn animation_release_rebinds_the_same_slot_with_the_requested_blend() {
     assert_eq!(animation.blend_ticks, 3);
     assert_eq!(animation.start_tick, events.tick());
     assert_eq!(actor.position, [100., 200., 0.]);
+}
+
+#[test]
+fn field_animation_release_and_wait_follow_the_idle_cycle() {
+    // Release a finished pose one update before, on, or after selection.
+    for (release_tick, outgoing_slot, release_phase, release_slot, idle_blend, wait_ticks) in [
+        (60, 12, (Activity::Select, false), 116, 20, 81),
+        (61, 12, (Activity::Idle, false), 12, 8, 1),
+        (62, 12, (Activity::Idle, true), 116, 20, 81),
+        // Ordinary selection keeps the original blend when the idle slot already matches.
+        (61, 116, (Activity::Idle, false), 116, 0, 1),
+    ] {
+        let code = script(&[
+            (Call::ConfigureActorAnimation, &[2, -1, outgoing_slot, 0, 8]),
+            (Call::YieldCommand, &[0, release_tick]),
+            (Call::ConfigureActorAnimation, &[2, 0, 0, 20, 0]),
+            (Call::YieldCommand, &[7, 2]),
+            (Call::SetActorPosition, &[2, 100, 0, 0]),
+        ]);
+        let mut resources = ResourceLibrary::default();
+        resources.models.insert(2, model([12, 116], 60));
+        let mut world = GameWorld::default();
+        world.controlled_actor = 2;
+        let mut actor = Actor::new(2, [0.; 3]);
+        actor.autonomy = Some(Autonomy {
+            activity: Activity::Idle,
+            initialized: true,
+            remaining: 60,
+            ..Autonomy::new(Behavior::Player, 0., actor.position)
+        });
+        world.actors.insert(2, actor);
+        let mut events = runtime(program(&code, &[0x20ff]), resources, world);
+        assert_eq!(events.world.actors[&2].autonomy.unwrap().remaining, 59);
+        steps(&mut events, release_tick as u32);
+        let actor = &events.world.actors[&2];
+        let ai = actor.autonomy.unwrap();
+        assert_eq!((ai.activity, ai.initialized), release_phase);
+        assert!(!actor.scripted_animation);
+        assert_eq!(actor.animation.as_ref().unwrap().slot, release_slot);
+
+        // Immediate rebinding adds the requested blend and the full idle clip.
+        steps(&mut events, wait_ticks - 1);
+        assert_eq!(events.world.actors[&2].position, [0.; 3]);
+        events.step().unwrap();
+        let actor = &events.world.actors[&2];
+        let idle = actor.animation.as_ref().unwrap();
+        assert_eq!((idle.slot, idle.blend_ticks), (116, idle_blend));
+        assert_eq!(actor.position, [100., 0., 0.]);
+    }
 }
 
 #[test]
