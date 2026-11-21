@@ -2584,7 +2584,13 @@ impl Battle {
             return Ok(false);
         }
         match transition {
-            ActionTransition::Recover { remaining, .. } => {
+            ActionTransition::Recover { remaining, landed } => {
+                if !landed
+                    && let crate::ActionExecution::Attack(attack) = &sequence.definition.execution
+                    && let Some(pose) = attack.recovery_pose
+                {
+                    pose.play(self, sequence.actor.index());
+                }
                 sequence.recover(self, id, remaining, cues)?;
                 self.restore_contact_recovery_expression(sequence);
             }

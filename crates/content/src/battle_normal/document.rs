@@ -248,6 +248,7 @@ impl Character {
                 chain_at: attack.chain_at,
                 chain_retry_at: attack.chain_retry_at,
                 recovery: attack.recovery,
+                recovery_pose: attack.recovery_pose,
                 reach: attack.reach,
                 events: attack
                     .events
@@ -303,6 +304,7 @@ impl Character {
                     chain_at: attack.chain_at,
                     chain_retry_at: attack.chain_retry_at,
                     recovery: attack.recovery,
+                    recovery_pose: attack.recovery_pose,
                     reach: attack.reach,
                     events: attack
                         .events

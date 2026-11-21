@@ -1199,6 +1199,7 @@ mod tests {
                         opening: None,
                         chain_at: (index == 0).then_some(44),
                         chain_retry_at: None,
+                        recovery_pose: None,
                         end_at: 49,
                         recovery: 30,
                         events: vec![(

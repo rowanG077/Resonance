@@ -1848,6 +1848,7 @@ fn melee_uses_this_updates_pose_and_drawing_does_not_advance_it_twice() -> Resul
             contact_recovery: None,
             chain_at: None,
             chain_retry_at: None,
+            recovery_pose: None,
             end_at: 4,
             recovery: 1,
             opening: Some(AttackPose {

@@ -158,6 +158,9 @@ pub fn prepare_resources(
             execution: super::ActionExecution::Attack(resonance_battle::PreparedAttack {
                 contact_recovery: None,
                 opening: None,
+                recovery_pose: attack
+                    .recovery_pose
+                    .and_then(|pose| super::model::action_pose(actor.model, pose)),
                 events,
                 chain_at: attack.chain_at,
                 chain_retry_at: attack.chain_retry_at,
