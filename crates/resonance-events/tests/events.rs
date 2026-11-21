@@ -6839,13 +6839,18 @@ fn enemy_contact_uses_its_event_key_and_publishes_the_symbol_identity_once() {
 #[test]
 #[ignore = "requires cooked party and EX skill definitions; no devices"]
 fn sheena_personal_delays_contact_without_stunning_or_dispatching_the_enemy() {
+    use resonance_content::{
+        effect::sprite::CAMERA_DISC_SPRITE, menu_data::ex_effect::ENCOUNTER_EVASION,
+    };
+
     let data = common::session(&asset_root());
     let mut world = controlled_world();
     world.controlled_actor = 1;
-    world.insert_actor(1, Actor::new(1, [0.; 3]));
+    world.insert_actor(1, Actor::new(1, [12., -4., 5.]));
+    world.effect_palette.0[0] = [32, 48, 80, 255];
     let mut party = party::Party::new(&data, Default::default()).unwrap();
     party.formation = vec![1, 5];
-    party.members[4].ex_skills = [34, 0, 0, 0];
+    party.members[4].ex_skills = [ENCOUNTER_EVASION, 0, 0, 0];
     party.members[4].luck = 151;
     world.party = Some(party);
     let mut resources = enemy_resources();
@@ -6857,17 +6862,30 @@ fn sheena_personal_delays_contact_without_stunning_or_dispatching_the_enemy() {
     let child = script(&[(Call::SetEventBit, &[123]), (Call::YieldCommand, &[0, 2])]);
     let mut events = runtime(program_kind(&main, &child, 0), resources, world);
     assert!(!events.contact_enemy(90).unwrap());
-    assert!(!events.world.billboards.is_empty());
     assert!(events.player_has_control());
-    events.world.party.as_mut().unwrap().formation = vec![1];
-    for _ in 0..30 {
-        assert!(!events.contact_enemy(90).unwrap());
-        events.step().unwrap();
-    }
-    assert!(!events.world.event_flags.contains(&123));
     let enemy = events.world.actors[&90].enemy.as_ref().unwrap();
     assert_eq!(enemy.pause_ticks, 0);
     assert!(enemy.stun_effect().is_none());
+    events.world.party.as_mut().unwrap().formation = vec![1];
+
+    events.step().unwrap();
+    assert_eq!(events.world.billboards.len(), 1);
+    let (&id, disc) = events.world.billboards.first_key_value().unwrap();
+    assert_eq!(disc.recipe, CAMERA_DISC_SPRITE);
+    assert_eq!(disc.position, [12., -4., 105.]);
+    assert_eq!(disc.rgba[..3], [32, 48, 80]);
+    assert_eq!((disc.size, disc.alpha(events.tick())), ([372.; 2], 64.));
+    steps(&mut events, 7);
+    let disc = &events.world.billboards[&id];
+    assert_eq!((disc.size, disc.alpha(events.tick())), ([148.; 2], 95.));
+    events.step().unwrap();
+    assert!(events.world.billboards.is_empty());
+
+    // Contact stays suppressed through tick 29 even after Sheena leaves the formation.
+    steps(&mut events, 20);
+    assert!(!events.contact_enemy(90).unwrap());
+    events.step().unwrap();
+    assert!(!events.world.event_flags.contains(&123));
     assert!(events.contact_enemy(90).unwrap());
     events.step().unwrap();
     assert!(events.world.event_flags.contains(&123));

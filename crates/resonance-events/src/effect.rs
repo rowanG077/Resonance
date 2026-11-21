@@ -171,14 +171,13 @@ impl crate::GameWorld {
         let mut position = actor.position;
         position[2] += 100.;
         self.emit_billboard(BillboardEffect {
-            recipe: STAR_SPRITE,
-            born: self.tick,
-            lifetime: 8,
+            palette: Some(u16::from(NEUTRAL_PALETTE)),
+            // Contact runs before the field advances to its first draw.
+            born: self.tick.saturating_add(1),
             position,
-            size: [372.; 2],
-            fade: Fade::Linear(-32.),
-            blend: Some(Blend::Additive),
-            ..Default::default()
+            size_delta: -32.,
+            fade: Fade::Linear(4.5),
+            ..emission::sprite(CAMERA_DISC_SPRITE, 372., 8)
         })?;
         Ok(())
     }
