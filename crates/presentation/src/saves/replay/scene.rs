@@ -180,7 +180,8 @@ pub(crate) fn diagnostic(world: &World) -> Result<serde_json::Value> {
         "load":world.get_resource::<super::super::title::TitleMenu>().map(|load| {
             let menu = &load.0;
             serde_json::json!({"page":format!("{:?}",menu.page), "bank":menu.bank,
-                "slot":menu.slot, "focus":format!("{:?}",menu.focus), "tick":menu.tick,
+                "slot":menu.slot, "first_slot":menu.first_slot,
+                "focus":format!("{:?}",menu.focus), "tick":menu.tick,
                 "notice":menu.notice, "confirmation":menu.confirmation,
                 "busy":menu.busy, "closed":menu.closed,
                 "activating":super::super::menu::loading(world)})

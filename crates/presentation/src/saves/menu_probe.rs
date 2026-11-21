@@ -19,8 +19,22 @@ pub fn run_menu_probe(root: &Path, save: &Path, output: &Path) -> Result<()> {
     steps.push(slots(SlotMode::Save, SlotState::Bank));
     steps.push(menu(MenuPage::Save));
     steps.push(Step::capture("save-empty"));
+    steps.extend(Step::tap(Key::Right));
     steps.extend(Step::tap(Key::Interact));
     steps.push(slots(SlotMode::Save, SlotState::List));
+    for _ in 0..8 {
+        steps.extend(Step::tap(Key::Down));
+    }
+    steps.push(Step::capture("save-selected"));
+    steps.extend(Step::tap(Key::Cancel));
+    steps.extend(Step::tap(Key::Cancel));
+    steps.push(title_probe::field(expected.map_id));
+    steps.extend(Step::tap(Key::Interact));
+    steps.push(slots(SlotMode::Save, SlotState::Bank));
+    steps.extend(Step::tap(Key::Interact));
+    steps.push(slots(SlotMode::Save, SlotState::List));
+    steps.push(menu(MenuPage::Save));
+    steps.push(Step::capture("save-reopened"));
     steps.extend(Step::tap(Key::Interact));
     steps.push(slots(SlotMode::Save, SlotState::Confirm));
     steps.push(menu(MenuPage::Save));
@@ -80,6 +94,12 @@ pub fn run_menu_probe(root: &Path, save: &Path, output: &Path) -> Result<()> {
         updates: 8,
     });
     steps.push(Step::capture("field-continued"));
+    steps.extend(Step::tap(Key::Interact));
+    steps.push(slots(SlotMode::Save, SlotState::Bank));
+    steps.extend(Step::tap(Key::Interact));
+    steps.push(slots(SlotMode::Save, SlotState::List));
+    steps.push(menu(MenuPage::Save));
+    steps.push(Step::capture("save-after-load"));
     replay::record_app(app, output, &CheckpointReplay::new(steps), false)?;
     let report: serde_json::Value =
         serde_json::from_slice(&fs::read(output.join("recording.json"))?)?;
@@ -92,15 +112,28 @@ pub fn run_menu_probe(root: &Path, save: &Path, output: &Path) -> Result<()> {
         capture_from(&report, "save-empty")?["checkpoint_available"] == false,
         "checkpoint accepted an open menu"
     );
+    for name in [
+        "save-selected",
+        "save-reopened",
+        "load-slot",
+        "save-after-load",
+    ] {
+        let menu = &capture_from(&report, name)?["menu"];
+        ensure!(
+            menu["bank"] == 1 && menu["slot"] == 8 && menu["first_slot"] == 3,
+            "{name} lost the shared save/load position: {menu}"
+        );
+    }
+    let index = resonance_game::menu::SLOTS_PER_BANK + 8;
     ensure!(
-        capture_from(&report, "save-success")?["menu"]["slots"][0] == "saved"
-            && capture_from(&report, "load-slot")?["menu"]["slots"][0] == "saved",
+        capture_from(&report, "save-success")?["menu"]["slots"][index] == "saved"
+            && capture_from(&report, "load-slot")?["menu"]["slots"][index] == "saved",
         "save/load menu lost its saved slot"
     );
     let store = Store::new(output.join("slots"));
+    let bytes = store.read(Kind::Save, &SlotId::new("b-009")?)?;
     let (_, SceneCheckpoint::Field(persisted)) =
-        resonance_persistence::decode(&store.read(Kind::Save, &SlotId::new("a-001")?)?)?
-            .into_parts()
+        resonance_persistence::decode(&bytes)?.into_parts()
     else {
         anyhow::bail!("probe requires a field save");
     };
@@ -120,11 +153,14 @@ pub fn run_menu_probe(root: &Path, save: &Path, output: &Path) -> Result<()> {
             && continued.played_ticks > restored.played_ticks,
         "loaded memory circle did not resume ordinary updates"
     );
+    // The separate title-loading probe opens A-001 after starting a fresh process.
+    store.write(Kind::Save, &SlotId::new("a-001")?, &bytes)?;
     fs::write(
         output.join("result.json"),
         serde_json::to_vec_pretty(&serde_json::json!({
             "saved":persisted, "restored":restored, "checkpoint":continued, "audio_device":false,
-            "unprepared_reads":report["unprepared_reads"], "save_load":true, "checkpoint_rejected_in_menu":true
+            "unprepared_reads":report["unprepared_reads"], "save_load":true,
+            "selection_survives_close_save_load":true, "checkpoint_rejected_in_menu":true
         }))?,
     )?;
     Ok(())

@@ -1,6 +1,14 @@
 //! File work runs off the presentation thread; the menu owns input until it ends.
 use super::*;
-use resonance_game::menu::{Command, Menu, SLOTS_PER_BANK, Slot};
+use resonance_game::menu::{Command, Menu, Page, SLOTS_PER_BANK, Slot};
+
+/// Save and Load share this cursor for the lifetime of the running game.
+#[derive(Clone, Copy, Default, PartialEq)]
+pub(super) struct Selection {
+    bank: usize,
+    slot: usize,
+    first_slot: usize,
+}
 
 enum Completion {
     Slots(Vec<Slot>),
@@ -64,7 +72,21 @@ pub(super) fn update(world: &mut World) {
             Err(error) => failed(world, error),
         }
     }
-    let command = current(world).and_then(|mut menu| menu.take_command());
+    let Some(mut menu) = current(world).filter(|menu| matches!(menu.page, Page::Slots(_))) else {
+        return;
+    };
+    let command = menu.take_command();
+    if command != Some(Command::ReadSlots) {
+        let selection = Selection {
+            bank: menu.bank,
+            slot: menu.slot,
+            first_slot: menu.first_slot,
+        };
+        world
+            .resource_mut::<Persistence>()
+            .map_unchanged(|persistence| &mut persistence.selection)
+            .set_if_neq(selection);
+    }
     if let Some(command) = command
         && let Err(error) = start(world, command)
     {
@@ -95,6 +117,11 @@ fn start(world: &mut World, command: Command) -> Result<()> {
     let store = persistence.store.clone();
     match command {
         Command::ReadSlots => {
+            let selection = persistence.selection;
+            let mut menu = current(world).context("save menu is closed")?;
+            menu.bank = selection.bank;
+            menu.slot = selection.slot;
+            menu.first_slot = selection.first_slot;
             let library = world
                 .resource::<loading::Resident>()
                 .library(&world.resource::<super::super::RunOptions>().assets)?;
