@@ -1472,6 +1472,13 @@ fn resting_pose_uses_health_and_keeps_actions_and_active_idle_clocks() -> Result
     model.settle(&subject, Activity::Idle, &mut false)?;
     model.step(&subject, false)?;
     assert_eq!(model.shown.clip, 41);
+    let mut injured = model.clone();
+    injured.animation.clock.finished = true;
+    subject.hp = 24;
+    injured.settle(&subject, Activity::Idle, &mut false)?;
+    assert_eq!(injured.clip, 42);
+    assert_eq!(injured.animation.clock.blend, 12);
+    subject.hp = 25;
     model.play(
         MotionBinding {
             model: ResourceId(7),
@@ -1499,10 +1506,20 @@ fn resting_pose_uses_health_and_keeps_actions_and_active_idle_clocks() -> Result
     let mut completed = model.clone();
     completed.settle(&subject, Activity::Idle, &mut false)?;
     assert_eq!(completed.clip, 41, "enemy idle follows the finished pose");
+    assert_eq!(completed.animation.clock.blend, 8);
     subject.side = Side::Party;
     model.settle(&subject, Activity::Recovering, &mut false)?;
     model.step(&subject, false)?;
     assert_eq!(model.shown.clip, 41);
+    for _ in 0..16 {
+        model.step(&subject, true)?;
+        assert_eq!(
+            model.shown.frame, 0.,
+            "idle holds while blending out of recovery"
+        );
+    }
+    model.step(&subject, true)?;
+    assert_eq!(model.shown.frame, 0.5);
     model.play(
         MotionBinding {
             model: ResourceId(7),
@@ -1848,6 +1865,7 @@ fn melee_uses_this_updates_pose_and_drawing_does_not_advance_it_twice() -> Resul
             contact_recovery: None,
             chain_at: None,
             chain_retry_at: None,
+            recovery_pose: None,
             end_at: 4,
             recovery: 1,
             opening: Some(AttackPose {

@@ -415,6 +415,20 @@ mod tests {
         )?;
         assert_eq!(table.normal_attacks[1][2].chain_retry_at, Some(71));
         assert_eq!(table.normal_attacks[4][4].chain_retry_at, Some(43));
+        for (index, clip, rate) in [(0, 34, 0.4), (2, 91, 0.45), (3, 91, 0.45), (4, 35, 0.4)] {
+            assert_eq!(
+                table.normal_attacks[1][index].recovery_pose,
+                Some(ActionPose {
+                    clip,
+                    start: 0.,
+                    end: None,
+                    rate,
+                    blend: 1,
+                    repeat: false,
+                }),
+            );
+        }
+        assert_eq!(table.normal_attacks[0][0].recovery_pose, None);
         let character = resonance_content::battle_normal::document::Character::from_attacks(
             table.normal_attacks[1].clone(),
         )?;
@@ -422,7 +436,12 @@ mod tests {
         edited["attacks"]["thrust"]["chain_retry_at"] = 72.into();
         let edited: resonance_content::battle_normal::document::Character =
             serde_json::from_value(edited)?;
-        assert_eq!(edited.prepare()?[2].chain_retry_at, Some(72));
+        let thrust = &edited.prepare()?[2];
+        assert_eq!(thrust.chain_retry_at, Some(72));
+        assert_eq!(
+            thrust.recovery_pose,
+            table.normal_attacks[1][2].recovery_pose
+        );
         let doc = Party::from_table(
             table.clone(),
             "normal.json".into(),

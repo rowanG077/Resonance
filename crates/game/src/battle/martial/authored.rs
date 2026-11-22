@@ -318,6 +318,7 @@ impl Technique {
             events,
             chain_at: attack.chain_at,
             chain_retry_at: None,
+            recovery_pose: None,
             end_at: attack.duration,
             recovery: attack.recovery,
         })

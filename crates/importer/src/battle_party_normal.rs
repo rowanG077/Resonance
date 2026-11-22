@@ -1,7 +1,7 @@
 //! Decode the party's seven directional attack tables into elapsed events.
 use crate::{battle_party_native as native, dol, rel::Rel};
 use anyhow::{Context, Result, ensure};
-use resonance_content::battle_action::WeaponSlot;
+use resonance_content::battle_action::{ActionPose, WeaponSlot};
 use resonance_content::battle_normal::{Attack, Continuation, Event, WeaponFlight};
 
 pub(crate) fn read(module: &Rel) -> Result<Vec<[Attack; 7]>> {
@@ -213,6 +213,18 @@ fn decode(
         chain_at: (chain != 0).then(|| elapsed(chain)).transpose()?,
         chain_retry_at: (retry != 0).then(|| elapsed(retry)).transpose()?,
         recovery,
+        recovery_pose: if config[9] != 0 {
+            Some(ActionPose {
+                clip: u16::from(config[9]),
+                start: 0.,
+                end: None,
+                rate: float(config, 12)?,
+                blend: 1,
+                repeat: false,
+            })
+        } else {
+            None
+        },
         reach: [half(config, 20)?, half(config, 22)?],
         events,
     })
