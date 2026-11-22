@@ -1646,6 +1646,7 @@ impl results::Presentation for Presentation<'_> {
             PlayMusic { track, fade_ms } => {
                 self.audio.music(Some(i16::try_from(track)?), fade_ms)?
             }
+            StopMusic { fade_ms } => self.audio.music(None, fade_ms)?,
             SynchronizeResults => self.hud.synchronize_results(
                 results.context("result display has no reward state")?,
                 self.diagnostics,

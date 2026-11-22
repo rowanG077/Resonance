@@ -18,6 +18,7 @@ pub enum Request {
     DefeatNotice,
     EscapeNotice,
     PlayMusic { track: u16, fade_ms: u16 },
+    StopMusic { fade_ms: u16 },
 }
 
 /// The three directional strategy presets, or a return to personal instructions.
@@ -442,6 +443,7 @@ impl Lifecycle {
                 }
                 BattleResult::Defeat => {
                     presentation.request(Request::DefeatNotice, None, battle)?;
+                    presentation.request(Request::StopMusic { fade_ms: 1_500 }, None, battle)?;
                     Phase::Defeat { age: 0 }
                 }
                 BattleResult::Escaped => match battle.departure_reason() {
