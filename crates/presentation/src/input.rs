@@ -85,14 +85,23 @@ impl PhysicalState {
             .collect()
     }
     pub fn capture_inputs(&self, keymap: &Keymap) -> BTreeSet<PhysicalInput> {
+        self.capture_matching_inputs(keymap, |_| true)
+    }
+    fn capture_matching_inputs(
+        &self,
+        keymap: &Keymap,
+        include: impl Fn(&PhysicalInput) -> bool,
+    ) -> BTreeSet<PhysicalInput> {
         // Moderate tilts count, but each stick contributes only its strongest
         // direction. Vertical wins ties, giving bindings four cardinal directions.
         let mut inputs: BTreeSet<_> = self
             .values
             .iter()
             .filter(|(input, value)| matches!(input, PhysicalInput::Axis(_)) || **value > 0.65)
-            .map(|(input, _)| input.clone())
-            .chain(self.pressed.iter().cloned())
+            .map(|(input, _)| input)
+            .chain(&self.pressed)
+            .filter(|input| include(input))
+            .cloned()
             .collect();
         for source in resonance_content::input::DirectionSource::ALL {
             let strongest = inputs
@@ -115,6 +124,11 @@ impl PhysicalState {
             });
         }
         inputs
+    }
+    /// A release and a fresh digital press may arrive in the same render.
+    /// Stick directions stay held through partial tilts until they return to center.
+    pub fn retain_held(&self, inputs: &mut BTreeSet<PhysicalInput>) {
+        inputs.retain(|input| self.values.contains_key(input) && !self.pressed.contains(input));
     }
     pub fn without(&self, consumed: &BTreeSet<PhysicalInput>) -> Self {
         Self {
@@ -155,6 +169,25 @@ impl PhysicalState {
         map.get(action)
             .iter()
             .any(|i| self.standard_input(i) && self.pressed.contains(i))
+    }
+
+    /// Remember where each physical press began, including partial stick tilts.
+    pub fn track_menu_presses(
+        &self,
+        started_in_menu: &mut BTreeMap<PhysicalInput, bool>,
+        menu_open: bool,
+    ) {
+        started_in_menu.retain(|input, _| self.values.contains_key(input));
+        for input in self.values.keys() {
+            if !started_in_menu.contains_key(input) {
+                started_in_menu.insert(input.clone(), menu_open);
+            }
+        }
+        // A digital release and re-press can arrive together, even for the
+        // same key that closed the menu on the previous render.
+        for input in &self.pressed {
+            started_in_menu.insert(input.clone(), menu_open);
+        }
     }
     pub fn track_edges(&mut self, previous: &mut BTreeSet<PhysicalInput>) {
         let held = self.held();
@@ -397,9 +430,10 @@ pub(crate) fn settings(
 
 /// Resolve each actor's most specific chord on a port. Auto actors
 /// listen to port one while manual actors retain their independent controller.
-pub(crate) fn resolve_arte_bindings<'a, 'b>(
+pub(crate) fn resolve_arte_bindings<'a, 'b, 'i>(
     port: usize,
-    held: &BTreeSet<PhysicalInput>,
+    physical: &PhysicalState,
+    menu_inputs: impl Iterator<Item = &'i PhysicalInput> + Clone,
     map: &Keymap,
     actors: impl IntoIterator<
         Item = (
@@ -410,6 +444,19 @@ pub(crate) fn resolve_arte_bindings<'a, 'b>(
         ),
     >,
 ) -> ArteResolution<'a> {
+    let held = physical.capture_inputs(map);
+    // Keep the chosen direction for each source. When it came from the
+    // menu, apply the usual capture order to its eligible physical aliases.
+    let eligible = menu_inputs
+        .clone()
+        .any(|input| held.contains(input))
+        .then(|| {
+            physical.capture_matching_inputs(map, |input| {
+                !menu_inputs.clone().any(|blocked| blocked == input)
+                    && held.iter().any(|chosen| map.same_arte_input(input, chosen))
+            })
+        });
+    let eligible = eligible.as_ref().unwrap_or(&held);
     let mut matches = Vec::new();
     let mut active = BTreeSet::new();
     let mut consumed = BTreeSet::new();
@@ -423,12 +470,12 @@ pub(crate) fn resolve_arte_bindings<'a, 'b>(
             continue;
         }
         for (index, binding) in bindings.iter().enumerate() {
-            if binding.chord.validate(map).is_ok() && binding.chord.matches(held, map) {
+            if binding.chord.validate(map).is_ok() && binding.chord.matches(eligible, map) {
                 active.insert((member, index));
-                if !binding.chord.matches_directions(held, map) {
+                if !binding.chord.matches_directions(&held, map) {
                     continue;
                 }
-                let inputs = binding.chord.held_inputs(held, map);
+                let inputs = binding.chord.held_inputs(eligible, map);
                 consumed.extend(inputs.iter().cloned());
                 matches.push(ArteMatch {
                     actor: actor_id,
@@ -903,8 +950,8 @@ mod tests {
                 // The direction stays tilted while the opener is released.
                 assert!(capture.sample(&sample(&pad)).is_none());
                 pad.digital_mut().press(button);
-                let held_combo = sample(&pad);
-                assert!(capture.sample(&held_combo).is_none());
+                let physical = PhysicalState::gamepad(&pad);
+                assert!(capture.sample(&physical.capture_inputs(&map)).is_none());
                 pad.digital_mut().release(button);
                 pad.digital_mut().clear();
                 assert!(capture.sample(&sample(&pad)).is_none());
@@ -925,7 +972,8 @@ mod tests {
                 }];
                 let resolution = resolve_arte_bindings(
                     0,
-                    &held_combo,
+                    &physical,
+                    std::iter::empty(),
                     &map,
                     [(
                         ActorId::from_index(0).unwrap(),
@@ -963,11 +1011,15 @@ mod tests {
                 chord: InputChord(vec![cancel.clone(), axis.clone()]),
             }],
         ];
-        let held = [cancel.clone(), axis].into();
+        let physical = PhysicalState {
+            pressed: [cancel.clone(), axis].into(),
+            ..Default::default()
+        };
         let sample = |port, actor| {
             resolve_arte_bindings(
                 port,
-                &held,
+                &physical,
+                std::iter::empty(),
                 &Keymap::default(),
                 [
                     (
@@ -990,12 +1042,16 @@ mod tests {
         assert_eq!(resolution.selected.len(), 1);
         assert_eq!(resolution.selected[0].binding.technique, 35);
         assert_eq!(resolution.active.len(), 2);
-        assert_eq!(resolution.consumed, held);
+        assert_eq!(resolution.consumed, physical.pressed);
         assert_eq!(sample(0, &auto).selected[0].binding.technique, 35);
         assert!(sample(2, &auto).selected.is_empty());
         let single = resolve_arte_bindings(
             0,
-            &[cancel].into(),
+            &PhysicalState {
+                pressed: [cancel].into(),
+                ..Default::default()
+            },
+            std::iter::empty(),
             &Keymap::default(),
             [(
                 ActorId::from_index(0).unwrap(),
@@ -1037,7 +1093,16 @@ mod tests {
         ];
         let ArteResolution {
             selected, active, ..
-        } = resolve_arte_bindings(0, &keys.into(), &Keymap::default(), actors);
+        } = resolve_arte_bindings(
+            0,
+            &PhysicalState {
+                pressed: keys.into(),
+                ..Default::default()
+            },
+            std::iter::empty(),
+            &Keymap::default(),
+            actors,
+        );
         assert_eq!(selected.len(), 2);
         assert_eq!(selected[0].binding.technique, 66);
         assert_eq!(selected[1].binding.technique, 67);
