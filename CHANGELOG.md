@@ -1,5 +1,110 @@
 # Changelog
 
+## 0.6.0 - *22 Nov, 2026*
+
+**Upgrading from v0.5.1:** Recook your assets with the v0.6.0 importer. You can continue from your existing saves.
+
+### Added:
+- Optional smoothing above 60 FPS through Customize's **Enable experimental high FPS** setting, interpolating cameras, animation, effects and UI toward an isolated prediction of the next simulation tick.F10 cycles through half, fifth and tenth speed for inspecting motion, with audio following the selected speed.
+  [P125](https://github.com/rowanG077/Resonance/pull/125)
+
+### Changed:
+- Replace Bevy's PBR and sprite rendering with a native renderer that reduces per-frame CPU work through batched uploads, shared material records and reuse of prepared scene resources.
+
+  Release cached GPU textures after their assets retire, and release obsolete render attachments when resolution or anti-aliasing changes.
+  [P125](https://github.com/rowanG077/Resonance/pull/125)
+
+### Fixed:
+- Restore red alarms in Palmacosta Human Ranch and end the Sorcerer's Ring effect when interacting with scripted objects.
+  [P103](https://github.com/rowanG077/Resonance/pull/103)
+- Allow hidden blocks in Palmacosta Human Ranch to be grabbed and moved without the Sorcerer's Ring.
+  [P104](https://github.com/rowanG077/Resonance/pull/104)
+- Allow spells to interrupt aerial landing recovery and restore guard tap cancellation during spellcasting.
+  [P107](https://github.com/rowanG077/Resonance/pull/107)
+- Allow battle menu navigation while changing control modes. The mode label follows its character when the party rotates and stays visible briefly after combat resumes.
+  [P108](https://github.com/rowanG077/Resonance/pull/108)
+- Restore missing field sound effects, including Thoda Geyser's balance and moving platforms.
+  [P106](https://github.com/rowanG077/Resonance/pull/106)
+- Show shocked reaction bubbles over all intended party members during the Hakonesia Peak scene.
+  [P105](https://github.com/rowanG077/Resonance/pull/105)
+- Prevent Monster List and Figurine Book models from being clipped at the original 4:3 boundary on wider displays.
+  [P110](https://github.com/rowanG077/Resonance/pull/110)
+- Show the out-of-TP warning over allies when issuing unaffordable arte orders.
+  [P109](https://github.com/rowanG077/Resonance/pull/109)
+- Play Colette’s normal attack recovery animations when no follow-up is chained. Reimport the original game to update existing libraries.
+  [P112](https://github.com/rowanG077/Resonance/pull/112)
+- Restore the defeat pauses for Kilia, Vidarr, and the three silent guardians, and restore party voices for knockouts and enemy defeats. Field sounds now resume when battle audio returns control, including during queued scene changes.
+  [P114](https://github.com/rowanG077/Resonance/pull/114)
+- Remember the selected bank, save slot and scroll position when reopening Save or Load during the same game session.
+  [P117](https://github.com/rowanG077/Resonance/pull/117)
+- Keep the field camera on the selected party member after scripted scene transitions.
+  [P115](https://github.com/rowanG077/Resonance/pull/115)
+- Keep character outlines and scenery poses intact during battle entry.
+  [P118](https://github.com/rowanG077/Resonance/pull/118)
+- Restore the impact sound when Kilia collapses after the battle in Palmacosta.
+  [P113](https://github.com/rowanG077/Resonance/pull/113)
+- Keep speech bubbles above the speaker when the frame fits, and size dialogue containing wide punctuation correctly, including Sheena’s dialogue in Balacruf.
+  [P120](https://github.com/rowanG077/Resonance/pull/120)
+- Dismount Noishe when entering a town or dungeon and return to the world map on foot.
+  [P119](https://github.com/rowanG077/Resonance/pull/119)
+- Give Sheena’s introduction its own voiced dialogue page on both truce choices in Luin.
+  [P122](https://github.com/rowanG077/Resonance/pull/122)
+- Keep Colette upright while she tries to calm Clara in the ruins of Luin.
+  [P121](https://github.com/rowanG077/Resonance/pull/121)
+- Cycle through party members with L/R in Status; retain Page Up/Down for the stats and details pages.
+  [P111](https://github.com/rowanG077/Resonance/pull/111)
+- Keep field characters visible while a cutscene loads a new costume.
+  [P123](https://github.com/rowanG077/Resonance/pull/123)
+- Close customer order windows automatically in Palmacosta’s Turbo Waitress minigame so customers return to their idle animations.
+  [P124](https://github.com/rowanG077/Resonance/pull/124)
+- Colette’s attacks, spells and battle reactions stay silent from the loss of her voice until she regains it.
+  [P128](https://github.com/rowanG077/Resonance/pull/128)
+- Prevent Kratos from flashing into the close-up before the camera cuts away at Asgard Human Ranch.
+  [P130](https://github.com/rowanG077/Resonance/pull/130)
+- Show the current battle formation when pressing L or R in the command menu, and mirror the party’s formation on subsequent presses.
+  [P127](https://github.com/rowanG077/Resonance/pull/127)
+- Keep the dialogue advance icon visible where it overlaps the speech bubble’s tail or border.
+  [P129](https://github.com/rowanG077/Resonance/pull/129)
+- Show the shrinking ring around the field leader when Sheena’s Personal EX Skill avoids an encounter.
+  [P132](https://github.com/rowanG077/Resonance/pull/132)
+- Show Life Seal and Spirit Seal drain messages above Sheena while the Tech banner displays the arte name.
+  [P126](https://github.com/rowanG077/Resonance/pull/126)
+- The Raybit encounters at Asgard Human Ranch and the Mithos battles at Derris-Kharlan now shatter the white screen and play the glass-breaking sound as the battle appears.
+  [P131](https://github.com/rowanG077/Resonance/pull/131)
+- Keep field characters in sync with camera cuts, including Sheena’s expression at the Spiritua Statue, Zelos’s movement in Altamira, and Lloyd’s position in Sylvarant Base.
+  [P133](https://github.com/rowanG077/Resonance/pull/133)
+- Party members on Hold Position now stop their running animation when you switch away from them.
+  [P134](https://github.com/rowanG077/Resonance/pull/134)
+- Restore the steady pitch of Yuan’s teleport sound in Hima.
+  [P136](https://github.com/rowanG077/Resonance/pull/136)
+- Restore the pause between chimes when Undine grants Sheena her power at Thoda Geyser.
+  [P135](https://github.com/rowanG077/Resonance/pull/135)
+- Let field and overworld sound effects finish their fade when stopped or replaced, including Undine’s pact buildup and Yuan’s teleport.
+  [P135](https://github.com/rowanG077/Resonance/pull/135)
+- Restore the timing that lets Lloyd’s question mark appear alongside Linar and Harley’s reactions at the Asgard Stone Dais.
+  [P105](https://github.com/rowanG077/Resonance/pull/105)
+- Battle music now fades out when the party is defeated, before the defeat theme begins.
+  [P139](https://github.com/rowanG077/Resonance/pull/139)
+- Buttons and directions pressed in the battle menu can no longer trigger a technique when combat resumes.
+  The battle menu now accepts a fresh Cancel press even when you release and press it again in the same frame.
+  [P138](https://github.com/rowanG077/Resonance/pull/138)
+- Fix scenery showing through the edges of jewelry on Lloyd, Colette, Raine, Zelos, Presea, and Kratos.
+  [P137](https://github.com/rowanG077/Resonance/pull/137)
+- Party members now ease back into their idle stance when a swing finishes during recovery. This fixes Colette starting her idle animation early after a two-hit combo.
+  [P112](https://github.com/rowanG077/Resonance/pull/112)
+- Party members now play their landing animation at the correct speed after a rising or midair attack.
+  [P112](https://github.com/rowanG077/Resonance/pull/112)
+- Lloyd’s rising slash now plays its landing animation through touchdown without restarting it.
+  [P112](https://github.com/rowanG077/Resonance/pull/112)
+- Normal attacks made during a jump now begin one battle update earlier, in sync with the brief pause in the character’s flight.
+  [P112](https://github.com/rowanG077/Resonance/pull/112)
+- Party members now ease into their low-health battle stance over the full transition.
+  [P112](https://github.com/rowanG077/Resonance/pull/112)
+
+### Removed:
+- The OpenGL graphics backend. Use Vulkan, DirectX 12 or Metal; a saved OpenGL choice now selects the backend automatically.
+  [P125](https://github.com/rowanG077/Resonance/pull/125)
+
 ## 0.5.1 - *14 Nov, 2026*
 
 **Recook assets with the updated importer before playing.**
