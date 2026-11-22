@@ -1008,8 +1008,8 @@ impl Models {
                             CommonPose::BackstepRecovery { floating: true } => 12,
                             CommonPose::BackstepRecovery { floating: false } => 5,
                             CommonPose::Taunt => 10,
-                            CommonPose::Idle
-                            | CommonPose::Backstep
+                            CommonPose::Idle => model.idle_blend(Some(clip), 8),
+                            CommonPose::Backstep
                             | CommonPose::Stopping
                             | CommonPose::Stunned
                             | CommonPose::Chant => 8,

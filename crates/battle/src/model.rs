@@ -1652,6 +1652,14 @@ impl Model {
         self.definition.idle_motions[usize::from(injured)].or(self.definition.idle_motions[0])
     }
 
+    fn idle_blend(&self, clip: Option<u16>, base: u8) -> u8 {
+        if clip.is_some() && clip != self.definition.idle_motions[0] {
+            base + 4
+        } else {
+            base
+        }
+    }
+
     /// Select ongoing feedback from completed native state. Discrete hits and actions
     /// still start their own poses; selecting a state pose never restarts its clock.
     /// Ongoing poses play at 30 frames/second; launch reactions use prepared blends.
@@ -1748,7 +1756,16 @@ impl Model {
                     } =>
             {
                 self.shown.texture_layers = self.definition.idle_expression;
-                (self.idle_clip(actor), true)
+                let clip = self.idle_clip(actor);
+                blend = self.idle_blend(
+                    clip,
+                    if activity == Activity::Recovering {
+                        16
+                    } else {
+                        8
+                    },
+                );
+                (clip, true)
             }
             _ => return Ok(()),
         };

@@ -920,6 +920,15 @@ fn landing_cancels_the_airborne_attack_and_finishes_recovery() -> Result<()> {
             assert_eq!(id != normal, chain, "requested aerial chain did not start");
             assert_eq!(battle.action_recovery_remaining(id).is_some(), !chain);
             assert_eq!(
+                frame.model_requests.iter().any(|request| matches!(
+                    request,
+                    crate::ModelRequest::Play { actor: ActorId(0), motion, pose }
+                        if *motion == missing_motions().landing
+                            && pose.rate == 0.4 && pose.blend == 6 && !pose.restart
+                )),
+                !chain,
+            );
+            assert_eq!(
                 frame.actors[0].activity,
                 if chain {
                     Activity::Action

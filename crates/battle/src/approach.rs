@@ -356,7 +356,10 @@ impl Battle {
             .models
             .as_ref()
             .is_none_or(|models| models.motion_ready_this_update(actor));
-        let entry_pending = approach.entry_pending;
+        // The jump already consumed the normal attack input on its movement visit.
+        let jump_normal = matches!(approach.origin, Origin::Jump)
+            && self.prepared.actions[approach.action].normal.is_some();
+        let entry_pending = approach.entry_pending && !jump_normal;
         approach.entry_pending = false;
         let gap = self.approach_body_gap(actor, approach.target);
         // A moving enemy chooses retreat from this visit's gap. A changing pose
@@ -557,13 +560,13 @@ impl Battle {
                 self.runtime[index].combo = Default::default();
             }
             self.start_admitted_action(request, cues)?;
-            // The preceding selection visit already held flight once. Resume
-            // it on admission, just as the airborne action callback does.
+            // A jump attack holds its height on the first swing sample.
             return Ok(matches!(
                 self.prepared.actions[request.action].execution,
                 crate::ActionExecution::Attack(_)
             ) && !self.enemy_physical_arte(actor, request.action)
-                && !(self.actors[index].side == crate::Side::Party && airborne_momentum));
+                && (jump_normal
+                    || !(self.actors[index].side == crate::Side::Party && airborne_momentum)));
         }
         if !walking {
             self.move_approach(actor, approach, gap)?;

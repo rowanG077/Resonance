@@ -1571,7 +1571,9 @@ impl Battle {
                         ActorId(index as u8),
                         Some(motions.landing),
                         crate::Pose {
+                            rate: 0.4,
                             blend: 6,
+                            restart: false,
                             ..Default::default()
                         },
                     );

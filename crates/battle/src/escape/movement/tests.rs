@@ -330,6 +330,7 @@ fn escape_jump_attack_keeps_combat_admission_and_recovery_timing() -> Result<()>
             for tick in 0..96 {
                 let mut input = ControlInput::neutral(ActorId(0));
                 input.attack.pressed = tick == 0;
+                let previous_height = combat.actors[0].position[1];
                 let combat_frame = combat.step(BattleInput::from(input))?;
                 let escape_frame = escaping.step(BattleInput::from(input))?;
                 if tick == 0 {
@@ -337,6 +338,8 @@ fn escape_jump_attack_keeps_combat_admission_and_recovery_timing() -> Result<()>
                 }
                 assert_eq!(action_cues(&escape_frame), action_cues(&combat_frame));
                 if let Some(action) = started_action(&escape_frame, ActorId(0)) {
+                    assert_eq!(tick, 1, "the swing starts on the visit after jump input");
+                    assert_eq!(combat.actors[0].position[1], previous_height);
                     assert!(
                         started.replace(action).is_none(),
                         "jump command unexpectedly chained"
