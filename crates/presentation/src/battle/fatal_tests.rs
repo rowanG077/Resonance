@@ -1468,7 +1468,7 @@ fn shatter_releases_the_camera_on_a_fixed_update_without_a_render() -> Result<()
             u64::from(age)
         );
         let owner = world.resource::<Owner>();
-        assert_eq!(owner.capture_ready(), age > 22);
+        assert_eq!(owner.view_ready(), age > 22);
         assert_eq!(owner.presenting(), age >= 60);
         assert_eq!(owner.input_tick, u32::from(age > 60));
         let Phase::Scene(scene) = &owner.phase else {

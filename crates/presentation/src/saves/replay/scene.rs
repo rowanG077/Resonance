@@ -147,7 +147,7 @@ pub(super) fn ready(world: &mut World, phase: Phase) -> bool {
                             .active
                             .load(Ordering::Acquire)
                     },
-                    |battle| battle.capture_ready(),
+                    |battle| battle.view_ready(),
                 )
                 && world.get_resource::<new_game::Session>().is_some_and(|s| {
                     (!s.is_field() || s.ready_for_field)

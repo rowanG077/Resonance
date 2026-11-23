@@ -45,7 +45,7 @@ impl Place {
         if self == Self::Battle {
             return world
                 .get_resource::<crate::battle::Owner>()
-                .is_some_and(crate::battle::Owner::capture_ready);
+                .is_some_and(crate::battle::Owner::view_ready);
         }
         Self::current(world) == Some(self)
             && !world.contains_resource::<crate::battle::Owner>()

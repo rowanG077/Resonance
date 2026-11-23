@@ -222,6 +222,13 @@ impl Owner {
         matches!(self.phase, Phase::Failed)
     }
 
+    /// The submitted battle view can be shown while the opening camera is still held.
+    pub(crate) fn view_ready(&self) -> bool {
+        matches!(&self.phase, Phase::Scene(scene)
+            if matches!(scene.state, SceneState::Revealing | SceneState::Active)
+                && scene.menu_ready && scene.failure.is_none())
+    }
+
     pub(super) fn presenting(&self) -> bool {
         matches!(&self.phase, Phase::Scene(scene) if scene.state == SceneState::Active
             && scene.menu_ready && scene.failure.is_none())

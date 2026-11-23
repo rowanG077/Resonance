@@ -106,14 +106,14 @@ pub(super) struct Suspension(bool);
 #[derive(Component)]
 struct Suspended(Vec<Entity>);
 
-fn battle_presenting(world: &World) -> bool {
+fn battle_view_ready(world: &World) -> bool {
     world
         .get_resource::<crate::battle::Owner>()
-        .is_some_and(|owner| owner.presenting())
+        .is_some_and(crate::battle::Owner::view_ready)
 }
 
 pub(super) fn suspend(world: &mut World) {
-    if battle_presenting(world) {
+    if battle_view_ready(world) {
         suspend_roots(world);
     }
 }
@@ -152,7 +152,7 @@ fn suspend_roots(world: &mut World) {
 
 /// Ordered before every overworld system; does nothing while the battle presents.
 pub(super) fn resume(world: &mut World) {
-    if world.get_resource::<Suspension>().is_some_and(|s| s.0) && !battle_presenting(world) {
+    if world.get_resource::<Suspension>().is_some_and(|s| s.0) && !battle_view_ready(world) {
         resume_roots(world);
     }
 }
