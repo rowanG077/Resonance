@@ -13,7 +13,7 @@ pub(super) struct Notice(Option<(TechnicalSmash, u8, u32)>);
 impl Notice {
     pub fn advance(&mut self, frame: &BattleFrame, elapsed: u32) {
         if let Some((_, _, age)) = &mut self.0 {
-            *age = age.saturating_add(elapsed);
+            *age = age.saturating_add(super::hit_feedback_time(frame.clock, 1, elapsed));
             if *age >= HOLD_TICKS + FADE_TICKS {
                 self.0 = None;
             }
@@ -96,5 +96,33 @@ impl Notice {
             y += 22.;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use resonance_battle::BattleClock;
+
+    #[test]
+    fn smash_waits_in_menus_and_expires_during_a_defeat_hold() {
+        let mut frame = BattleFrame::default();
+        frame.cues.push(Cue::TechnicalSmash {
+            bonuses: TechnicalSmash::default(),
+            total_percent: 5,
+        });
+        let mut notice = Notice::default();
+        notice.advance(&frame, 1);
+        frame.cues.clear();
+        frame.clock = BattleClock::Held;
+        notice.advance(&frame, 0);
+        assert_eq!(notice.0.as_ref().unwrap().2, 0);
+        frame.clock = BattleClock::DefeatHold;
+        for _ in 0..HOLD_TICKS + FADE_TICKS - 1 {
+            notice.advance(&frame, 0);
+        }
+        assert_eq!(notice.0.as_ref().unwrap().2, HOLD_TICKS + FADE_TICKS - 1);
+        notice.advance(&frame, 0);
+        assert!(notice.0.is_none());
     }
 }

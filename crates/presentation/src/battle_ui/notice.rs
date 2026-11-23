@@ -233,13 +233,21 @@ fn layer_depth(index: usize, newest: usize, results: bool) -> f32 {
 }
 
 impl Notices {
+    fn show(&mut self, frame: &BattleFrame, side: Side, message: Message) {
+        if !frame.enemy_defeat_started {
+            self.newest = side as usize;
+            self.messages[self.newest] = Some(message);
+        }
+    }
+
     pub fn advance(&mut self, frame: &BattleFrame, elapsed: u32) {
         if let Some((_, age)) = &mut self.outcome {
             *age = age.saturating_add(u64::from(elapsed));
         }
-        if frame
-            .recognized_result
-            .is_some_and(|result| result != resonance_battle::BattleResult::Escaped)
+        if frame.enemy_defeat_started
+            || frame
+                .recognized_result
+                .is_some_and(|result| result != resonance_battle::BattleResult::Escaped)
         {
             self.messages = Default::default();
             return;
@@ -301,14 +309,17 @@ impl Artwork {
             .context("unknown notice actor")?
             .side;
         self.font.validate_text(text)?;
-        self.notices.newest = side as usize;
-        self.notices.messages[side as usize] = Some(Message {
-            actor,
-            icon,
-            text: text.into(),
-            age: 0,
-            duration,
-        });
+        self.notices.show(
+            frame,
+            side,
+            Message {
+                actor,
+                icon,
+                text: text.into(),
+                age: 0,
+                duration,
+            },
+        );
         Ok(())
     }
 
@@ -505,6 +516,28 @@ impl Artwork {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn boss_defeat_clears_action_notices_and_suppresses_later_requests() -> Result<()> {
+        let actor = ActorId::from_index(0)?;
+        let message = || Message {
+            actor,
+            icon: Icon::Arte,
+            text: "Sword Rain".into(),
+            age: 0,
+            duration: 90,
+        };
+        let mut frame = BattleFrame::default();
+        let mut notices = Notices::default();
+        notices.show(&frame, Side::Party, message());
+        assert!(notices.messages[0].is_some());
+        frame.enemy_defeat_started = true;
+        notices.advance(&frame, 1);
+        assert!(notices.messages[0].is_none());
+        notices.show(&frame, Side::Party, message());
+        assert!(notices.messages[0].is_none());
+        Ok(())
+    }
 
     #[test]
     fn outcome_layers_composite_after_both_action_notice_groups() {
@@ -745,6 +778,7 @@ mod tests {
             12,
             "remaining in the combined phase must not restart its banner"
         );
+
         Ok(())
     }
 }

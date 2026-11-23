@@ -147,7 +147,7 @@ impl Owner {
                 "cast_delayed": matches!(actor.activity, resonance_battle::Activity::Casting { held: true }),
                 "stored_spell": actor.stored_spell.map(|action| action.0)});
                 let portrait_draw = (actor.side == Side::Party).then(|| {
-                    let observed = scene.hud.portrait_observation(actor, frame.recognized_result);
+                    let observed = scene.hud.party_portrait(frame, index, None);
                     json!({"row": observed.row, "color": observed.color, "offset_y": observed.offset_y})
                 });
                 json!({

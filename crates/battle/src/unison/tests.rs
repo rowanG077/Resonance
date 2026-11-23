@@ -226,6 +226,83 @@ fn contact(battle: &mut Battle, action: ActionId) {
 }
 
 #[test]
+fn companion_kill_during_unison_leaves_the_hud_with_the_opener_until_it_returns() -> Result<()> {
+    let mut encounter = fixture(false);
+    let target = ActorId(2);
+    encounter.enemy_presentation = crate::enemy_presentation::State::new(
+        &mut encounter.actors,
+        &[crate::EnemyPresentation {
+            actor: target,
+            definition: resonance_content::battle_enemy::Presentation {
+                opening: None,
+                conversation: None,
+                defeat: resonance_content::battle_voice::TimedVoice {
+                    sound: None,
+                    ticks: 3,
+                },
+            },
+            model: ResourceId(0),
+            effects: ResourceId(0),
+            speaker: None,
+            speaker_model: None,
+        }],
+        false,
+    );
+    for (opener_ticks, expected_hold_ticks) in [(3, 5), (30, 0)] {
+        let mut battle = encounter.clone();
+        Arc::make_mut(battle.unison.definition.as_mut().unwrap()).members[0].opener_contact_ticks =
+            opener_ticks;
+        battle.actors[1].tp = 9;
+        battle.actors[target.index()].hp = 1;
+        assert!(battle.start_actor_command(
+            ActionRequest {
+                actor: ActorId(1),
+                target,
+                action: ActionKey(0),
+            },
+            &mut vec![],
+        )?);
+        opening(&mut battle);
+        let mut frame = battle.snapshot();
+        assert!(!frame.actors[target.index()].available());
+        assert_eq!(frame.unison.as_ref().unwrap().phase, UnisonPhase::Opening);
+        for _ in 0..opener_ticks {
+            frame = battle.step(Default::default())?;
+            assert_eq!(frame.clock, crate::BattleClock::Running);
+            assert!(!frame.enemy_defeat_started);
+            assert!(frame.recognized_result.is_none());
+            if frame.unison.is_none() {
+                break;
+            }
+        }
+        assert!(frame.unison.is_none());
+        // A full gauge cannot start a new opener once the boss defeat takes over.
+        battle.add_unison_gauge(crate::MAX_UNISON_GAUGE, &mut vec![]);
+        frame = battle.step(BattleInput {
+            unison: Some(UnisonInput::Activate(ActorId(0))),
+            ..Default::default()
+        })?;
+        assert!(frame.unison.is_none());
+        if expected_hold_ticks == 0 {
+            assert_eq!(frame.recognized_result, Some(crate::BattleResult::Victory));
+        }
+        let mut hold_ticks = 0;
+        for _ in 0..20 {
+            if frame.recognized_result.is_some() {
+                break;
+            }
+            assert!(frame.enemy_defeat_started);
+            hold_ticks += usize::from(frame.clock == crate::BattleClock::DefeatHold);
+            frame = battle.step(Default::default())?;
+        }
+        assert_eq!(hold_ticks, expected_hold_ticks);
+        assert_eq!(frame.recognized_result, Some(crate::BattleResult::Victory));
+        assert!(!frame.enemy_defeat_started);
+    }
+    Ok(())
+}
+
+#[test]
 fn unison_elemental_conversion_keeps_base_counts_and_recipe_identity() {
     use resonance_content::arte::elemental;
 

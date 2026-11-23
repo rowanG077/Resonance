@@ -1,4 +1,4 @@
-//! Sliding quick orders and the enemy-name list shown by battle selection.
+//! Battle opening enemy names, quick orders, and target selection.
 use super::*;
 use resonance_battle::ActorId;
 use resonance_game::battle::lifecycle::QuickOrder;
@@ -106,12 +106,23 @@ impl State {
         font: &BitmapFont,
         enemies: &[EnemyHud],
         frame: &BattleFrame,
+        opening_fraction: f32,
+        bounds: [f32; 4],
     ) -> Result<[Batch; 3]> {
         let [mut panels, mut labels, mut arrows] = std::array::from_fn(|_| Batch::default());
         if frame.recognized_result.is_some() {
             *self = Self::default();
             return Ok([panels, labels, arrows]);
         }
+        opening_roster(
+            &mut panels,
+            &mut labels,
+            font,
+            enemies,
+            frame,
+            opening_fraction,
+            bounds,
+        )?;
         let width = input.order_label.chars().try_fold(0., |width, character| {
             let glyph = font
                 .glyphs
@@ -229,6 +240,76 @@ impl State {
     }
 }
 
+/// Introduce each group in the starting formation, including its initial head count.
+fn opening_roster(
+    panels: &mut Batch,
+    labels: &mut Batch,
+    font: &BitmapFont,
+    enemies: &[EnemyHud],
+    frame: &BattleFrame,
+    fraction: f32,
+    [left, _, right, _]: [f32; 4],
+) -> Result<()> {
+    const HOLD: u64 = 120;
+    const STAGGER: u64 = 4;
+    const FADE: u64 = 40;
+    // Skip ordinary combat frames without traversing the formation.
+    if frame.update >= HOLD + FADE + STAGGER * enemies.len() as u64
+        || !enemies.iter().any(|e| {
+            let actor = &frame.actors[e.actor.index()];
+            actor.available() && actor.hp > 0
+        })
+    {
+        return Ok(());
+    }
+
+    for group in 0..enemy_group_count(enemies) {
+        let mut members = enemies.iter().filter(|e| usize::from(e.group) == group);
+        let Some(first) = members.next() else {
+            continue;
+        };
+        let exit = (frame.update as f32 + fraction - (HOLD + group as u64 * STAGGER) as f32)
+            .clamp(0., FADE as f32);
+        let alpha = (160. - 4. * exit) as u8;
+        if alpha == 0 {
+            continue;
+        }
+        let y = 28. + group as f32 * 28.;
+        let colors = ENEMY_BACKDROP.map(|[r, g, b, _]| [r, g, b, alpha]);
+        backdrop(panels, [left, y, right - left, 12.], colors, 4., 0.);
+
+        let x = 320. + 28. * exit;
+        if x < right {
+            let spacing = bitmap_text::Spacing::Font;
+            let mut draw = |value: &str, x: f32| {
+                bitmap_text::draw(
+                    font,
+                    value,
+                    [x, y - 16.],
+                    [20., 26.],
+                    spacing,
+                    |[left, top, _, bottom], uv| {
+                        party::slanted_quad(
+                            labels,
+                            [left, top, left + 22., bottom],
+                            uv,
+                            8.,
+                            [WHITE; 4],
+                        );
+                    },
+                )
+            };
+            draw(&first.name, x)?;
+            let count = 1 + members.count();
+            if count > 1 {
+                let width = bitmap_text::width(font, &first.name, 20., spacing)?;
+                draw(&count.to_string(), x + width + 56.)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn label(
     batch: &mut Batch,
     font: &BitmapFont,
@@ -259,6 +340,79 @@ fn backdrop(batch: &mut Batch, [x, y, w, h]: [f32; 4], colors: [[u8; 4]; 4], edg
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires the dialogue font"]
+    fn opening_names_group_the_starting_enemies_and_leave_in_order() -> Result<()> {
+        let font = fixtures::dialogue_font()?;
+        let mut actor = fixtures::actor(Default::default());
+        actor.side = Side::Enemy;
+        let mut enemies = Vec::new();
+        for (slot, (name, group)) in [
+            ("Black Bat", 0),
+            ("Cardinal Knight", 1),
+            ("Bear", 2),
+            ("Black Bat", 0),
+            ("Cardinal Knight", 1),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            enemies.push(EnemyHud {
+                actor: ActorId::from_index(slot)?,
+                group,
+                name: name.into(),
+                icon: None,
+            });
+        }
+        let mut frame = BattleFrame {
+            actors: vec![actor; enemies.len()],
+            ..Default::default()
+        };
+        let draw = |frame: &BattleFrame| -> Result<_> {
+            let mut panels = Batch::default();
+            let mut labels = Batch::default();
+            opening_roster(
+                &mut panels,
+                &mut labels,
+                &font,
+                &enemies,
+                frame,
+                0.,
+                [0., 0., 640., 480.],
+            )?;
+            Ok((panels, labels))
+        };
+        let (_, initial) = draw(&frame)?;
+        let glyphs = "Black Bat2Cardinal Knight2Bear".chars().map(|c| {
+            let [u, v, _, _] = font.glyphs[&c].rect;
+            [u as f32, v as f32]
+        });
+        assert!(initial.uv.iter().step_by(4).copied().eq(glyphs));
+        let glyph_x = |index: usize| initial.positions[index * 4 + 3][0] + 320.;
+        let second_row = "Black Bat2".len();
+        assert_eq!(glyph_x(second_row - 1), 497.);
+        assert_eq!(glyph_x(second_row + "Cardinal Knight".len()), 571.);
+        frame.actors[0].hp = 0;
+        assert!(
+            initial == draw(&frame)?.1,
+            "the opening count describes the starting formation"
+        );
+        frame.update = 121;
+        let (_, leaving) = draw(&frame)?;
+        assert_eq!(leaving.positions[0][0], initial.positions[0][0] + 28.);
+        assert_eq!(
+            leaving.positions[4 * second_row],
+            initial.positions[4 * second_row]
+        );
+        frame.update = 168;
+        assert!(draw(&frame)?.0.indices.is_empty());
+        frame.update = 10;
+        frame.actors.iter_mut().for_each(|actor| actor.hp = 0);
+        let (panels, labels) = draw(&frame)?;
+        assert!(panels.indices.is_empty() && labels.indices.is_empty());
+        Ok(())
+    }
 
     #[test]
     fn order_notice_can_be_reselected_and_menu_holds_the_ribbons_open() {

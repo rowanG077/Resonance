@@ -154,6 +154,22 @@ pub(crate) struct HudTime<'a> {
     pub feedback: f32,
 }
 
+fn hit_feedback_time<T>(clock: resonance_battle::BattleClock, visit: T, feedback: T) -> T {
+    if clock == resonance_battle::BattleClock::DefeatHold {
+        visit
+    } else {
+        feedback
+    }
+}
+
+impl HudTime<'_> {
+    fn hit_feedback(self) -> f32 {
+        self.next.map_or(self.feedback, |next| {
+            hit_feedback_time(next.frame.clock, self.visit, self.feedback)
+        })
+    }
+}
+
 impl Artwork {
     pub(crate) fn displayed_vitals(&self, actor: usize) -> Option<[i32; 2]> {
         self.numbers
@@ -162,12 +178,18 @@ impl Artwork {
             .and_then(|numbers| numbers.vitals)
     }
 
-    pub(crate) fn portrait_observation(
+    pub(crate) fn party_portrait(
         &self,
-        actor: &resonance_battle::ActorFrame,
-        result: Option<resonance_battle::BattleResult>,
+        frame: &BattleFrame,
+        actor: usize,
+        future: Option<(&resonance_battle::ActorFrame, f32)>,
     ) -> party::Portrait {
-        party::portrait(actor, result, self.numbers.presentation_tick, None)
+        party::portrait(
+            &frame.actors[actor],
+            frame.victory_results_active,
+            self.numbers.presentation_tick,
+            future,
+        )
     }
 
     /// Build surfaces from the artwork and menu catalogue admitted by battle preparation.
@@ -543,7 +565,7 @@ impl Artwork {
                 layer.show(false, commands);
             }
         } else {
-            self.render_numbers(frame, time.feedback, commands)?;
+            self.render_numbers(frame, time, commands)?;
         }
         self.render_notices(frame, party, time.feedback, commands)?;
         self.render_combat(frame, command, marker_anchors, time, commands)?;
@@ -599,6 +621,7 @@ impl Artwork {
         &mut self,
         frame: &BattleFrame,
         input: RibbonInput<'_>,
+        opening_fraction: f32,
         commands: &mut Commands,
     ) -> Result<()> {
         let batches = if frame.summon.as_ref().is_some_and(|summon| summon.hide_hud)
@@ -609,8 +632,14 @@ impl Artwork {
         {
             std::array::from_fn(|_| Batch::default())
         } else {
-            self.ribbon_motion
-                .draw(input, &self.font, &self.combat.enemies, frame)?
+            self.ribbon_motion.draw(
+                input,
+                &self.font,
+                &self.combat.enemies,
+                frame,
+                opening_fraction,
+                self.resolution.ui_rect(),
+            )?
         };
         for (layer, batch) in self.ui.ribbons.iter_mut().zip(batches) {
             layer.upload(batch, commands)?;

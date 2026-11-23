@@ -751,6 +751,8 @@ pub enum BattleClock {
     #[default]
     Running,
     Held,
+    /// The final enemy’s defeat presentation holds gameplay while hit feedback animates.
+    DefeatHold,
     /// Gameplay waits while pause-enabled activation effects continue.
     TimedHold,
     Rescue(ActorId),
@@ -768,7 +770,10 @@ impl BattleClock {
     }
 
     pub fn feedback_paused(self) -> bool {
-        matches!(self, Self::Held | Self::TimedHold | Self::Rescue(_))
+        matches!(
+            self,
+            Self::Held | Self::DefeatHold | Self::TimedHold | Self::Rescue(_)
+        )
     }
 }
 
@@ -811,6 +816,10 @@ pub struct BattleFrame {
     pub cues: Vec<Cue>,
     /// Recognition precedes the shared world visit; results still keep stepping.
     pub recognized_result: Option<BattleResult>,
+    /// The party has entered the victory results scene.
+    pub victory_results_active: bool,
+    /// The final enemy's defeat presentation has begun and the battle result is still pending.
+    pub enemy_defeat_started: bool,
     /// Delivered once. Subsequent calls after an outcome are rejected.
     pub outcome: Option<BattleOutcome>,
 }
@@ -2909,6 +2918,9 @@ impl Battle {
                 .collect(),
             cues,
             recognized_result: self.terminal.result,
+            victory_results_active: self.victory_results_active(),
+            enemy_defeat_started: self.enemy_presentation.defeat_started
+                && self.terminal.result.is_none(),
             projectile_shadows: self
                 .projectiles
                 .values()

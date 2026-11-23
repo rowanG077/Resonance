@@ -364,6 +364,9 @@ impl Conditions {
                 .effective()
                 .intersects(ConditionSet::of(&[Quartz, Enchanted]))
     }
+    pub(crate) fn clear_stat_changes(&mut self) {
+        self.remove(STAT_CONDITIONS);
+    }
     pub(crate) fn clear_base(&mut self) -> bool {
         self.remove(self.base())
     }

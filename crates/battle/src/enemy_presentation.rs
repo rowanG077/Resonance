@@ -95,6 +95,7 @@ pub(crate) struct State {
     enemies: Vec<Enemy>,
     opening: Option<Opening>,
     hold: Option<Hold>,
+    pub(crate) defeat_started: bool,
     dissolve: u8,
     feedback: Option<UnisonFeedback>,
     generation: u64,
@@ -594,7 +595,7 @@ impl Battle {
             return Ok(true);
         }
         if let Some(hold) = self.enemy_presentation.hold.take() {
-            self.clock = BattleClock::Held;
+            self.clock = BattleClock::DefeatHold;
             self.enemy_presentation.hold = match hold {
                 Hold::Voice(0) => Some(Hold::Release),
                 Hold::Voice(ticks) => Some(Hold::Voice(ticks - 1)),
@@ -609,26 +610,36 @@ impl Battle {
             .actors
             .iter()
             .any(|actor| actor.side == Side::Enemy && actor.available());
-        let mut hold_ticks: Option<u16> = None;
+        if active {
+            self.enemy_presentation.defeat_started = false;
+        }
+        let unison_active = self.unison.active();
+        let mut voice_ticks: Option<u16> = None;
         for enemy in &mut self.enemy_presentation.enemies {
             if enemy.finished || self.actors[enemy.actor.index()].available() {
                 continue;
             }
             if active {
                 enemy.finished = true;
-            } else if enemy.disabled_ticks < DEFEAT_DELAY {
-                enemy.disabled_ticks += 1;
-            } else {
-                enemy.finished = true;
-                hold_ticks = Some(hold_ticks.unwrap_or(0).max(enemy.voice_ticks));
+                continue;
             }
+            self.enemy_presentation.defeat_started = !unison_active;
+            if enemy.disabled_ticks == DEFEAT_DELAY {
+                voice_ticks = Some(voice_ticks.unwrap_or(0).max(enemy.voice_ticks));
+            }
+            enemy.disabled_ticks = enemy.disabled_ticks.saturating_add(1);
+            // Unison keeps the HUD and gameplay until it returns. A defeat voice that
+            // started during the opener does not hold the subsequent victory transition.
+            enemy.finished = !unison_active && enemy.disabled_ticks > DEFEAT_DELAY;
         }
-        if let Some(ticks) = hold_ticks {
-            self.enemy_presentation.hold = Some(Hold::Voice(ticks));
+        if let Some(ticks) = voice_ticks {
             self.enemy_presentation
                 .feedback(ticks + DEFEAT_FEEDBACK_TAIL, 2, 176);
-            self.clock = BattleClock::Held;
-            return Ok(true);
+            if !unison_active {
+                self.enemy_presentation.hold = Some(Hold::Voice(ticks));
+                self.clock = BattleClock::DefeatHold;
+                return Ok(true);
+            }
         }
         Ok(false)
     }
@@ -886,21 +897,31 @@ mod tests {
         assert!(!battle.snapshot().enemy_presentation.unwrap().hide_party);
         battle.actors[1].availability = ActorAvailability::Dead;
         battle.actors[1].hp = 0;
-        for _ in 0..=DEFEAT_DELAY {
+        assert!(!battle.snapshot().enemy_defeat_started);
+        for _ in 0..DEFEAT_DELAY {
             assert_eq!(battle.recognize_result(), None);
-            battle.step(BattleInput::default())?;
+            let frame = battle.step(BattleInput::default())?;
+            assert!(frame.enemy_defeat_started);
+            assert_eq!(frame.clock, BattleClock::Running);
         }
+        assert_eq!(
+            battle.step(BattleInput::default())?.clock,
+            BattleClock::DefeatHold
+        );
         assert!(!battle.command_admission_allowed());
         assert!(battle.is_paused());
         let before = battle.snapshot().enemy_presentation;
-        battle.step(BattleInput {
+        let menu = battle.step(BattleInput {
             paused: true,
             ..Default::default()
         })?;
-        assert_eq!(battle.snapshot().enemy_presentation, before);
-        for _ in 0..definition.defeat.ticks + 2 {
+        assert_eq!(menu.clock, BattleClock::Held);
+        assert_eq!(menu.enemy_presentation, before);
+        for _ in 0..=definition.defeat.ticks {
             assert_eq!(battle.recognize_result(), None);
             let frame = battle.step(BattleInput::default())?;
+            assert!(frame.enemy_defeat_started);
+            assert_eq!(frame.clock, BattleClock::DefeatHold);
             assert!(
                 !frame
                     .cues
@@ -908,13 +929,17 @@ mod tests {
                     .any(|cue| matches!(cue, Cue::Voice { .. }))
             );
         }
+        assert_eq!(battle.recognize_result(), None);
+        let release = battle.step(BattleInput::default())?;
+        assert_eq!(release.clock, BattleClock::Running);
+        assert!(release.enemy_defeat_started);
         assert_eq!(battle.recognize_result(), Some(BattleResult::Victory));
 
         // A defeated boss with a surviving companion does not delay a later victory.
         let mut battle = prepared(true)?.finish()?;
         battle.actors[1].availability = ActorAvailability::Dead;
         battle.actors[1].hp = 0;
-        battle.step(BattleInput::default())?;
+        assert!(!battle.step(BattleInput::default())?.enemy_defeat_started);
         battle.actors[2].availability = ActorAvailability::Dead;
         battle.actors[2].hp = 0;
         assert_eq!(battle.recognize_result(), Some(BattleResult::Victory));
