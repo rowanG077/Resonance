@@ -1764,8 +1764,8 @@ impl Battle {
             && !self.terminal.ordinary_camera_finished
             && let Some(camera) = &mut self.camera
         {
-            if let Some(tick) = entry_tick.filter(|tick| *tick <= crate::prepare::ENTRY_PAN_UPDATES)
-            {
+            if let Some(tick) = entry_tick {
+                // The first actor update completes the pan before tracking starts.
                 camera.frame_entry(tick);
             } else {
                 camera.step(

@@ -175,24 +175,25 @@ impl Camera {
         self.spell = None;
         self.scene = None;
         self.distance_override = None;
-        let progress = f32::from(update) / f32::from(crate::prepare::ENTRY_PAN_UPDATES);
+        let progress = (f32::from(update) / f32::from(crate::prepare::ENTRY_PAN_UPDATES)).min(1.);
         self.pose.focus = [ENTRY_FOCUS_X * (1. - progress), FOCUS_HEIGHT, 0.];
         self.pose.pitch = BASE_PITCH + self.definition.stage_pitch;
         self.pose.yaw = VIEW_ANGLE;
         self.constrain_yaw();
         self.pose.radius = ENTRY_RADIUS;
         self.pending_radius = ENTRY_RADIUS;
-        let (sin, cos) = self.pose.yaw.to_radians().sin_cos();
-        let eye_height = if update == 0 {
-            FOCUS_HEIGHT
+        let eye = controlled_eye(self.pose);
+        if update == 0 {
+            self.pose.eye = eye;
+            self.pose.eye[1] += FOCUS_HEIGHT - EYE_HEIGHT;
         } else {
-            EYE_HEIGHT
-        };
-        self.pose.eye = [
-            self.pose.focus[0] + ENTRY_RADIUS * cos,
-            eye_height + ENTRY_RADIUS * self.pose.pitch.to_radians().sin(),
-            ENTRY_RADIUS * sin,
-        ];
+            self.approach_eye(eye);
+        }
+    }
+
+    fn approach_eye(&mut self, eye: [f32; 3]) {
+        let speed = EYE_SPEED + EYE_RESPONSE * distance::length(sub(eye, self.pose.eye));
+        approach_position(&mut self.pose.eye, eye, speed);
     }
 
     pub fn new(definition: CameraDefinition, actors: &[Actor], target: ActorId) -> Result<Self> {
@@ -494,8 +495,7 @@ impl Camera {
             desired.place_eye();
             desired.eye
         };
-        let eye_speed = EYE_SPEED + EYE_RESPONSE * distance::length(sub(eye, self.pose.eye));
-        approach_position(&mut self.pose.eye, eye, eye_speed);
+        self.approach_eye(eye);
         if let Some(shot) = &mut self.spell
             && shot.return_to(self.pose)
         {
