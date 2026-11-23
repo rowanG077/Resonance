@@ -345,7 +345,8 @@ mod tests {
     #[ignore = "requires the dialogue font"]
     fn opening_names_group_the_starting_enemies_and_leave_in_order() -> Result<()> {
         let font = fixtures::dialogue_font()?;
-        let actor = fixtures::actor(Default::default());
+        let mut actor = fixtures::actor(Default::default());
+        actor.side = Side::Enemy;
         let mut enemies = Vec::new();
         for (slot, (name, group)) in [
             ("Black Bat", 0),
