@@ -218,6 +218,11 @@ impl Enemy {
     }
 }
 impl Actor {
+    /// Simulation slots retain their order when an actor is replaced.
+    pub fn update_order(&self) -> usize {
+        self.update_order
+    }
+
     pub(crate) fn particle_blend(&self) -> Option<crate::effect::Blend> {
         self.blend.and_then(crate::effect::Blend::particle_override)
     }
