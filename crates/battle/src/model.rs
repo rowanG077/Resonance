@@ -765,6 +765,8 @@ impl Clock {
 #[derive(Debug, Clone)]
 struct AnimatedPose {
     clock: Clock,
+    /// Joints whose simulation uses the rest pose when a clip omits its track.
+    secondary_bones: Arc<[bool]>,
     /// Last unblended local pose; interrupted blends retain the same baseline.
     blend_from: Vec<pose::BonePose>,
     local: Vec<pose::BonePose>,
@@ -772,13 +774,23 @@ struct AnimatedPose {
 }
 
 impl AnimatedPose {
-    fn new(skeleton: &Skeleton, motion: &Motion, play: Playback) -> Result<Self> {
+    fn new(
+        skeleton: &Skeleton,
+        motion: &Motion,
+        play: Playback,
+        chains: &[resonance_content::secondary_motion::Chain],
+    ) -> Result<Self> {
         let mut clock = Clock::new(play, motion.duration_frames, 0)?;
         // Initial phase is not the loop origin (entry randomization supplies it).
         clock.loop_start = 0.;
         let local = pose::sample(skeleton, motion, play.frame)?;
+        let mut secondary_bones = vec![false; local.len()];
+        for joint in chains.iter().flat_map(|chain| &chain.joints) {
+            secondary_bones[usize::from(joint.node)] = true;
+        }
         Ok(Self {
             clock,
+            secondary_bones: secondary_bones.into(),
             blend_from: local.clone(),
             local,
             pending_sample: false,
@@ -884,6 +896,10 @@ impl AnimatedPose {
         blending: bool,
     ) -> Result<pose::BonePose> {
         let mut sampled = pose::sample_bone(skeleton.bones[bone].bind, track, frame)?;
+        if track.is_none() && self.secondary_bones[bone] {
+            // The solver needs its rest target from the first sampled blend frame.
+            return Ok(sampled);
+        }
         if blending {
             sampled = if track.is_some() {
                 pose::BonePose::complete(self.blend_from[bone].value().mix(sampled.value(), weight))
@@ -1080,7 +1096,12 @@ impl Model {
         definition.validate_bindings()?;
         let play = definition.initial;
         let motion = &definition.motions[&play.clip];
-        let animation = AnimatedPose::new(&definition.skeleton, motion, play)?;
+        let animation = AnimatedPose::new(
+            &definition.skeleton,
+            motion,
+            play,
+            &definition.secondary_motion,
+        )?;
         let mut model = Self {
             blink_ticks: (actor_id.index() as u32 * BLINK_STAGGER_TICKS) % BLINK_PERIOD_TICKS,
             weapons: Vec::new(),
@@ -1244,6 +1265,7 @@ impl Model {
                 .context("empty partial motion")?,
             bones,
             animation: AnimatedPose {
+                secondary_bones: self.animation.secondary_bones.clone(),
                 clock,
                 blend_from,
                 local,
