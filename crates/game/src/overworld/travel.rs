@@ -330,7 +330,7 @@ impl Travel {
                 self.state.map_display = self.state.map_display.next();
             }
             let from = self.state.mount;
-            self.actions(input, context, rules, &mut cues)?;
+            self.actions(input, context, rules, &query, &mut cues)?;
             // Check before movement so crossing into a locked region starts
             // dismounting on the following update.
             forced_dismount = self.state.mount == Mount::Noishe
@@ -413,12 +413,16 @@ impl Travel {
         input: Input,
         context: &Context<'_>,
         rules: &Rules,
+        query: &collision::Query<'_>,
         cues: &mut Vec<Cue>,
     ) -> Result<()> {
         if input.vehicle {
             match self.state.mount {
                 Mount::Rheairds => {
-                    if context.landing_clear && rules.can_land(self.state.world, self.surface) {
+                    if context.landing_clear
+                        && rules.can_land(self.state.world, self.surface)
+                        && query.has_clearance(collision::Mode::Ground)
+                    {
                         self.begin(Mount::Foot, Phase::Flight, cues)?;
                     } else {
                         cues.push(Cue::Denied);

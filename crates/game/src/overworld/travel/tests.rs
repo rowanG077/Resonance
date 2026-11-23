@@ -622,6 +622,22 @@ fn rheairds_require_ownership_and_permission_and_land_only_on_clear_ground() -> 
         travel.step(board, &context, &terrain(TerrainSurface::Water), &rules)?,
         [Cue::Denied]
     );
+    // The center is grass but the player's footprint extends past the cliff.
+    let cliff = rectangle(TerrainSurface::Grassland, [-200.; 2], [25., 200.], 0.);
+    let ledge = collision::Terrain::new(
+        [(
+            travel.state.position.tile(),
+            collision::Mesh::new(&[cliff])?,
+        )],
+        tables(),
+    )?;
+    let center = ledge.query(travel.state.position, travel.parameters.collision.radius)?;
+    assert_eq!(
+        center.surface(collision::Mode::Ground).map(|s| s.kind),
+        Some(TerrainSurface::Grassland)
+    );
+    assert_eq!(travel.step(board, &context, &ledge, &rules)?, [Cue::Denied]);
+    assert_eq!(travel.state.mount, Mount::Rheairds);
     travel.step(board, &context, &ground, &rules)?;
     assert_eq!(travel.state.mount, Mount::Foot);
     assert_eq!(travel.displayed_mount(), Mount::Rheairds);
