@@ -818,7 +818,7 @@ pub struct BattleFrame {
     pub recognized_result: Option<BattleResult>,
     /// The party has entered the victory results scene.
     pub victory_results_active: bool,
-    /// The final enemy's defeat presentation has begun, including its lead-in before the voice hold.
+    /// The final enemy's defeat presentation has begun and the battle result is still pending.
     pub enemy_defeat_started: bool,
     /// Delivered once. Subsequent calls after an outcome are rejected.
     pub outcome: Option<BattleOutcome>,
@@ -2919,7 +2919,8 @@ impl Battle {
             cues,
             recognized_result: self.terminal.result,
             victory_results_active: self.victory_results_active(),
-            enemy_defeat_started: self.enemy_presentation.defeat_started,
+            enemy_defeat_started: self.enemy_presentation.defeat_started
+                && self.terminal.result.is_none(),
             projectile_shadows: self
                 .projectiles
                 .values()

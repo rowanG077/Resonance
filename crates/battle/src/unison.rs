@@ -1005,6 +1005,7 @@ impl State {
         if !battle.prepared.unison_available
             || battle.unison_gauge != crate::MAX_UNISON_GAUGE
             || battle.phase() != crate::BattlePhase::Combat
+            || battle.enemy_presentation.defeat_started
             || battle.is_paused()
             || !owner.available()
             || owner.airborne()

@@ -610,8 +610,11 @@ impl Battle {
             .actors
             .iter()
             .any(|actor| actor.side == Side::Enemy && actor.available());
-        self.enemy_presentation.defeat_started = false;
-        let mut hold_ticks: Option<u16> = None;
+        if active {
+            self.enemy_presentation.defeat_started = false;
+        }
+        let unison_active = self.unison.active();
+        let mut voice_ticks: Option<u16> = None;
         for enemy in &mut self.enemy_presentation.enemies {
             if enemy.finished || self.actors[enemy.actor.index()].available() {
                 continue;
@@ -620,20 +623,23 @@ impl Battle {
                 enemy.finished = true;
                 continue;
             }
-            self.enemy_presentation.defeat_started = true;
-            if enemy.disabled_ticks < DEFEAT_DELAY {
-                enemy.disabled_ticks += 1;
-            } else {
-                enemy.finished = true;
-                hold_ticks = Some(hold_ticks.unwrap_or(0).max(enemy.voice_ticks));
+            self.enemy_presentation.defeat_started = !unison_active;
+            if enemy.disabled_ticks == DEFEAT_DELAY {
+                voice_ticks = Some(voice_ticks.unwrap_or(0).max(enemy.voice_ticks));
             }
+            enemy.disabled_ticks = enemy.disabled_ticks.saturating_add(1);
+            // Unison keeps the HUD and gameplay until it returns. A defeat voice that
+            // started during the opener does not hold the subsequent victory transition.
+            enemy.finished = !unison_active && enemy.disabled_ticks > DEFEAT_DELAY;
         }
-        if let Some(ticks) = hold_ticks {
-            self.enemy_presentation.hold = Some(Hold::Voice(ticks));
+        if let Some(ticks) = voice_ticks {
             self.enemy_presentation
                 .feedback(ticks + DEFEAT_FEEDBACK_TAIL, 2, 176);
-            self.clock = BattleClock::DefeatHold;
-            return Ok(true);
+            if !unison_active {
+                self.enemy_presentation.hold = Some(Hold::Voice(ticks));
+                self.clock = BattleClock::DefeatHold;
+                return Ok(true);
+            }
         }
         Ok(false)
     }
