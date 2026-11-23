@@ -276,13 +276,11 @@ fn fail(state: &mut Selected, key: Key, error: anyhow::Error) {
 }
 
 #[cfg(test)]
-pub(crate) fn retained(world: &World) -> usize {
+pub(crate) fn retains_costume(world: &World, character: u8, costume: u8) -> bool {
     world
         .resource::<Selected>()
         .retained
-        .keys()
-        .filter(|key| matches!(key, Key::Costume(..)))
-        .count()
+        .contains_key(&Key::Costume(character, costume))
 }
 
 #[cfg(test)]

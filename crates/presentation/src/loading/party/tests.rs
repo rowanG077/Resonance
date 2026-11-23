@@ -37,6 +37,7 @@ fn only_equipped_visual_items_and_selected_costumes_are_retained() -> Result<()>
         [
             Key::Costume(1, 1),
             Key::Costume(2, 2),
+            Key::Costume(7, 3),
             Key::Equipment(1),
             Key::Equipment(2),
             Key::Equipment(4),

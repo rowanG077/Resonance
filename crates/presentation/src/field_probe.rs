@@ -74,7 +74,7 @@ pub fn capture_field(root: &Path, output: &Path, spec: &FieldCapture) -> Result<
 
 /// Record the named scenario images and the real native audio between them.
 pub fn capture_field_sequence(root: &Path, output: &Path, spec: &FieldCapture) -> Result<()> {
-    saves::record_app(spec.app(root, output)?, output, &spec.scenario, false)
+    saves::record_app(&mut spec.app(root, output)?, output, &spec.scenario, false)
 }
 
 #[cfg(test)]

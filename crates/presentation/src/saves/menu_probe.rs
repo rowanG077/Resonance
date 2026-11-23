@@ -9,7 +9,7 @@ pub fn run_menu_probe(root: &Path, save: &Path, output: &Path) -> Result<()> {
     else {
         anyhow::bail!("probe requires a field save");
     };
-    let app = harness::app(root, save, output, crate::Resolution::default())?;
+    let mut app = harness::app(root, save, output, crate::Resolution::default())?;
     let mut steps = vec![
         title_probe::field(expected.map_id),
         Step::wait(Event::SavePoint, 1),
@@ -100,7 +100,7 @@ pub fn run_menu_probe(root: &Path, save: &Path, output: &Path) -> Result<()> {
     steps.push(slots(SlotMode::Save, SlotState::List));
     steps.push(menu(MenuPage::Save));
     steps.push(Step::capture("save-after-load"));
-    replay::record_app(app, output, &CheckpointReplay::new(steps), false)?;
+    replay::record_app(&mut app, output, &CheckpointReplay::new(steps), false)?;
     let report: serde_json::Value =
         serde_json::from_slice(&fs::read(output.join("recording.json"))?)?;
     let baseline = capture_from(&report, "baseline")?;

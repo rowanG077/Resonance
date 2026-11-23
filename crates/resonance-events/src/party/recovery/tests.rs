@@ -17,6 +17,56 @@ fn load(value: Value, data: &SessionData) -> anyhow::Result<Party> {
 }
 
 #[test]
+fn preseas_early_outfit_is_restored_until_her_recovery() -> anyhow::Result<()> {
+    use resonance_content::{
+        menu_data::{Costume, Title},
+        overworld::PartyCharacter,
+    };
+
+    let mut data = super::super::tests::data();
+    let mut menus = super::super::tests::technique_menu();
+    let index = PartyCharacter::Presea.index();
+    menus.titles[index].push(Title {
+        growth: [0; 7],
+        costume: Some(Costume::Standard),
+    });
+    data.rules = Some(std::sync::Arc::new(menus));
+    let mut legacy = saved(&data);
+    assert_eq!(legacy["party"]["members"][index]["costume"], 3);
+    legacy["party"]
+        .as_object_mut()
+        .unwrap()
+        .remove("story_costumes_initialized");
+
+    legacy["party"]["members"][index]["costume"] = json!(0);
+    let mut restored = load(legacy.clone(), &data)?;
+    assert_eq!(restored.members[index].costume, 3);
+
+    // A script may deliberately choose zero after the migration.
+    restored.members[index].costume = 0;
+    let current = serde_json::to_value(SavedProgress::new(restored))?;
+    assert_eq!(load(current, &data)?.members[index].costume, 0);
+
+    for (recovered, costume, owns_standard, expected) in [
+        (true, 0, false, 0),
+        (false, 2, false, 2),
+        (false, 0, true, 0),
+    ] {
+        let mut legacy = legacy.clone();
+        legacy["party"]["members"][index]["costume"] = json!(costume);
+        if owns_standard {
+            legacy["party"]["members"][index]["titles"] = json!([1, 2]);
+        }
+        if recovered {
+            legacy["event_flags"] = json!([28]);
+        }
+        let restored = load(legacy, &data)?;
+        assert_eq!(restored.members[index].costume, expected);
+    }
+    Ok(())
+}
+
+#[test]
 fn unavailable_artes_and_their_references_are_ignored_on_load() -> anyhow::Result<()> {
     use resonance_content::input::{ArteBinding, InputChord, PhysicalInput};
     let data = super::super::tests::data();

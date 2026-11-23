@@ -8,6 +8,23 @@ pub(super) use numbers::{array, counts, number};
 mod tests;
 
 impl Party {
+    /// Apply the one-time legacy outfit correction while preserving other saved values.
+    pub fn recover_story_costumes(&mut self, data: &SessionData, flags: &BTreeSet<u16>) {
+        if self.story_costumes_initialized {
+            return;
+        }
+        // Presea's recovery scene sets her story flag and changes her costume
+        // together. Preserve any selected outfit unlocked by a title.
+        let presea = resonance_content::overworld::PartyCharacter::Presea;
+        if let Some(member) = self.members.get_mut(presea.index())
+            && member.costume == 0
+            && !member.owns_selected_costume(data, presea.index())
+        {
+            member.costume = resonance_content::appearance::story_costume(presea as u32, 0, flags);
+        }
+        self.story_costumes_initialized = true;
+    }
+
     /// Clamp edited save values to gameplay limits, then validate the result.
     /// Drop unavailable references and reset selections that cannot be used.
     pub fn recover(&mut self, data: &SessionData) -> anyhow::Result<()> {
