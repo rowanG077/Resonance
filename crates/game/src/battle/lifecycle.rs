@@ -141,9 +141,15 @@ impl Lifecycle {
         }
     }
 
-    /// Retain the entry backing through activation and fade it into battle.
+    /// Keep a completed field cover through activation and fade it into combat.
     pub fn with_entry_color(mut self, color: [u8; 3]) -> Self {
         self.entry_color = color;
+        self
+    }
+
+    /// A retained-screen shatter reveals the opening pose without another cover.
+    pub fn without_entry_fade(mut self) -> Self {
+        self.entry_alpha = 0;
         self
     }
 

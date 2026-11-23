@@ -2,9 +2,7 @@
 use super::*;
 use crate::gpu_prepare as gpu;
 use crate::native::MeshMaterial2d;
-use bevy::{
-    asset::RenderAssetUsages, color::ColorToPacked, image::ImageSampler, mesh::PrimitiveTopology,
-};
+use bevy::{asset::RenderAssetUsages, image::ImageSampler, mesh::PrimitiveTopology};
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 const LAYER: usize = 25;
@@ -89,10 +87,6 @@ impl State {
 
     pub(super) fn reveal_ready(&self) -> bool {
         self.age.is_some_and(|age| age >= REVEAL_TICK)
-    }
-
-    pub(super) fn backing_color(&self) -> [u8; 3] {
-        self.crack_color.to_linear().to_u8_array_no_alpha()
     }
 
     pub(super) fn finished(&self) -> bool {
@@ -394,13 +388,11 @@ fn render(
         let battle_frame = owner.as_ref().is_some_and(|owner| {
             matches!(&owner.phase, Phase::Scene(scene) if scene.state != SceneState::Warming)
         });
-        camera.clear_color = if !battle_frame {
-            // Keep the backing visible until the battle has its own cover.
-            ClearColorConfig::Custom(state.crack_color)
-        } else {
-            // Its opaque entry cover now supplies the same backing. Submit the
-            // held battlefield so the GPU can finish warming even at age zero.
+        camera.clear_color = if battle_frame {
+            // Submit the battlefield under the fragments, including its first GPU frame.
             ClearColorConfig::None
+        } else {
+            ClearColorConfig::Custom(state.crack_color)
         };
     }
     // Rebuild only once the pieces start moving.
@@ -573,16 +565,9 @@ mod tests {
 
     #[test]
     fn captured_image_cracks_then_holds_before_motion() {
-        let mut shatter = State::captured_for_test();
-        for (formations, color) in [
-            (1, [255; 3]),
-            (2, [255, 128, 0]),
-            (3, [255, 0, 0]),
-            (10, [255, 0, 0]),
-        ] {
-            shatter.crack_color = crack_color(formations);
-            assert_eq!(shatter.backing_color(), color);
-        }
+        assert_eq!(crack_color(1), Color::WHITE);
+        assert_eq!(crack_color(2), Color::linear_rgb(1., 0.5, 0.));
+        assert_eq!(crack_color(3), crack_color(10));
         let pieces = pieces(7);
         let area: f32 = pieces
             .iter()

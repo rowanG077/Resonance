@@ -987,11 +987,13 @@ fn construct_scene(world: &mut World, package: Package, target: RenderTarget) ->
 
     let core = prepared.core;
     let session = world.resource::<super::new_game::Session>();
-    let entry_color = world.get_resource::<transition::State>().map_or_else(
-        || transition::entry_color(session.is_field().then_some(&session.events().world)),
-        transition::State::backing_color,
-    );
-    let mut lifecycle = prepared.lifecycle.with_entry_color(entry_color);
+    let mut lifecycle = if world.contains_resource::<transition::State>() {
+        prepared.lifecycle.without_entry_fade()
+    } else {
+        prepared.lifecycle.with_entry_color(transition::entry_color(
+            session.is_field().then_some(&session.events().world),
+        ))
+    };
     let memory = world.resource::<MenuMemory>();
     lifecycle.restore_menu_memory(resonance_game::battle::command::Memory {
         inventory: memory.inventory,
