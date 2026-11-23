@@ -434,6 +434,7 @@ pub(crate) fn resolve_arte_bindings<'a, 'b, 'i>(
     port: usize,
     physical: &PhysicalState,
     menu_inputs: impl Iterator<Item = &'i PhysicalInput> + Clone,
+    previously_active: &BTreeSet<(usize, usize)>,
     map: &Keymap,
     actors: impl IntoIterator<
         Item = (
@@ -456,6 +457,22 @@ pub(crate) fn resolve_arte_bindings<'a, 'b, 'i>(
                     && held.iter().any(|chosen| map.same_arte_input(input, chosen))
             })
         });
+    // A new combat button can use a direction already held when the menu closed.
+    // Keep menu buttons excluded, even in chords with several buttons.
+    let with_menu_directions = eligible.as_ref().map(|eligible| {
+        let mut inputs = eligible.clone();
+        inputs.extend(
+            held.iter()
+                .filter(|input| {
+                    map.direction(input).is_some()
+                        && !eligible
+                            .iter()
+                            .any(|other| map.same_arte_input(input, other))
+                })
+                .cloned(),
+        );
+        inputs
+    });
     let eligible = eligible.as_ref().unwrap_or(&held);
     let mut matches = Vec::new();
     let mut active = BTreeSet::new();
@@ -470,12 +487,24 @@ pub(crate) fn resolve_arte_bindings<'a, 'b, 'i>(
             continue;
         }
         for (index, binding) in bindings.iter().enumerate() {
-            if binding.chord.validate(map).is_ok() && binding.chord.matches(eligible, map) {
+            // A fresh button can complete the chord with a menu direction.
+            // Keep it active while held so changing direction aliases cannot repeat it.
+            let usable = with_menu_directions
+                .as_ref()
+                .filter(|_| {
+                    binding.chord.0.iter().any(|input| {
+                        map.direction(input).is_none()
+                            && (physical.pressed.contains(input)
+                                || previously_active.contains(&(member, index)))
+                    })
+                })
+                .unwrap_or(eligible);
+            if binding.chord.validate(map).is_ok() && binding.chord.matches(usable, map) {
                 active.insert((member, index));
                 if !binding.chord.matches_directions(&held, map) {
                     continue;
                 }
-                let inputs = binding.chord.held_inputs(eligible, map);
+                let inputs = binding.chord.held_inputs(usable, map);
                 consumed.extend(inputs.iter().cloned());
                 matches.push(ArteMatch {
                     actor: actor_id,
@@ -974,6 +1003,7 @@ mod tests {
                     0,
                     &physical,
                     std::iter::empty(),
+                    &BTreeSet::new(),
                     &map,
                     [(
                         ActorId::from_index(0).unwrap(),
@@ -1020,6 +1050,7 @@ mod tests {
                 port,
                 &physical,
                 std::iter::empty(),
+                &BTreeSet::new(),
                 &Keymap::default(),
                 [
                     (
@@ -1052,6 +1083,7 @@ mod tests {
                 ..Default::default()
             },
             std::iter::empty(),
+            &BTreeSet::new(),
             &Keymap::default(),
             [(
                 ActorId::from_index(0).unwrap(),
@@ -1100,6 +1132,7 @@ mod tests {
                 ..Default::default()
             },
             std::iter::empty(),
+            &BTreeSet::new(),
             &Keymap::default(),
             actors,
         );
