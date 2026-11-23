@@ -1101,9 +1101,7 @@ impl EventRuntime {
                     .as_ref()
                     .is_some_and(|camera| !camera.enemy_active(actor.position));
             let ambient = actor.step_autonomy(
-                self.world.input_enabled
-                    && !offscreen_enemy
-                    && !(encounter_cooldown && actor.enemy.is_some()),
+                self.world.input_enabled && !offscreen_enemy,
                 conversation_active,
                 player_position,
                 &mut || crate::world::random(&mut self.world.random_state),
@@ -1130,6 +1128,10 @@ impl EventRuntime {
             let battle_space = self.world.battle_event.is_some();
             if !ambient.movement_paused {
                 actor.step_motion(battle_space);
+            }
+            // Encounter grace blocks roaming and scripted displacement while enemies turn and animate.
+            if encounter_cooldown && actor.enemy.is_some() {
+                actor.position = previous;
             }
             resolve(&prepared, *id, actor, previous);
             actor.step_heading(

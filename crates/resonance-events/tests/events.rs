@@ -6992,6 +6992,7 @@ fn sheena_personal_delays_contact_without_stunning_or_dispatching_the_enemy() {
     )]);
     let child = script(&[(Call::SetEventBit, &[123]), (Call::YieldCommand, &[0, 2])]);
     let mut events = runtime(program_kind(&main, &child, 0), resources, world);
+    let contact_position = events.world.actors[&90].position;
     assert!(!events.contact_enemy(90).unwrap());
     assert!(events.player_has_control());
     let enemy = events.world.actors[&90].enemy.as_ref().unwrap();
@@ -7014,11 +7015,30 @@ fn sheena_personal_delays_contact_without_stunning_or_dispatching_the_enemy() {
 
     // Contact stays suppressed through tick 29 even after Sheena leaves the formation.
     steps(&mut events, 20);
+    let actor = &events.world.actors[&90];
+    assert_eq!(actor.position, contact_position);
+    let walk = actor.animation.as_ref().unwrap();
+    assert_eq!(walk.slot, animation::slot::WALK);
+    assert!(walk.elapsed(events.tick(), 0) > 0.);
     assert!(!events.contact_enemy(90).unwrap());
+
+    // On the last tick of grace the enemy can turn toward its scripted destination.
+    let [x, y, z] = contact_position;
+    let destination = [x + 2., y, z];
+    let actor = events.world.actors.get_mut(&90).unwrap();
+    actor.face(0.);
+    actor.motion = Some(ActorMotion {
+        target: destination,
+        speed: 2.,
+    });
     events.step().unwrap();
+    let actor = &events.world.actors[&90];
+    assert_eq!(actor.position, contact_position);
+    assert!(actor.heading > 0. && actor.heading <= 90.);
     assert!(!events.world.event_flags.contains(&123));
     assert!(events.contact_enemy(90).unwrap());
     events.step().unwrap();
+    assert_eq!(events.world.actors[&90].position, destination);
     assert!(events.world.event_flags.contains(&123));
 }
 
