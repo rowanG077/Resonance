@@ -99,8 +99,11 @@ impl Battle {
 
     pub fn refresh_strategy(&mut self, rows: &[StrategyRefresh]) -> Result<()> {
         ensure!(
-            self.phase() == crate::BattlePhase::Combat,
-            "strategy refresh requires active combat"
+            matches!(
+                self.phase(),
+                crate::BattlePhase::Entry | crate::BattlePhase::Combat
+            ),
+            "strategy refresh requires battle entry or combat"
         );
         let party_count = self.actors.iter().filter(|a| a.side == Side::Party).count();
         ensure!(
