@@ -1854,6 +1854,7 @@ fn render_hud(
                 order_revision: scene.lifecycle.order_revision(),
                 order_label,
             },
+            time.update,
             commands,
         ),
     )?;

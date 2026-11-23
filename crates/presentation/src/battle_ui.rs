@@ -615,6 +615,7 @@ impl Artwork {
         &mut self,
         frame: &BattleFrame,
         input: RibbonInput<'_>,
+        opening_fraction: f32,
         commands: &mut Commands,
     ) -> Result<()> {
         let batches = if frame.summon.as_ref().is_some_and(|summon| summon.hide_hud)
@@ -625,8 +626,14 @@ impl Artwork {
         {
             std::array::from_fn(|_| Batch::default())
         } else {
-            self.ribbon_motion
-                .draw(input, &self.font, &self.combat.enemies, frame)?
+            self.ribbon_motion.draw(
+                input,
+                &self.font,
+                &self.combat.enemies,
+                frame,
+                opening_fraction,
+                self.resolution.ui_rect(),
+            )?
         };
         for (layer, batch) in self.ui.ribbons.iter_mut().zip(batches) {
             layer.upload(batch, commands)?;
