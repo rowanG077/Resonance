@@ -1,5 +1,6 @@
 //! Numbered scenes combine camera tracks, baked actor motion and UV controllers.
 use super::*;
+use resonance_content::overworld::CinematicUv;
 use resonance_game::overworld::cinematic::Playback;
 
 #[cfg(test)]
@@ -70,7 +71,7 @@ pub(super) fn opacity(playback: &Playback, actor: u8) -> f32 {
             .map_or(255, |window| window.alpha(playback.ticks())),
     ) / 255.
 }
-pub(super) fn uv(playback: &Playback, actor: u8, texture: usize, presentation_tick: u32) -> Vec2 {
+fn uv_track(playback: &Playback, actor: u8, texture: usize) -> Option<&CinematicUv> {
     playback
         .definition
         .presentation
@@ -78,7 +79,12 @@ pub(super) fn uv(playback: &Playback, actor: u8, texture: usize, presentation_ti
         .uv
         .iter()
         .find(|track| track.animation.texture == texture)
-        .map_or(Vec2::ZERO, |track| {
-            Vec2::from_array(track.offset(playback.ticks(), presentation_tick))
-        })
+}
+pub(super) fn uv_scrolls(playback: &Playback, actor: u8, texture: usize) -> bool {
+    uv_track(playback, actor, texture).is_some_and(|track| track.animation.is_scroll())
+}
+pub(super) fn uv(playback: &Playback, actor: u8, texture: usize, presentation_tick: u32) -> Vec2 {
+    uv_track(playback, actor, texture).map_or(Vec2::ZERO, |track| {
+        Vec2::from_array(track.offset(playback.ticks(), presentation_tick))
+    })
 }

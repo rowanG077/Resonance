@@ -3,30 +3,23 @@ use resonance_content::{CameraKey, TextureAnimation, overworld::*};
 
 #[test]
 fn prepared_actor_tracks_control_layers_materials_opacity_and_uv_clocks() -> Result<()> {
-    let actors = [
-        (1, CinematicActor::default()),
-        (
-            2,
-            CinematicActor {
-                background: true,
-                depth_write: Some(false),
-                depth_test: Some(false),
-                blend: Some(CinematicBlend::Additive),
-                opacity: Some(CinematicOpacity { begin: 1, end: 4 }),
-                uv: vec![CinematicUv {
-                    clock: CinematicClock::Presentation,
-                    animation: TextureAnimation {
-                        interpolation: resonance_content::TextureInterpolation::Step,
-                        texture: 0,
-                        delay_ticks: 0,
-                        loop_start: 0,
-                        offsets: vec![[0., 0.], [0.5, 0.]],
-                    },
-                }],
+    let actor = CinematicActor {
+        background: true,
+        depth_write: Some(false),
+        depth_test: Some(false),
+        blend: Some(CinematicBlend::Additive),
+        opacity: Some(CinematicOpacity { begin: 1, end: 4 }),
+        uv: vec![CinematicUv {
+            clock: CinematicClock::Presentation,
+            animation: TextureAnimation {
+                interpolation: resonance_content::TextureInterpolation::Scroll,
+                texture: 0,
+                delay_ticks: 0,
+                loop_start: 0,
+                offsets: vec![[0., 0.], [0.5, 0.]],
             },
-        ),
-    ]
-    .into();
+        }],
+    };
     let part = resonance_content::ScenePart {
         resource: 0,
         mesh: "fixture/model.glb".into(),
@@ -63,7 +56,7 @@ fn prepared_actor_tracks_control_layers_materials_opacity_and_uv_clocks() -> Res
             initial_audio: vec![],
             audio: vec![],
             end_audio: vec![],
-            actors,
+            actors: [(2, actor)].into(),
         },
     };
     let mut material = TitleSurface {
@@ -96,6 +89,8 @@ fn prepared_actor_tracks_control_layers_materials_opacity_and_uv_clocks() -> Res
             heading: 0.,
         },
     )?;
+    assert!(!uv_scrolls(&playback, 1, 0));
+    assert!(uv_scrolls(&playback, 2, 0));
     assert_eq!(uv(&playback, 2, 0, 7), Vec2::new(0.5, 0.));
     assert_eq!(uv(&playback, 2, 1, 7), Vec2::ZERO);
     let mut audio = vec![];

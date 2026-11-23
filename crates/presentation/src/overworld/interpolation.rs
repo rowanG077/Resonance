@@ -101,13 +101,11 @@ pub(super) fn scroll(
             .iter()
             .find(|a| a.texture == texture)
             .is_some_and(|a| a.is_scroll()),
-        Model::Cinematic(actor) => scene.session.cinematic.as_ref().is_some_and(|c| {
-            c.definition.presentation.actors[&actor]
-                .uv
-                .iter()
-                .find(|a| a.animation.texture == texture)
-                .is_some_and(|a| a.animation.is_scroll())
-        }),
+        Model::Cinematic(actor) => scene
+            .session
+            .cinematic
+            .as_ref()
+            .is_some_and(|playback| cinematic::uv_scrolls(playback, actor, texture)),
         Model::Marker(17) => true,
         Model::Actor(effects::PORTAL_MODEL) => matches!(texture, 1 | 2),
         Model::Actor(effects::BARRIER_MODEL) => texture == 0,
