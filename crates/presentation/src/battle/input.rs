@@ -770,6 +770,7 @@ pub(super) fn gather(
                 index,
                 &physical,
                 controls.menu_inputs(index),
+                &controls.held_bindings,
                 map,
                 scene
                     .core
@@ -914,6 +915,7 @@ mod tests {
             0,
             &physical,
             controls.menu_inputs(0),
+            &controls.held_bindings,
             map,
             [(ActorId::from_index(0).unwrap(), &actor, 0, bindings)],
         );
@@ -991,44 +993,52 @@ mod tests {
         assert_eq!(fresh.assigned_artes.len(), 1);
     }
     #[test]
-    fn neither_half_of_an_arte_shortcut_can_carry_over_from_the_menu() {
-        let bindings = [binding(&["KeyX", "KeyD"])];
-        for (menu_key, combat_key, fresh_key) in [
-            (KeyCode::KeyX, KeyCode::KeyD, KeyCode::KeyX),
-            (KeyCode::KeyD, KeyCode::KeyX, KeyCode::KeyD),
-            // D stays down while the player uses an equivalent arrow key.
-            (KeyCode::KeyD, KeyCode::KeyX, KeyCode::ArrowRight),
-        ] {
-            let mut controls = Controls::default();
-            let mut keys = ButtonInput::default();
-            keys.press(menu_key);
-            routed_frame(&mut controls, &mut keys, &bindings, false);
-            keys.press(KeyCode::Escape);
-            let closing = routed_frame(&mut controls, &mut keys, &bindings, false);
-            assert_eq!(closing.slots[0].menu, Some(MenuAction::Cancel));
-            keys.release(KeyCode::Escape);
-            keys.press(combat_key);
-            let resumed = routed_frame(&mut controls, &mut keys, &bindings, true);
-            assert!(resumed.assigned_artes.is_empty());
-            assert!(resumed.slots[0].stick[0] > 0);
+    fn a_menu_chord_needs_a_fresh_combat_input() {
+        let bindings = [binding(&["Escape", "KeyD"])];
+        let mut controls = Controls::default();
+        let mut keys = ButtonInput::default();
+        keys.press(KeyCode::Escape);
+        keys.press(KeyCode::KeyD);
+        let closing = routed_frame(&mut controls, &mut keys, &bindings, false);
+        assert_eq!(closing.slots[0].menu, Some(MenuAction::Cancel));
+        keys.press(KeyCode::ArrowRight);
+        let resumed = routed_frame(&mut controls, &mut keys, &bindings, true);
+        assert!(resumed.assigned_artes.is_empty());
+        assert!(resumed.slots[0].stick[0] > 0);
+        keys.release(KeyCode::ArrowRight);
+        keys.release(KeyCode::Escape);
+        keys.press(KeyCode::Escape);
+        let fresh = routed_frame(&mut controls, &mut keys, &bindings, true);
+        assert_eq!(fresh.assigned_artes.len(), 1);
 
-            if fresh_key == menu_key {
-                keys.release(menu_key);
-            }
-            keys.press(fresh_key);
-            let fresh = routed_frame(&mut controls, &mut keys, &bindings, true);
-            assert_eq!(fresh.assigned_artes.len(), 1);
-        }
+        // Switching to an eligible alias cannot repeat the arte while Escape stays held.
+        routed_frame(&mut controls, &mut keys, &bindings, true);
+        keys.press(KeyCode::ArrowRight);
+        let held = routed_frame(&mut controls, &mut keys, &bindings, true);
+        assert!(held.assigned_artes.is_empty());
+
+        // Escape now comes from combat. A fresh alias for the menu direction
+        // can finish the chord even while the original movement key stays held.
+        keys.release(KeyCode::ArrowRight);
+        keys.release(KeyCode::KeyD);
+        routed_frame(&mut controls, &mut keys, &bindings, true);
+        keys.press(KeyCode::KeyD);
+        routed_frame(&mut controls, &mut keys, &bindings, false);
+        let resumed = routed_frame(&mut controls, &mut keys, &bindings, true);
+        assert!(resumed.assigned_artes.is_empty());
+        keys.press(KeyCode::ArrowRight);
+        let fresh = routed_frame(&mut controls, &mut keys, &bindings, true);
+        assert_eq!(fresh.assigned_artes.len(), 1);
     }
 
     #[test]
-    fn a_menu_stick_tilt_rearms_after_centering() {
+    fn a_fresh_arte_button_uses_a_stick_held_across_menu_close() {
         use crate::input::PhysicalState;
         use resonance_content::input::{ArteBinding, AxisDirection, InputChord, Keymap};
 
         let map = Keymap::default();
         let right = PhysicalInput::Axis(AxisDirection::LeftRight);
-        let button = PhysicalInput::Button("RightThumb".into());
+        let button = PhysicalInput::Button("East".into());
         let bindings =
             [(66, vec![button.clone()]), (67, vec![button, right])].map(|(technique, inputs)| {
                 ArteBinding {
@@ -1044,9 +1054,11 @@ mod tests {
             (0.9, true, false, None),
             (0.9, false, true, Some(67)),
             (0., false, false, None),
-            // A tilt first sampled in the menu stays blocked through partial tilts.
-            (0.4, true, false, None),
+            // The first B closes the menu. Only the second B uses the held tilt.
+            (0.4, true, true, None),
             (0.4, false, true, None),
+            (0.4, false, false, None),
+            (0.4, false, true, Some(67)),
             (0.9, false, true, None),
             (0., false, false, None),
             (0., false, true, Some(66)),
@@ -1055,9 +1067,9 @@ mod tests {
             pad.analog_mut().set(GamepadAxis::LeftStickX, tilt);
             pad.digital_mut().clear();
             if button_down {
-                pad.digital_mut().press(GamepadButton::RightThumb);
+                pad.digital_mut().press(GamepadButton::East);
             } else {
-                pad.digital_mut().release(GamepadButton::RightThumb);
+                pad.digital_mut().release(GamepadButton::East);
             }
             let physical = PhysicalState::gamepad(&pad);
             let frame = routed_sample(
@@ -1068,6 +1080,14 @@ mod tests {
                 owns_menu,
                 !owns_menu,
             );
+            if owns_menu && button_down {
+                assert!(
+                    frame
+                        .command_input(Some(ControllerPort::One), &[], InputKind::Command)
+                        .cancel_b
+                        .pressed
+                );
+            }
             assert_eq!(
                 frame
                     .assigned_artes
