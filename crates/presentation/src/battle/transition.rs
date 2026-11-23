@@ -8,10 +8,9 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 const LAYER: usize = 25;
 const HOLD_TICKS: u16 = 22;
 const FADE_START: u16 = 43;
-const END_TICK: u16 = 90;
-// Reveal the moving battlefield under the final third of the shatter.
-const REVEAL_TICK: u16 = END_TICK * 2 / 3;
-const ENTRY_VOICE_TICK: u16 = HOLD_TICKS + (END_TICK - HOLD_TICKS) / 2;
+// Finish the fragment flight by the first controllable update.
+const END_TICK: u16 = HOLD_TICKS + 60;
+const ENTRY_VOICE_TICK: u16 = 56;
 const FADE_STEP: f32 = 1. / (END_TICK - FADE_START) as f32;
 const EDGE_SPEED: f32 = 2.5;
 const CRACK_SPREAD: f32 = 1.025;
@@ -45,6 +44,7 @@ pub(crate) struct State {
     mesh_age: f32,
     cracks: Option<Entity>,
     battle_ready: bool,
+    pub(super) entry_voice: Option<resonance_battle::Cue>,
     #[cfg(all(test, feature = "preparation-trace"))]
     skip_minimum_duration: bool,
 }
@@ -65,28 +65,40 @@ impl State {
             mesh_age: f32::from(HOLD_TICKS),
             cracks: None,
             battle_ready: false,
+            entry_voice: None,
             #[cfg(feature = "preparation-trace")]
             skip_minimum_duration: false,
         }
     }
 
-    pub(super) fn start_shatter(&mut self) {
+    pub(super) fn start_shatter(&mut self, scene: &mut Scene) {
         self.battle_ready = true;
         #[cfg(all(test, feature = "preparation-trace"))]
         if self.skip_minimum_duration {
             // Called only after capture, view activation and menu preparation.
             self.age = Some(END_TICK);
+            scene.state = SceneState::Active;
+            return;
         }
+        // The shatter owns its midpoint voice while the battle runs beneath it.
+        self.entry_voice = scene
+            .frame
+            .as_ref()
+            .and_then(|frame| scene.feedback.take_entry_voice(frame));
+        scene.state = if self.reveal_ready() {
+            SceneState::Active
+        } else {
+            SceneState::Revealing
+        };
     }
 
     /// Before the battle runs, the presentation clock follows the visible shatter.
     pub(crate) fn advancing_to_reveal(&self) -> bool {
-        self.age
-            .is_some_and(|age| age < REVEAL_TICK && (age < HOLD_TICKS || self.battle_ready))
+        self.age.is_some_and(|age| age < HOLD_TICKS)
     }
 
-    pub(super) fn reveal_ready(&self) -> bool {
-        self.age.is_some_and(|age| age >= REVEAL_TICK)
+    fn reveal_ready(&self) -> bool {
+        self.age.is_some_and(|age| age >= HOLD_TICKS)
     }
 
     pub(super) fn finished(&self) -> bool {
@@ -280,6 +292,7 @@ pub(super) fn begin(world: &mut World, seed: u64, request: &Request) -> Result<(
         mesh_age: f32::from(HOLD_TICKS),
         cracks: Some(cracks),
         battle_ready: false,
+        entry_voice: None,
         #[cfg(all(test, feature = "preparation-trace"))]
         skip_minimum_duration,
     });
@@ -321,13 +334,10 @@ fn advance(
         state.age = Some(age.saturating_add(1).min(END_TICK));
         if let Some(owner) = owner.as_mut()
             && let Phase::Scene(scene) = &mut owner.phase
-            && scene.state == SceneState::Revealing
         {
             if age == ENTRY_VOICE_TICK
-                && let Some(frame) = &scene.frame
-                && let Some(cue) = scene.feedback.take_entry_voice(frame)
+                && let Some(cue) = state.entry_voice.take()
             {
-                // Entry voices are centered and can play while the world is held.
                 let result = playback
                     .as_mut()
                     .context("battle entry lost its audio owner")
@@ -337,7 +347,7 @@ fn advance(
                     return;
                 }
             }
-            if state.reveal_ready() {
+            if scene.state == SceneState::Revealing && state.reveal_ready() {
                 scene.state = SceneState::Active;
             }
         }
@@ -530,7 +540,7 @@ mod tests {
                 let state = app.world().resource::<State>();
                 assert_eq!(state.fragment_age(0.5), f32::from(HOLD_TICKS));
             }
-            app.world_mut().resource_mut::<State>().start_shatter();
+            app.world_mut().resource_mut::<State>().battle_ready = true;
             let age = app.world().resource::<State>().age.unwrap();
             for next in age + 1..=END_TICK {
                 app.world_mut().run_schedule(FixedUpdate);
@@ -539,7 +549,7 @@ mod tests {
                 if next == HOLD_TICKS + 1 {
                     assert_eq!(state.fragment_age(0.5), f32::from(next) + 0.5);
                 }
-                assert_eq!(state.reveal_ready(), next >= 60);
+                assert_eq!(state.reveal_ready(), next >= HOLD_TICKS);
                 assert_eq!(state.finished(), next == END_TICK);
             }
             app.world_mut().run_schedule(FixedUpdate);

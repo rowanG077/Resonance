@@ -1420,6 +1420,13 @@ fn battle_activation_retains_the_white_field_cover_without_a_shatter() -> Result
 #[test]
 #[ignore = "requires current cooked opening/title assets; no GPU or audio device"]
 fn shatter_releases_the_camera_on_a_fixed_update_without_a_render() -> Result<()> {
+    for ready_on in [3, 26] {
+        check_camera_release(ready_on)?;
+    }
+    Ok(())
+}
+
+fn check_camera_release(ready_on: u32) -> Result<()> {
     let mut fixture = Fixture::configured("shatter-reveal", completed_white_fade, |world, _| {
         world.insert_resource(transition::State::captured_for_test());
     })?;
@@ -1452,14 +1459,23 @@ fn shatter_releases_the_camera_on_a_fixed_update_without_a_render() -> Result<()
     }
     let initial = world.resource::<crate::Clock>().0.tick();
     let played = world.resource::<new_game::Session>().play_time().total();
-    // The cracks hold at 22 for three extra updates while the GPU prepares.
-    for age in (1..=22).chain([22; 3]).chain(23..=61) {
-        if age == 23 {
-            world.resource_mut::<transition::State>().start_shatter();
-            let Phase::Scene(scene) = &mut world.resource_mut::<Owner>().phase else {
-                unreachable!()
-            };
-            scene.state = SceneState::Revealing;
+    // Slow preparation holds the stationary cracks, then runs the same opening.
+    let extra_wait = ready_on.saturating_sub(23);
+    let mut previous_focus = 0.;
+    for tick in 1..=82 + extra_wait {
+        let age = if tick < ready_on {
+            tick.min(22)
+        } else {
+            tick - extra_wait
+        };
+        if tick == ready_on {
+            world.resource_scope(|world, mut shatter: Mut<transition::State>| {
+                let mut owner = world.resource_mut::<Owner>();
+                let Phase::Scene(scene) = &mut owner.phase else {
+                    unreachable!()
+                };
+                shatter.start_shatter(scene);
+            });
         }
         world.run_schedule(FixedUpdate);
         assert_eq!(world.resource::<crate::Clock>().0.tick() - initial, age);
@@ -1468,9 +1484,10 @@ fn shatter_releases_the_camera_on_a_fixed_update_without_a_render() -> Result<()
             u64::from(age)
         );
         let owner = world.resource::<Owner>();
-        assert_eq!(owner.view_ready(), age > 22);
-        assert_eq!(owner.presenting(), age >= 60);
-        assert_eq!(owner.input_tick, u32::from(age > 60));
+        assert_eq!(owner.view_ready(), tick >= ready_on);
+        assert_eq!(owner.presenting(), tick >= ready_on && age >= 22);
+        let battle_update = age.saturating_sub(22);
+        assert_eq!(owner.input_tick, battle_update);
         let Phase::Scene(scene) = &owner.phase else {
             unreachable!()
         };
@@ -1479,10 +1496,29 @@ fn shatter_releases_the_camera_on_a_fixed_update_without_a_render() -> Result<()
             frame.event_fade.is_none(),
             "shatter age {age} has an entry cover"
         );
-        assert_eq!(frame.update, u64::from(age > 60));
+        assert_eq!(frame.update, u64::from(battle_update));
+        let focus = frame.camera.context("opening frame has no camera")?.focus[0];
+        if (1..=59).contains(&battle_update) {
+            assert!(focus < previous_focus, "camera held at shatter age {age}");
+        }
+        previous_focus = focus;
         assert!(scene.failure.is_none());
-        assert_eq!(scene.feedback.resources.entry_voice.is_some(), age <= 56);
-        assert_eq!(scene.core.ledger().combat_ticks, 0);
+        assert_eq!(
+            scene.feedback.resources.entry_voice.is_some(),
+            tick < ready_on
+        );
+        assert_eq!(
+            world.resource::<transition::State>().entry_voice.is_some(),
+            tick >= ready_on && age <= 56
+        );
+        assert_eq!(
+            world.resource::<transition::State>().finished(),
+            battle_update == 60
+        );
+        assert_eq!(
+            scene.core.ledger().combat_ticks,
+            u32::from(battle_update == 60)
+        );
     }
     Ok(())
 }

@@ -1202,16 +1202,11 @@ fn prepare(
         if !scene.view.finish_activation()? || !scene.menu_ready {
             return Ok(());
         }
-        scene.state = if let Some(shatter) = transition.as_mut() {
-            shatter.start_shatter();
-            if shatter.reveal_ready() {
-                SceneState::Active
-            } else {
-                SceneState::Revealing
-            }
+        if let Some(shatter) = transition.as_mut() {
+            shatter.start_shatter(scene);
         } else {
-            SceneState::Active
-        };
+            scene.state = SceneState::Active;
+        }
         info!(
             "Battle ready; seed={}; tick={:?}; preparation={:.3}s",
             scene.entry_seed,
