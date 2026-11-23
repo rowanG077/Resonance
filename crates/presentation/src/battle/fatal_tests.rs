@@ -1424,6 +1424,79 @@ fn battle_activation_retains_the_white_field_cover_without_a_shatter() -> Result
 
 #[test]
 #[ignore = "requires current cooked opening/title assets; no GPU or audio device"]
+fn shatter_releases_the_camera_on_a_fixed_update_without_a_render() -> Result<()> {
+    let mut fixture = Fixture::new("shatter-reveal")?;
+    transition::install(&mut fixture.app);
+    fixture
+        .app
+        .init_resource::<crate::boot::Playback>()
+        .init_resource::<crate::movie::Playback>()
+        .add_systems(FixedUpdate, crate::timing::advance_clock.before(advance));
+    let world = fixture.app.world_mut();
+    world
+        .resource::<loading::Resident>()
+        .active
+        .store(false, Ordering::Release);
+    world.insert_resource(transition::State::captured_for_test());
+    {
+        let mut owner = world.resource_mut::<Owner>();
+        let Phase::Scene(scene) = &mut owner.phase else {
+            unreachable!()
+        };
+        scene.state = SceneState::Activating;
+        scene.frame = Some(scene.core.snapshot());
+        if scene.feedback.resources.entry_voice.is_none() {
+            let taunt = scene.feedback.resources.actors[0]
+                .taunt
+                .context("fixture has no battle voice")?;
+            scene.feedback.resources.entry_voice = Some((ActorId::from_index(0)?, taunt));
+        }
+    }
+    let initial = world.resource::<crate::Clock>().0.tick();
+    let played = world.resource::<new_game::Session>().play_time().total();
+    // A prepared field image cracks for 22 updates then waits on the GPU.
+    for tick in 1..=25 {
+        world.run_schedule(FixedUpdate);
+        assert_eq!(
+            world.resource::<crate::Clock>().0.tick() - initial,
+            tick.min(22)
+        );
+        assert_eq!(
+            world.resource::<new_game::Session>().play_time().total() - played,
+            u64::from(tick.min(22))
+        );
+        let owner = world.resource::<Owner>();
+        assert!(!owner.capture_ready());
+        assert_eq!(owner.input_tick, 0);
+    }
+    world.resource_mut::<transition::State>().start_shatter();
+    if let Phase::Scene(scene) = &mut world.resource_mut::<Owner>().phase {
+        scene.state = SceneState::Revealing;
+    }
+    for age in 23..=61 {
+        world.run_schedule(FixedUpdate);
+        assert_eq!(world.resource::<crate::Clock>().0.tick() - initial, age);
+        assert_eq!(
+            world.resource::<new_game::Session>().play_time().total() - played,
+            u64::from(age)
+        );
+        let owner = world.resource::<Owner>();
+        assert!(owner.capture_ready());
+        assert_eq!(owner.presenting(), age >= 60);
+        assert_eq!(owner.input_tick, u32::from(age > 60));
+        let Phase::Scene(scene) = &owner.phase else {
+            unreachable!()
+        };
+        assert_eq!(scene.frame.as_ref().unwrap().update, u64::from(age > 60));
+        assert!(scene.failure.is_none());
+        assert_eq!(scene.feedback.resources.entry_voice.is_some(), age <= 56);
+        assert_eq!(scene.core.ledger().combat_ticks, 0);
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires current cooked opening/title assets; no GPU or audio device"]
 fn invalid_battle_music_keeps_field_audio_and_state() -> Result<()> {
     let mut fixture = Fixture::new("music-failure")?;
     let random_before = fixture
@@ -1525,7 +1598,6 @@ fn demon_fang_predicts_weapon_trails_without_changing_committed_battle() -> Resu
                     &input,
                     scene.hud.results_on_last_page(),
                     Default::default(),
-                    true,
                 )
             })?
         })?;

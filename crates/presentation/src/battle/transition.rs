@@ -2,13 +2,17 @@
 use super::*;
 use crate::gpu_prepare as gpu;
 use crate::native::MeshMaterial2d;
-use bevy::{asset::RenderAssetUsages, image::ImageSampler, mesh::PrimitiveTopology};
+use bevy::{
+    asset::RenderAssetUsages, color::ColorToPacked, image::ImageSampler, mesh::PrimitiveTopology,
+};
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 const LAYER: usize = 25;
 const HOLD_TICKS: u16 = 22;
 const FADE_START: u16 = 43;
 const END_TICK: u16 = 90;
+// Reveal the moving battlefield under the final third of the shatter.
+const REVEAL_TICK: u16 = END_TICK * 2 / 3;
 const ENTRY_VOICE_TICK: u16 = HOLD_TICKS + (END_TICK - HOLD_TICKS) / 2;
 const FADE_STEP: f32 = 1. / (END_TICK - FADE_START) as f32;
 const EDGE_SPEED: f32 = 2.5;
@@ -30,7 +34,7 @@ struct Piece {
 }
 
 #[derive(Resource)]
-pub(super) struct State {
+pub(crate) struct State {
     capture: crate::menu_backdrop::Capture,
     warmup: gpu::Shared,
     capture_camera: Entity,
@@ -48,6 +52,26 @@ pub(super) struct State {
 }
 
 impl State {
+    #[cfg(test)]
+    pub(super) fn captured_for_test() -> Self {
+        Self {
+            capture: crate::menu_backdrop::Capture::once(Handle::default()),
+            warmup: gpu::Shared::default(),
+            capture_camera: Entity::PLACEHOLDER,
+            camera: Entity::PLACEHOLDER,
+            entity: Entity::PLACEHOLDER,
+            mesh: Handle::default(),
+            pieces: Vec::new(),
+            size: Vec2::ZERO,
+            age: Some(0),
+            mesh_age: f32::from(HOLD_TICKS),
+            crack_color: Color::WHITE,
+            battle_ready: false,
+            #[cfg(feature = "preparation-trace")]
+            skip_minimum_duration: false,
+        }
+    }
+
     pub(super) fn start_shatter(&mut self) {
         self.battle_ready = true;
         #[cfg(all(test, feature = "preparation-trace"))]
@@ -55,6 +79,20 @@ impl State {
             // Called only after capture, view activation and menu preparation.
             self.age = Some(END_TICK);
         }
+    }
+
+    /// Before the battle runs, the presentation clock follows the visible shatter.
+    pub(crate) fn advancing_to_reveal(&self) -> bool {
+        self.age
+            .is_some_and(|age| age < REVEAL_TICK && (age < HOLD_TICKS || self.battle_ready))
+    }
+
+    pub(super) fn reveal_ready(&self) -> bool {
+        self.age.is_some_and(|age| age >= REVEAL_TICK)
+    }
+
+    pub(super) fn backing_color(&self) -> [u8; 3] {
+        self.crack_color.to_linear().to_u8_array_no_alpha()
     }
 
     pub(super) fn finished(&self) -> bool {
@@ -68,10 +106,6 @@ impl State {
         } else {
             hold
         }
-    }
-
-    pub(super) fn entry_voice_ready(&self) -> bool {
-        self.age.is_some_and(|age| age >= ENTRY_VOICE_TICK)
     }
 
     pub(super) fn diagnostic(&self) -> serde_json::Value {
@@ -252,6 +286,8 @@ pub(super) fn dispose(world: &mut World) {
 
 fn advance(
     state: Option<ResMut<State>>,
+    mut owner: Option<ResMut<Owner>>,
+    mut playback: Option<ResMut<crate::battle_audio::Playback>>,
     audio: Option<Res<crate::field_audio::Control>>,
     mut exit: crate::diagnostics::Fatal,
 ) {
@@ -259,7 +295,7 @@ fn advance(
         && let Some(age) = state.age
     {
         // Keep the cracked field intact until the battle's first frame has
-        // completed on the GPU, then animate both scenes together.
+        // completed on the GPU, then start moving the fragments.
         if age >= HOLD_TICKS && !state.battle_ready {
             return;
         }
@@ -270,6 +306,28 @@ fn advance(
             exit.fail("Battle entry sound failed", error);
         }
         state.age = Some(age.saturating_add(1).min(END_TICK));
+        if let Some(owner) = owner.as_mut()
+            && let Phase::Scene(scene) = &mut owner.phase
+            && scene.state == SceneState::Revealing
+        {
+            if age == ENTRY_VOICE_TICK
+                && let Some(frame) = &scene.frame
+                && let Some(cue) = scene.feedback.take_entry_voice(frame)
+            {
+                // Entry voices are centered and can play while the world is held.
+                let result = playback
+                    .as_mut()
+                    .context("battle entry lost its audio owner")
+                    .and_then(|playback| playback.dispatch(&[cue], |_| None));
+                if let Err(error) = result {
+                    scene.failure = Some(error);
+                    return;
+                }
+            }
+            if state.reveal_ready() {
+                scene.state = SceneState::Active;
+            }
+        }
     }
 }
 
@@ -336,12 +394,12 @@ fn render(
         let battle_frame = owner.as_ref().is_some_and(|owner| {
             matches!(&owner.phase, Phase::Scene(scene) if scene.state != SceneState::Warming)
         });
-        camera.clear_color = if !battle_frame || state.age.is_some_and(|age| age < HOLD_TICKS) {
-            // Only the narrow cracks expose this backing; motion reveals battle.
+        camera.clear_color = if !battle_frame {
+            // Keep the backing visible until the battle has its own cover.
             ClearColorConfig::Custom(state.crack_color)
         } else {
-            // Draw the held battle pose so its first-frame fence can complete
-            // before the shatter is allowed to move past HOLD_TICKS.
+            // Its opaque entry cover now supplies the same backing. Submit the
+            // held battlefield so the GPU can finish warming even at age zero.
             ClearColorConfig::None
         };
     }
@@ -446,22 +504,7 @@ mod tests {
             let mut app = App::new();
             app.add_message::<AppExit>()
                 .add_systems(FixedUpdate, advance)
-                .insert_resource(State {
-                    capture: crate::menu_backdrop::Capture::once(Handle::default()),
-                    warmup: gpu::Shared::default(),
-                    capture_camera: Entity::PLACEHOLDER,
-                    camera: Entity::PLACEHOLDER,
-                    entity: Entity::PLACEHOLDER,
-                    mesh: Handle::default(),
-                    pieces: Vec::new(),
-                    size: Vec2::ZERO,
-                    age: Some(0),
-                    mesh_age: f32::from(HOLD_TICKS),
-                    crack_color: Color::WHITE,
-                    battle_ready: false,
-                    #[cfg(feature = "preparation-trace")]
-                    skip_minimum_duration: false,
-                });
+                .insert_resource(State::captured_for_test());
             for tick in 0..loading_ticks {
                 app.world_mut().run_schedule(FixedUpdate);
                 assert_eq!(
@@ -470,7 +513,6 @@ mod tests {
                 );
                 let state = app.world().resource::<State>();
                 assert_eq!(state.fragment_age(0.5), f32::from(HOLD_TICKS));
-                assert!(!state.entry_voice_ready());
             }
             app.world_mut().resource_mut::<State>().start_shatter();
             let age = app.world().resource::<State>().age.unwrap();
@@ -481,8 +523,8 @@ mod tests {
                 if next == HOLD_TICKS + 1 {
                     assert_eq!(state.fragment_age(0.5), f32::from(next) + 0.5);
                 }
+                assert_eq!(state.reveal_ready(), next >= 60);
                 assert_eq!(state.finished(), next == END_TICK);
-                assert_eq!(state.entry_voice_ready(), next >= 56);
             }
             app.world_mut().run_schedule(FixedUpdate);
             assert!(app.world().resource::<State>().finished());
@@ -531,9 +573,16 @@ mod tests {
 
     #[test]
     fn captured_image_cracks_then_holds_before_motion() {
-        assert_eq!(crack_color(1), Color::WHITE);
-        assert_eq!(crack_color(2), Color::linear_rgb(1., 0.5, 0.));
-        assert_eq!(crack_color(3), crack_color(10));
+        let mut shatter = State::captured_for_test();
+        for (formations, color) in [
+            (1, [255; 3]),
+            (2, [255, 128, 0]),
+            (3, [255, 0, 0]),
+            (10, [255, 0, 0]),
+        ] {
+            shatter.crack_color = crack_color(formations);
+            assert_eq!(shatter.backing_color(), color);
+        }
         let pieces = pieces(7);
         let area: f32 = pieces
             .iter()

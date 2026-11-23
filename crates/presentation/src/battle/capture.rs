@@ -72,7 +72,9 @@ impl Owner {
 
     /// Screenshot readback starts only after the scene is fully submitted.
     pub(crate) fn capture_ready(&self) -> bool {
-        self.presenting()
+        matches!(&self.phase, Phase::Scene(scene)
+            if matches!(scene.state, SceneState::Revealing | SceneState::Active)
+                && scene.menu_ready && scene.failure.is_none())
     }
 
     pub(crate) fn entry_diagnostic(&self, world: &World) -> Option<Value> {
@@ -84,6 +86,7 @@ impl Owner {
             result["state"] = json!(match scene.state {
                 SceneState::Warming => "warming",
                 SceneState::Activating => "activating",
+                SceneState::Revealing => "revealing",
                 SceneState::Active => "active",
             });
         }

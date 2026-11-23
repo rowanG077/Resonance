@@ -30,7 +30,6 @@ pub(crate) enum Key {
         input: crate::battle::input::Frame,
         last_page: bool,
         voice_busy: resonance_battle::ActorSet,
-        entry_voice_ready: bool,
     },
     Field(
         bevy::ecs::change_detection::Tick,

@@ -118,6 +118,13 @@ pub(super) fn preparing(world: &World) -> bool {
         || super::super::menu::preparing(world)
 }
 
+pub(super) fn shattering(world: &World, phase: Phase) -> bool {
+    phase == Phase::Battle
+        && world
+            .get_resource::<crate::battle::Shatter>()
+            .is_some_and(|shatter| shatter.advancing_to_reveal())
+}
+
 pub(super) fn ready(world: &mut World, phase: Phase) -> bool {
     match phase {
         Phase::Loading => false,

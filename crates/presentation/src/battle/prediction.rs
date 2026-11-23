@@ -33,7 +33,6 @@ pub(super) fn update(
     owner: Option<Res<Owner>>,
     controls: Res<input::Controls>,
     playback: Option<Res<crate::battle_audio::Playback>>,
-    transition: Option<Res<super::transition::State>>,
 ) {
     let Some(owner) = owner.filter(|owner| owner.presenting()) else {
         return;
@@ -57,7 +56,6 @@ pub(super) fn update(
     let input = controls.clone().sample(&scene.settings);
     let last_page = scene.hud.results_on_last_page();
     let voice_busy = playback.as_ref().map_or_default(|p| p.busy_voices());
-    let entry_voice_ready = transition.as_ref().is_none_or(|t| t.entry_voice_ready());
     let key = Key::Battle {
         request: owner.request.id(),
         revision: scene.prediction_revision,
@@ -65,11 +63,10 @@ pub(super) fn update(
         input: input.clone(),
         last_page,
         voice_busy,
-        entry_voice_ready,
     };
     prediction.predict(key, || {
         let _timer = crate::performance::smoothing_profile::Timer::start(0);
-        let (endpoint, sources) = predict(scene, &input, last_page, voice_busy, entry_voice_ready)?;
+        let (endpoint, sources) = predict(scene, &input, last_page, voice_busy)?;
         Ok(match endpoint {
             Some(endpoint) => CachedScene::Battle(endpoint, sources),
             None => CachedScene::Hold(sources),
@@ -82,7 +79,6 @@ pub(super) fn predict(
     input: &input::Frame,
     last_page: bool,
     voice_busy: resonance_battle::ActorSet,
-    entry_voice_ready: bool,
 ) -> Result<(Option<Endpoint>, resonance_events::OperationFork)> {
     let mut sources = resonance_events::OperationFork::default();
     let mut core = scene.core.clone();
@@ -111,7 +107,6 @@ pub(super) fn predict(
         scene.frame.as_ref(),
         &mut Presentation { last_page },
         voice_busy,
-        entry_voice_ready,
     )?;
     if frame.outcome.is_some() || lifecycle.event().is_some() != had_event {
         return Ok((None, sources));
