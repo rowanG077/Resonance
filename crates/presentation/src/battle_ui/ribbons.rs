@@ -280,22 +280,30 @@ fn opening_roster(
 
         let x = 320. + 28. * exit;
         if x < right {
+            let spacing = bitmap_text::Spacing::Font;
             let mut draw = |value: &str, x: f32| {
-                command_strip::label(
-                    labels,
+                bitmap_text::draw(
                     font,
                     value,
                     [x, y - 16.],
-                    [22., 26.],
-                    20.,
-                    8.,
-                    WHITE,
+                    [20., 26.],
+                    spacing,
+                    |[left, top, _, bottom], uv| {
+                        party::slanted_quad(
+                            labels,
+                            [left, top, left + 22., bottom],
+                            uv,
+                            8.,
+                            [WHITE; 4],
+                        );
+                    },
                 )
             };
             draw(&first.name, x)?;
             let count = 1 + members.count();
             if count > 1 {
-                draw(&count.to_string(), x + 176.)?;
+                let width = bitmap_text::width(font, &first.name, 20., spacing)?;
+                draw(&count.to_string(), x + width + 56.)?;
             }
         }
     }
@@ -338,14 +346,16 @@ mod tests {
     fn opening_names_group_the_starting_enemies_and_leave_in_order() -> Result<()> {
         let font = fixtures::dialogue_font()?;
         let actor = fixtures::actor(Default::default());
-        let mut frame = BattleFrame {
-            actors: vec![actor; 3],
-            ..Default::default()
-        };
         let mut enemies = Vec::new();
-        for (slot, (name, group)) in [("Bat", 0), ("Bear", 1), ("Bat", 0)]
-            .into_iter()
-            .enumerate()
+        for (slot, (name, group)) in [
+            ("Black Bat", 0),
+            ("Cardinal Knight", 1),
+            ("Bear", 2),
+            ("Black Bat", 0),
+            ("Cardinal Knight", 1),
+        ]
+        .into_iter()
+        .enumerate()
         {
             enemies.push(EnemyHud {
                 actor: ActorId::from_index(slot)?,
@@ -354,6 +364,10 @@ mod tests {
                 icon: None,
             });
         }
+        let mut frame = BattleFrame {
+            actors: vec![actor; enemies.len()],
+            ..Default::default()
+        };
         let draw = |frame: &BattleFrame| -> Result<_> {
             let mut panels = Batch::default();
             let mut labels = Batch::default();
@@ -369,7 +383,15 @@ mod tests {
             Ok((panels, labels))
         };
         let (_, initial) = draw(&frame)?;
-        assert_eq!(initial.positions.len(), 4 * "Bat2Bear".len());
+        let glyphs = "Black Bat2Cardinal Knight2Bear".chars().map(|c| {
+            let [u, v, _, _] = font.glyphs[&c].rect;
+            [u as f32, v as f32]
+        });
+        assert!(initial.uv.iter().step_by(4).copied().eq(glyphs));
+        let glyph_x = |index: usize| initial.positions[index * 4 + 3][0] + 320.;
+        let second_row = "Black Bat2".len();
+        assert_eq!(glyph_x(second_row - 1), 497.);
+        assert_eq!(glyph_x(second_row + "Cardinal Knight".len()), 571.);
         frame.actors[0].hp = 0;
         assert!(
             initial == draw(&frame)?.1,
@@ -378,8 +400,11 @@ mod tests {
         frame.update = 121;
         let (_, leaving) = draw(&frame)?;
         assert_eq!(leaving.positions[0][0], initial.positions[0][0] + 28.);
-        assert_eq!(leaving.positions[16], initial.positions[16]);
-        frame.update = 165;
+        assert_eq!(
+            leaving.positions[4 * second_row],
+            initial.positions[4 * second_row]
+        );
+        frame.update = 168;
         assert!(draw(&frame)?.0.indices.is_empty());
         frame.update = 10;
         frame.actors.iter_mut().for_each(|actor| actor.hp = 0);
