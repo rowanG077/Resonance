@@ -43,7 +43,7 @@ pub(crate) struct State {
     size: Vec2,
     age: Option<u16>,
     mesh_age: f32,
-    crack_color: Color,
+    cracks: Option<Entity>,
     battle_ready: bool,
     #[cfg(all(test, feature = "preparation-trace"))]
     skip_minimum_duration: bool,
@@ -63,7 +63,7 @@ impl State {
             size: Vec2::ZERO,
             age: Some(0),
             mesh_age: f32::from(HOLD_TICKS),
-            crack_color: Color::WHITE,
+            cracks: None,
             battle_ready: false,
             #[cfg(feature = "preparation-trace")]
             skip_minimum_duration: false,
@@ -204,26 +204,45 @@ pub(super) fn begin(world: &mut World, seed: u64, request: &Request) -> Result<(
     let mesh = world
         .resource_mut::<Assets<Mesh>>()
         .add(mesh(&pieces, size, f32::from(HOLD_TICKS)));
-    let material = world
-        .resource_mut::<Assets<crate::menu_backdrop::Material>>()
-        .add(crate::menu_backdrop::Material::visible(image).with_cover(cover));
+    let backdrop = crate::menu_backdrop::Material::visible(image);
+    let crack_color = crack_color(request.formation_count()).to_linear();
+    let mut materials = world.resource_mut::<Assets<crate::menu_backdrop::Material>>();
+    let cracks_material = materials.add(backdrop.clone().with_cover(crack_color.to_vec4()));
+    let material = materials.add(backdrop.with_cover(cover));
+    let cracks_mesh = world
+        .resource_mut::<Assets<Mesh>>()
+        .add(Rectangle::from_size(size));
     let mut report = gpu::Report {
         armed: true,
         ..default()
     };
     // The shatter draws in the scene pass once the field image is captured.
-    report.prepare(
-        gpu::View::Field,
-        mesh.id(),
-        crate::native::Prepare::Backdrop,
-        false,
-        None,
-    );
+    for mesh in [&mesh, &cracks_mesh] {
+        report.prepare(
+            gpu::View::Field,
+            mesh.id(),
+            crate::native::Prepare::Backdrop,
+            false,
+            None,
+        );
+    }
     let entity = world
         .spawn((
             Mesh2d(mesh.clone()),
             MeshMaterial2d(material),
             Transform::default(),
+            RenderLayers::layer(LAYER),
+            NoFrustumCulling,
+        ))
+        .id();
+    // Show the formation color through the stationary gaps. Drawing it behind
+    // the pieces lets the battlefield submit its first GPU frame underneath.
+    let cracks = world
+        .spawn((
+            ChildOf(entity),
+            Mesh2d(cracks_mesh),
+            MeshMaterial2d(cracks_material),
+            Transform::from_xyz(0., 0., -1.),
             RenderLayers::layer(LAYER),
             NoFrustumCulling,
         ))
@@ -259,7 +278,7 @@ pub(super) fn begin(world: &mut World, seed: u64, request: &Request) -> Result<(
         size,
         age: None,
         mesh_age: f32::from(HOLD_TICKS),
-        crack_color: crack_color(request.formation_count()),
+        cracks: Some(cracks),
         battle_ready: false,
         #[cfg(all(test, feature = "preparation-trace"))]
         skip_minimum_duration,
@@ -392,11 +411,16 @@ fn render(
             // Submit the battlefield under the fragments, including its first GPU frame.
             ClearColorConfig::None
         } else {
-            ClearColorConfig::Custom(state.crack_color)
+            ClearColorConfig::Default
         };
     }
     // Rebuild only once the pieces start moving.
     let age = state.fragment_age(prediction.alpha);
+    if age > f32::from(HOLD_TICKS)
+        && let Some(cracks) = state.cracks.take()
+    {
+        commands.entity(cracks).despawn();
+    }
     if age != state.mesh_age
         && let Some(mut target) = meshes.get_mut(&state.mesh)
     {
