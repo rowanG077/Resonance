@@ -102,7 +102,7 @@ pub(super) fn draw(
             vertex[1] = pivot[1] + sin * dx + cos * dy;
         }
     }
-    if frame.unison_available {
+    if frame.unison_available && !frame.enemy_defeat_started {
         let fraction = (f32::from(frame.unison_gauge) / f32::from(MAX_UNISON_GAUGE)).clamp(0., 1.);
         let ready = frame.unison_gauge >= MAX_UNISON_GAUGE;
         let tick = (frame.update % 360) as f32 + time.update;

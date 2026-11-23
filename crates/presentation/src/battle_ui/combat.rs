@@ -900,7 +900,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires the battle font; CPU meter drawing only"]
-    fn native_meters_draw_live_progress_and_dismiss_at_results() -> Result<()> {
+    fn native_meters_draw_live_progress_and_clear_on_defeat_or_results() -> Result<()> {
         use resonance_battle::item::ITEM_COOLDOWN_TICKS;
         use resonance_battle::{BattleResult, EscapeFrame, MAX_ESCAPE_GAUGE, MAX_UNISON_GAUGE};
         let art = fixtures::battle_art()?;
@@ -969,6 +969,12 @@ mod tests {
         frame.unison_available = false;
         assert!(draw(&frame)?.iter().all(|batch| batch.indices.is_empty()));
         frame.unison_available = true;
+        frame.enemy_defeat_started = true;
+        assert!(
+            draw(&frame)?.iter().all(|batch| batch.indices.is_empty()),
+            "the ready gauge clears when the final boss falls"
+        );
+        frame.enemy_defeat_started = false;
         for result in [
             BattleResult::Victory,
             BattleResult::Defeat,
