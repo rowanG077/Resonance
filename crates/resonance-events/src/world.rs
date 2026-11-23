@@ -621,9 +621,9 @@ impl Actor {
                     1.
                 }
         };
+        let delta = self.heading_delta();
         self.target_heading = self.target_heading.rem_euclid(360.);
         if speed > 0. {
-            let delta = self.heading_delta();
             self.heading = if delta.abs() <= speed {
                 self.target_heading
             } else {
@@ -632,7 +632,13 @@ impl Actor {
         }
     }
     fn heading_delta(&self) -> f32 {
-        (self.target_heading - self.heading + 180.).rem_euclid(360.) - 180.
+        let delta = (self.target_heading - self.heading) % 360.;
+        // At exactly half a turn, move opposite the sign of the requested change.
+        if delta.abs() >= 180. {
+            delta - delta.signum() * 360.
+        } else {
+            delta
+        }
     }
     pub(crate) fn turn_direction(&self) -> f32 {
         let delta = self.heading_delta();
@@ -1613,6 +1619,28 @@ impl Overlay {
                 let fade = tick.saturating_sub(self.born).saturating_sub(*hold_ticks);
                 self.rgba[3].saturating_sub(fade.saturating_mul(4).min(255) as u8)
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Actor;
+
+    #[test]
+    fn half_turn_animation_matches_the_first_heading_step() {
+        for (start, target, direction, next_heading) in [
+            (180., 0., 1., 185.),
+            (0., 180., -1., 355.),
+            (90., -90., 1., 95.),
+            (-180., 0., -1., 175.),
+        ] {
+            let mut actor = Actor::new(4, [0.; 3]);
+            actor.heading = start;
+            actor.target_heading = target;
+            assert_eq!(actor.turn_direction(), direction);
+            actor.step_heading(false, false);
+            assert_eq!(actor.heading, next_heading);
         }
     }
 }
