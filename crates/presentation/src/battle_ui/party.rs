@@ -1,9 +1,6 @@
 //! Compact party portraits, slanted vitals, and matching gauges.
 use super::*;
-use resonance_battle::{
-    BattleResult,
-    conditions::{Condition, ConditionSet, POISON},
-};
+use resonance_battle::conditions::{Condition, ConditionSet, POISON};
 
 pub(super) const TOP: f32 = 388.;
 const CARD_SPACING: f32 = 112.;
@@ -124,7 +121,7 @@ pub(crate) struct Portrait {
 
 pub(super) fn portrait(
     actor: &resonance_battle::ActorFrame,
-    result: Option<BattleResult>,
+    showing_results: bool,
     tick: u64,
     future: Option<(&resonance_battle::ActorFrame, f32)>,
 ) -> Portrait {
@@ -163,7 +160,7 @@ pub(super) fn portrait(
     }
     let shake = actor.reaction.hit_shake_remaining();
     Portrait {
-        row: if actor.hp > 0 && actor.available() && result == Some(BattleResult::Victory) {
+        row: if actor.hp > 0 && actor.available() && showing_results {
             3
         } else {
             match activity {
@@ -398,10 +395,8 @@ impl Artwork {
             let character = character.index();
             let slot = actor.control_slot.index();
             let x = left(slot);
-            let portrait = portrait(
+            let portrait = self.party_portrait(
                 actor,
-                frame.recognized_result,
-                self.numbers.presentation_tick,
                 time.next
                     .and_then(|n| n.frame.actors.get(id))
                     .map(|a| (a, time.visit)),
@@ -558,38 +553,38 @@ mod tests {
         };
         let mut actor = fixtures::actor(Default::default());
         actor.activity = Activity::Casting { held: false };
-        assert_eq!(fixed(&actor, None, 0).row, 0);
-        assert_eq!(fixed(&actor, None, 0).color, [1.25, 1.25, 1.25, 1.]);
-        assert!(fixed(&actor, None, 3).color[0] > 1.4);
-        let pulsing = portrait(&actor, None, 0, Some((&actor, 0.5)));
+        assert_eq!(fixed(&actor, false, 0).row, 0);
+        assert_eq!(fixed(&actor, false, 0).color, [1.25, 1.25, 1.25, 1.]);
+        assert!(fixed(&actor, false, 3).color[0] > 1.4);
+        let pulsing = portrait(&actor, false, 0, Some((&actor, 0.5)));
         assert_eq!(pulsing.color[0], (160. + 176.) / 256.);
         assert_eq!(portrait_shake(3, Some((2, 0.5))), -1.5);
         assert_eq!(portrait_shake(3, Some((3, 0.5))), -3.);
         assert_eq!(portrait_shake(3, Some((10, 0.5))), -3.);
         actor.activity = Activity::Casting { held: true };
         assert_eq!(
-            portrait(&actor, None, 1, Some((&actor, 0.5))).color,
+            portrait(&actor, false, 1, Some((&actor, 0.5))).color,
             [1.; 4]
         );
-        assert_eq!(fixed(&actor, None, 2).color, [1.5, 1.5, 1.5, 1.]);
+        assert_eq!(fixed(&actor, false, 2).color, [1.5, 1.5, 1.5, 1.]);
         actor.cast_releasing = true;
-        assert_eq!(fixed(&actor, None, 2).row, 1);
-        assert_eq!(fixed(&actor, None, 2).color, [1.; 4]);
+        assert_eq!(fixed(&actor, false, 2).row, 1);
+        assert_eq!(fixed(&actor, false, 2).color, [1.; 4]);
         actor.hp = 0;
-        assert_eq!(fixed(&actor, None, 2).row, 0);
+        assert_eq!(fixed(&actor, false, 2).row, 0);
         actor.hp = actor.equipment.max_hp;
         actor.cast_releasing = false;
         actor.activity = Activity::Action;
-        assert_eq!(fixed(&actor, None, 0).row, 1);
-        assert_eq!(fixed(&actor, Some(BattleResult::Victory), 0).row, 3);
+        assert_eq!(fixed(&actor, false, 0).row, 1);
+        assert_eq!(fixed(&actor, true, 0).row, 3);
         actor.activity = Activity::Hurt;
-        assert_eq!(fixed(&actor, None, 0).row, 2);
+        assert_eq!(fixed(&actor, false, 0).row, 2);
         actor.activity = Activity::Idle;
         actor.hp = 0;
-        assert_eq!(fixed(&actor, Some(BattleResult::Victory), 0).row, 0);
-        assert_eq!(fixed(&actor, None, 0).color, [0.75, 0.75, 0.75, 1.]);
+        assert_eq!(fixed(&actor, true, 0).row, 0);
+        assert_eq!(fixed(&actor, false, 0).color, [0.75, 0.75, 0.75, 1.]);
         actor.activity = Activity::Defeated;
-        assert_eq!(fixed(&actor, None, 0).row, 2);
+        assert_eq!(fixed(&actor, false, 0).row, 2);
         let normal = [[128; 4]; 2];
         assert_eq!(hp_colors(&actor, normal), HP_CRITICAL);
         actor.hp = actor.equipment.max_hp / 4;
@@ -603,14 +598,14 @@ mod tests {
             });
         actor.activity = Activity::Idle;
         assert_eq!(hp_colors(&actor, normal), HP_POISON);
-        assert_eq!(fixed(&actor, None, 0).color, [0.5, 1., 0.5, 1.]);
+        assert_eq!(fixed(&actor, false, 0).color, [0.5, 1., 0.5, 1.]);
         actor.conditions =
             resonance_battle::conditions::Conditions::new(resonance_battle::conditions::Layers {
                 base: Condition::Weak.into(),
                 ..Default::default()
             });
         assert_eq!(hp_colors(&actor, normal), HP_CRITICAL);
-        assert_eq!(fixed(&actor, None, 0).color, [1., 0.625, 0.625, 1.]);
+        assert_eq!(fixed(&actor, false, 0).color, [1., 0.625, 0.625, 1.]);
     }
 
     #[test]

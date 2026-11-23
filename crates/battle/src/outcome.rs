@@ -259,6 +259,7 @@ impl Battle {
         self.runtime[index].control = None;
         self.weapon_flights.retain(|&(owner, _), _| owner != id);
         let actor = &mut self.actors[index];
+        actor.conditions.clear_stat_changes();
         actor.position[1] = 0.;
         actor.hit_stop = 0;
         actor.movement = crate::Movement::default();
@@ -666,6 +667,30 @@ mod tests {
                 assert!(battle.ledger.ordinary_escape.is_none());
             }
         }
+        Ok(())
+    }
+
+    #[test]
+    fn victory_party_reset_expires_combat_stat_changes() -> Result<()> {
+        use crate::conditions::{Condition::*, Layers};
+        let mut battle = prepared(vec![actor(Side::Party)], 0).finish()?;
+        let id = ActorId(0);
+        battle.actors[0].conditions.reload_layers(Layers {
+            base: ConditionSet::of(&[Curse, AttackUp, DefenseDown]),
+            equipment_overlay: AccuracyUp.into(),
+            ..Default::default()
+        });
+        battle.terminal.result = Some(BattleResult::Victory);
+        battle.retire_combat()?;
+        assert!(
+            battle.actors[0]
+                .conditions
+                .effective()
+                .contains(DefenseDown)
+        );
+        battle.reset_result_actor(id)?;
+        assert_eq!(battle.actors[0].conditions.base(), Curse.into());
+        assert!(battle.actors[0].conditions.effective().contains(AccuracyUp));
         Ok(())
     }
 

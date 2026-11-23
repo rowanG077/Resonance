@@ -178,12 +178,17 @@ impl Artwork {
             .and_then(|numbers| numbers.vitals)
     }
 
-    pub(crate) fn portrait_observation(
+    pub(crate) fn party_portrait(
         &self,
         actor: &resonance_battle::ActorFrame,
-        result: Option<resonance_battle::BattleResult>,
+        future: Option<(&resonance_battle::ActorFrame, f32)>,
     ) -> party::Portrait {
-        party::portrait(actor, result, self.numbers.presentation_tick, None)
+        party::portrait(
+            actor,
+            self.results.is_some(),
+            self.numbers.presentation_tick,
+            future,
+        )
     }
 
     /// Build surfaces from the artwork and menu catalogue admitted by battle preparation.
