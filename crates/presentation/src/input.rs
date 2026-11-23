@@ -171,6 +171,15 @@ impl PhysicalState {
             .any(|i| self.standard_input(i) && self.pressed.contains(i))
     }
 
+    /// Navigation latches stick edges from the resolved movement vector.
+    pub fn digital_edge(&self, map: &Keymap, action: StandardAction) -> bool {
+        map.get(action).iter().any(|input| {
+            !matches!(input, PhysicalInput::Axis(_))
+                && self.standard_input(input)
+                && self.pressed.contains(input)
+        })
+    }
+
     /// Remember where each physical press began, including partial stick tilts.
     pub fn track_menu_presses(
         &self,

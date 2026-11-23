@@ -938,10 +938,12 @@ pub(super) fn gather_controls(
         };
         let down = physical.down(&map, action) || digital.is_some_and(|a| physical.down(&map, a));
         held = held.with(button, down);
-        tapped = tapped.with(
-            button,
-            physical.edge(&map, action) || digital.is_some_and(|a| physical.edge(&map, a)),
-        );
+        let pressed = if let Some(dpad) = digital {
+            physical.digital_edge(&map, action) || physical.digital_edge(&map, dpad)
+        } else {
+            physical.edge(&map, action)
+        };
+        tapped = tapped.with(button, pressed);
     }
     // Analog navigation must retain a short deflection just like a D-pad tap.
     for (axis, sign, button) in [
@@ -1075,27 +1077,33 @@ mod control_tests {
     }
 
     #[test]
-    fn pause_menu_retains_a_short_analog_deflection() {
-        let mut world = World::new();
-        world.init_resource::<Controls>();
-        world.init_resource::<ButtonInput<KeyCode>>();
-        let pad = world.spawn(Gamepad::default()).id();
+    fn pause_menu_retains_short_tilts_without_retriggering_at_full_tilt() {
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<Controls>()
+            .add_systems(Update, gather_controls);
+        let pad = app.world_mut().spawn(Gamepad::default()).id();
         let mut menu =
             resonance_game::menu::Menu::new(resonance_game::menu::Page::Main, None, false);
         menu.selected = 2;
-        for value in [-1., 0., 0., 0.] {
-            world
-                .get_mut::<Gamepad>(pad)
-                .unwrap()
-                .analog_mut()
-                .set(GamepadAxis::LeftStickX, value);
-            world.run_system_once(gather_controls).unwrap();
+        let mut step = |tilts: &[f32]| {
+            for &tilt in tilts {
+                app.world_mut()
+                    .get_mut::<Gamepad>(pad)
+                    .unwrap()
+                    .analog_mut()
+                    .set(GamepadAxis::LeftStickX, tilt);
+                app.update();
+            }
+            menu.step(app.world_mut().resource_mut::<Controls>().consume());
+            menu.selected
+        };
+        // A short deflection can end before the next menu tick.
+        assert_eq!(step(&[-1., 0., 0., 0.]), 1);
+        assert_eq!(step(&[0.]), 1);
+        for (tilt, selected) in [(0.65, 2), (1., 2), (0.65, 2), (1., 2), (0., 2), (1., 3)] {
+            assert_eq!(step(&[tilt]), selected, "stick at {tilt}");
         }
-        menu.step(world.resource_mut::<Controls>().consume());
-        assert_eq!(menu.selected, 1);
-        world.run_system_once(gather_controls).unwrap();
-        menu.step(world.resource_mut::<Controls>().consume());
-        assert_eq!(menu.selected, 1);
     }
 
     #[test]
