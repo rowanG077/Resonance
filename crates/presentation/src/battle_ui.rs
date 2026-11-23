@@ -180,12 +180,13 @@ impl Artwork {
 
     pub(crate) fn party_portrait(
         &self,
-        actor: &resonance_battle::ActorFrame,
+        frame: &BattleFrame,
+        actor: usize,
         future: Option<(&resonance_battle::ActorFrame, f32)>,
     ) -> party::Portrait {
         party::portrait(
-            actor,
-            self.results.is_some(),
+            &frame.actors[actor],
+            frame.victory_results_active,
             self.numbers.presentation_tick,
             future,
         )

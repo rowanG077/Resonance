@@ -707,6 +707,8 @@ mod tests {
             crate::Resolution::default(),
         );
         queue.apply(&mut world);
+        let mut frame = fixtures::frame(fixtures::actor(Default::default()));
+        frame.victory_results_active = true;
         for paranoid in [false, true] {
             let diagnostics = Diagnostics::new(paranoid);
             model.cook_prompt = Some(Character::Regal);
@@ -721,6 +723,7 @@ mod tests {
             assert!(
                 diagnostics.has_errors() && hud.results.is_none() && hud.results_on_last_page()
             );
+            assert_eq!(hud.party_portrait(&frame, 0, None).row, 3);
             model.character_names[Character::Regal.index()] = chef;
             hud.synchronize_results(&model, &Diagnostics::new(true))?;
             hud.render_results(0., &mut Commands::new(&mut queue, &world))?;

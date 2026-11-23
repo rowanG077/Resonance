@@ -64,6 +64,10 @@ pub(crate) struct Terminal {
 }
 
 impl Battle {
+    pub(crate) fn victory_results_active(&self) -> bool {
+        self.terminal.retired && self.terminal.result == Some(BattleResult::Victory)
+    }
+
     pub fn phase(&self) -> BattlePhase {
         if self.ended {
             BattlePhase::Finished
@@ -681,7 +685,9 @@ mod tests {
             ..Default::default()
         });
         battle.terminal.result = Some(BattleResult::Victory);
+        assert!(!battle.snapshot().victory_results_active);
         battle.retire_combat()?;
+        assert!(battle.snapshot().victory_results_active);
         assert!(
             battle.actors[0]
                 .conditions

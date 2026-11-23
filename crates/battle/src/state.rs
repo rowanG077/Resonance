@@ -816,6 +816,8 @@ pub struct BattleFrame {
     pub cues: Vec<Cue>,
     /// Recognition precedes the shared world visit; results still keep stepping.
     pub recognized_result: Option<BattleResult>,
+    /// The party has entered the victory results scene.
+    pub victory_results_active: bool,
     /// The final enemy's defeat presentation has begun, including its lead-in before the voice hold.
     pub enemy_defeat_started: bool,
     /// Delivered once. Subsequent calls after an outcome are rejected.
@@ -2916,6 +2918,7 @@ impl Battle {
                 .collect(),
             cues,
             recognized_result: self.terminal.result,
+            victory_results_active: self.victory_results_active(),
             enemy_defeat_started: self.enemy_presentation.defeat_started,
             projectile_shadows: self
                 .projectiles

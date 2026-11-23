@@ -396,7 +396,8 @@ impl Artwork {
             let slot = actor.control_slot.index();
             let x = left(slot);
             let portrait = self.party_portrait(
-                actor,
+                frame,
+                id,
                 time.next
                     .and_then(|n| n.frame.actors.get(id))
                     .map(|a| (a, time.visit)),
