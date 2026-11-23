@@ -5,6 +5,24 @@ use crate::{
     tests::{models, prepare_actors},
 };
 use resonance_content::animation::{Bone, Channel, Interpolation, Track, Transform};
+use resonance_content::secondary_motion::{Chain, Joint};
+
+fn secondary_chain(nodes: impl IntoIterator<Item = u16>) -> Chain {
+    Chain {
+        joints: nodes
+            .into_iter()
+            .map(|node| Joint {
+                node,
+                gravity: 1.,
+                damping: 0.7,
+            })
+            .collect(),
+        attraction: 0.03,
+        preserve_rotation: false,
+        rotation_locks: [false; 2],
+        collision_plane: None,
+    }
+}
 
 fn definition() -> Arc<ModelDefinition> {
     let mut definition = crate::tests::model_definition(7, [(0, 10.), (1, 10.)]);
@@ -225,22 +243,9 @@ fn trimmed_body_animation_keeps_components_in_sync_without_trimming_carried_loop
 
 #[test]
 fn entry_pose_and_attachments_begin_at_final_placement_and_pause_without_drift() -> Result<()> {
-    use resonance_content::secondary_motion::{Chain, Joint};
     let mut definition = (*definition()).clone();
     definition.initial.rate = 0.5;
-    definition.secondary_motion.push(Chain {
-        joints: (0..2)
-            .map(|node| Joint {
-                node,
-                gravity: 1.,
-                damping: 0.7,
-            })
-            .collect(),
-        attraction: 0.03,
-        preserve_rotation: false,
-        rotation_locks: [false; 2],
-        collision_plane: None,
-    });
+    definition.secondary_motion.push(secondary_chain(0..2));
     definition.weapons.push(Arc::new(WeaponDefinition {
         slot: Some(WeaponSlot(0)),
         attachment: Some(1),
@@ -324,7 +329,6 @@ fn secondary_motion_keeps_history_and_leaves_terminal_guides_at_the_sampled_pose
             transform_point(model.shown.bones[bone], [0.; 3]),
         )
     };
-    use resonance_content::secondary_motion::{Chain, Joint};
     let mut definition = (*definition()).clone();
     definition.skeleton.bones.push(Bone {
         name: "guide".into(),
@@ -336,19 +340,7 @@ fn secondary_motion_keeps_history_and_leaves_terminal_guides_at_the_sampled_pose
             ..Default::default()
         },
     });
-    definition.secondary_motion = vec![Chain {
-        joints: (0..3)
-            .map(|node| Joint {
-                node,
-                gravity: 1.,
-                damping: 0.7,
-            })
-            .collect(),
-        attraction: 0.03,
-        preserve_rotation: false,
-        rotation_locks: [false; 2],
-        collision_plane: None,
-    }];
+    definition.secondary_motion = vec![secondary_chain(0..3)];
     let mut subject = actor();
     subject.position = [0., 50., 0.];
     let mut animated = Model::new(Arc::new(definition.clone()), ActorId(0), &subject).unwrap();
@@ -1109,21 +1101,29 @@ fn reaction_poses_follow_native_state_and_keep_active_clocks() -> Result<()> {
 }
 
 #[test]
-fn sparse_clips_retain_omitted_channels_until_replaced() {
+fn sparse_clips_retain_omitted_channels_and_restore_untracked_secondary_targets() {
     let mut definition = (*definition()).clone();
-    Arc::make_mut(&mut Arc::make_mut(definition.motions.get_mut(&0).unwrap()).tracks[0].nodes[0])
-        .translation
-        .as_mut()
-        .unwrap()
-        .values = vec![[12., 0., 3.]; 2];
+    // The hand and cloth guide start at the same authored offset.
+    let mut guide = definition.skeleton.bones[1].clone();
+    guide.name = "cloth guide".into();
+    definition.skeleton.bones.push(guide);
+    definition.secondary_motion.push(secondary_chain([0, 2]));
     let mut sparse = (*definition.motions[&1]).clone();
-    std::sync::Arc::make_mut(&mut sparse.tracks[0].nodes[0]).translation = None;
-    std::sync::Arc::make_mut(&mut sparse.tracks[0].nodes[0]).rotation =
-        Some(resonance_content::animation::Channel {
-            interpolation: resonance_content::animation::Interpolation::Linear,
-            times: vec![0., 10. / 30.],
-            values: vec![[0., 0., 0., 1.], [0., 0., 1., 0.]],
-        });
+    let hand = Arc::make_mut(&mut sparse.tracks[0].nodes[0]);
+    hand.translation = None;
+    hand.rotation = Some(Channel {
+        interpolation: Interpolation::Linear,
+        times: vec![0., 10. / 30.],
+        values: vec![[0., 0., 0., 1.], [0., 0., 1., 0.]],
+    });
+    // Start the chain root at the rotated endpoint, with its guide displaced.
+    definition.initial.frame = 10.;
+    let mut root_track = sparse.tracks[0].clone();
+    root_track.bone = 0;
+    let initial = Arc::make_mut(definition.motions.get_mut(&0).unwrap());
+    let mut guide_track = initial.tracks[0].clone();
+    guide_track.bone = 2;
+    initial.tracks.extend([root_track, guide_track]);
     definition.motions.insert(2, Arc::new(sparse));
     definition.motions.insert(
         3,
@@ -1135,12 +1135,17 @@ fn sparse_clips_retain_omitted_channels_until_replaced() {
     );
     let definition = Arc::new(definition);
     let subject = actor();
+    let chain_targets = |model: &Model| [0, 2].map(|bone| model.animation.local[bone].matrix());
+    let rest = [0, 2].map(|bone| definition.skeleton.bones[bone].bind.matrix());
     for (blend, translations) in [
         (0, [12.; 10]),
         (4, [12., 10., 8., 6., 4., 4., 4., 4., 4., 4.]),
     ] {
         let mut model = Model::new(Arc::clone(&definition), ActorId(0), &subject).unwrap();
-        let rotation = model.shown.bones[1][0];
+        let outgoing = chain_targets(&model);
+        assert_ne!(outgoing[0], rest[0]);
+        assert_ne!(outgoing[1], rest[1]);
+        let rotation = model.animation.local[1].matrix()[0];
         model
             .play(
                 MotionBinding {
@@ -1155,17 +1160,22 @@ fn sparse_clips_retain_omitted_channels_until_replaced() {
             .unwrap();
         // Blending approaches the bind translation; subsequent sparse samples
         // retain its last mixed value. Without a blend, it never changes.
-        for x in translations {
+        for (step, x) in translations.into_iter().enumerate() {
             model.step(&subject, true).unwrap();
             crate::tests::assert_vector_close::<3>(
-                model.shown.bones[1][3][..3].try_into().unwrap(),
+                model.animation.local[1].translation(),
                 [x, 0., 3.],
                 0.00001,
             );
+            // After the replacement tick, the solver immediately targets bind.
+            assert_eq!(
+                chain_targets(&model),
+                if step == 0 { outgoing } else { rest }
+            );
         }
-        assert_ne!(model.shown.bones[1][0], rotation);
-        // A whole omitted track retains its pose even during a new blend.
-        let retained = model.shown.bones.clone();
+        assert_ne!(model.animation.local[1].matrix()[0], rotation);
+        // A whole omitted hand track retains its pose even during a new blend.
+        let retained = model.shown.bones[1];
         model
             .play(
                 MotionBinding {
@@ -1180,7 +1190,7 @@ fn sparse_clips_retain_omitted_channels_until_replaced() {
             .unwrap();
         for _ in 0..u16::from(blend) + 2 {
             model.step(&subject, true).unwrap();
-            assert_eq!(model.shown.bones, retained);
+            assert_eq!(model.shown.bones[1], retained);
         }
         // A later authored translation replaces the retained channel normally.
         model
@@ -1196,7 +1206,7 @@ fn sparse_clips_retain_omitted_channels_until_replaced() {
             )
             .unwrap();
         model.step(&subject, true).unwrap();
-        assert_eq!(model.shown.bones, retained);
+        assert_eq!(model.shown.bones[1], retained);
         model.step(&subject, true).unwrap();
         assert_eq!(model.shown.bones[1][3][0], 2.5);
     }

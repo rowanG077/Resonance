@@ -290,7 +290,12 @@ impl Weapon {
             animation.start(clock);
             *current = clip;
         } else {
-            let mut animation = AnimatedPose::new(&definition.skeleton, motion, playback)?;
+            let mut animation = AnimatedPose::new(
+                &definition.skeleton,
+                motion,
+                playback,
+                &definition.secondary_motion,
+            )?;
             animation.pending_sample = true;
             self.layers[0].animation = Some((clip, animation));
         }
@@ -420,7 +425,12 @@ impl Weapon {
                 | WeaponPlayback::Owner { initial, .. }
                 | WeaponPlayback::Body { initial, .. } => Some((
                     initial.clip,
-                    AnimatedPose::new(&layer.skeleton, &layer.motions[&initial.clip], initial)?,
+                    AnimatedPose::new(
+                        &layer.skeleton,
+                        &layer.motions[&initial.clip],
+                        initial,
+                        &layer.secondary_motion,
+                    )?,
                 )),
             };
             let bones = match &animation {

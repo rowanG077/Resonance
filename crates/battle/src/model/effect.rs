@@ -209,7 +209,12 @@ impl PreparedEffectModel {
             );
             self.animation = Some((
                 clip,
-                AnimatedPose::new(&self.definition.skeleton, motion, play)?,
+                AnimatedPose::new(
+                    &self.definition.skeleton,
+                    motion,
+                    play,
+                    &self.definition.secondary_motion,
+                )?,
                 source,
             ));
         }
