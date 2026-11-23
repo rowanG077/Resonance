@@ -31,6 +31,7 @@ use std::{
     collections::BTreeMap,
     sync::{Arc, atomic::Ordering},
 };
+pub(crate) use transition::State as Shatter;
 
 // Positioned effects and voices use the same final frame camera as the world.
 fn audio_camera(frame: &BattleFrame) -> Result<resonance_battle::CameraPose> {
@@ -221,6 +222,13 @@ impl Owner {
         matches!(self.phase, Phase::Failed)
     }
 
+    /// The submitted battle view can be shown while the opening camera is still held.
+    pub(crate) fn view_ready(&self) -> bool {
+        matches!(&self.phase, Phase::Scene(scene)
+            if matches!(scene.state, SceneState::Revealing | SceneState::Active)
+                && scene.menu_ready && scene.failure.is_none())
+    }
+
     pub(super) fn presenting(&self) -> bool {
         matches!(&self.phase, Phase::Scene(scene) if scene.state == SceneState::Active
             && scene.menu_ready && scene.failure.is_none())
@@ -324,6 +332,7 @@ impl Scene {
 enum SceneState {
     Warming,
     Activating,
+    Revealing,
     Active,
 }
 
@@ -1086,7 +1095,8 @@ fn prepare(
     let Phase::Scene(scene) = phase else {
         return;
     };
-    if scene.state == SceneState::Active || scene.failure.is_some() {
+    if matches!(scene.state, SceneState::Revealing | SceneState::Active) || scene.failure.is_some()
+    {
         return;
     }
     let result = (|| -> Result<()> {
@@ -1192,14 +1202,13 @@ fn prepare(
         if !scene.view.finish_activation()? || !scene.menu_ready {
             return Ok(());
         }
-        if let Some(transition) = transition.as_mut() {
-            transition.start_shatter();
+        if let Some(shatter) = transition.as_mut() {
+            shatter.start_shatter(scene);
+        } else {
+            scene.state = SceneState::Active;
         }
-        // The opening pan and actor animations run as the fragments clear.
-        // Waiting for the shatter here exposes a frozen battle underneath it.
-        scene.state = SceneState::Active;
         info!(
-            "Battle activated; seed={}; tick={:?}; preparation={:.3}s",
+            "Battle ready; seed={}; tick={:?}; preparation={:.3}s",
             scene.entry_seed,
             scene.published_tick,
             scene.preparing_since.elapsed().as_secs_f64()
@@ -1345,7 +1354,6 @@ fn advance(
     playback: Option<ResMut<super::battle_audio::Playback>>,
     mut session: Option<ResMut<super::new_game::Session>>,
     scenario: Option<ResMut<super::saves::ScenarioInput>>,
-    transition: Option<Res<transition::State>>,
 ) {
     let _timer = crate::performance::smoothing_profile::Timer::start(4);
     let Some(mut owner) = owner else {
@@ -1391,7 +1399,6 @@ fn advance(
             .context("battle lost its retained session")?;
         session.advance_play_time();
         let voice_busy = playback.busy_voices();
-        let entry_voice_ready = transition.as_ref().is_none_or(|t| t.entry_voice_ready());
         let mut frame = Simulation {
             core: &mut scene.core,
             lifecycle: &mut scene.lifecycle,
@@ -1413,7 +1420,6 @@ fn advance(
                 diagnostics: &scene.diagnostics,
             },
             voice_busy,
-            entry_voice_ready,
         )?;
         let paused = frame.clock.feedback_paused();
         update_hud(
@@ -1522,18 +1528,8 @@ impl Simulation<'_> {
         previous: Option<&BattleFrame>,
         presentation: &mut impl results::Presentation,
         voice_busy: resonance_battle::ActorSet,
-        entry_voice_ready: bool,
     ) -> Result<BattleFrame> {
         let input = self.input(input, previous, voice_busy);
-        self.step_input(input, presentation, entry_voice_ready)
-    }
-
-    fn step_input(
-        &mut self,
-        input: lifecycle::Input,
-        presentation: &mut impl results::Presentation,
-        entry_voice_ready: bool,
-    ) -> Result<BattleFrame> {
         let mut frame = self
             .lifecycle
             .step(self.core, input, self.candidate, presentation)?;
@@ -1546,9 +1542,7 @@ impl Simulation<'_> {
             );
         if self.lifecycle.event().is_none() {
             self.feedback
-                .resolve(&mut frame, entry_voice_ready, |cues| {
-                    self.core.record_voice_requests(cues)
-                });
+                .resolve(&mut frame, |cues| self.core.record_voice_requests(cues));
         }
         self.core.advance_models(&mut frame, clock, settle)?;
         if let Some(event) = self.lifecycle.event() {

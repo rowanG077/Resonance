@@ -237,6 +237,11 @@ impl PreparedBattle {
                 };
             }
         }
+        if self.entry_remaining != 0
+            && let Some(camera) = &mut self.camera
+        {
+            camera.frame_entry(0);
+        }
         let unison = self.unison.take();
         let mut battle = crate::Battle::from_prepared(self)?;
         if let Some(definition) = unison {
@@ -371,9 +376,6 @@ impl PreparedBattle {
     /// Pan across the encounter, then enable combat on the next update.
     pub fn with_entry(mut self) -> Self {
         self.entry_remaining = ENTRY_RESUME_UPDATE;
-        if let Some(camera) = &mut self.camera {
-            camera.frame_entry(0);
-        }
         self
     }
 
@@ -575,7 +577,7 @@ mod tests {
         leader.position[0] = -300.;
         leader.guard.recent_hurt_ticks = 200;
         let mut enemy = crate::tests::actor(Side::Enemy);
-        enemy.position[0] = 300.;
+        enemy.position[0] = 400.;
         let mut battle = PreparedBattle::new(
             vec![
                 (leader, ActorSetup::default()),
@@ -585,6 +587,7 @@ mod tests {
             1,
         )
         .unwrap()
+        .with_entry()
         .with_camera(crate::CameraDefinition {
             leader: ActorId(0),
             stage_pitch: 0.,
@@ -592,7 +595,6 @@ mod tests {
             yaw_limits: None,
         })
         .unwrap()
-        .with_entry()
         .finish()
         .unwrap();
         let mut model = crate::tests::model_definition(7, [(0, 2.), (1, 200.)]);
@@ -609,6 +611,7 @@ mod tests {
         );
         let mut previous_pose = None;
         for update in 1..=106_u8 {
+            let previous_camera = battle.camera.as_ref().unwrap().frame();
             let mut frame = battle.step(BattleInput::default()).unwrap();
             let clock = frame.clock;
             battle.advance_models(&mut frame, clock, true).unwrap();
@@ -647,12 +650,23 @@ mod tests {
                 u32::from(update.saturating_sub(59))
             );
             assert_eq!(frame.actors[0].guard.recent_hurt_ticks, 200 - update);
-            if update <= 59 {
+            if update <= 60 {
                 let camera = frame.camera.unwrap();
                 assert!(
                     (camera.focus[0] - 700. * (1. - f32::from(update.min(59)) / 59.)).abs() < 0.01
                 );
                 assert_eq!(camera.radius, 4200.);
+                // The eye catches up as focus moves continuously across the arena.
+                let entry_height = 120. + 4200. * 8_f32.to_radians().sin();
+                match update {
+                    1 => assert!((camera.eye[1] - entry_height - 35.94).abs() < 0.01),
+                    2 => assert!((camera.eye[1] - entry_height - 64.42).abs() < 0.01),
+                    60 => assert_eq!(camera, previous_camera),
+                    8.. => assert!((camera.eye[1] - entry_height - 120.).abs() < 0.01),
+                    _ => {}
+                }
+            } else if update == 61 {
+                assert!(frame.camera.unwrap().focus[0] > 0.);
             }
         }
     }

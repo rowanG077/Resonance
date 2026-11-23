@@ -70,11 +70,6 @@ impl Owner {
         ))
     }
 
-    /// Screenshot readback starts only after the scene is fully submitted.
-    pub(crate) fn capture_ready(&self) -> bool {
-        self.presenting()
-    }
-
     pub(crate) fn entry_diagnostic(&self, world: &World) -> Option<Value> {
         let mut result = json!({"request": self.request.id(), "presenting": self.presenting()});
         result["shatter"] = world
@@ -84,6 +79,7 @@ impl Owner {
             result["state"] = json!(match scene.state {
                 SceneState::Warming => "warming",
                 SceneState::Activating => "activating",
+                SceneState::Revealing => "revealing",
                 SceneState::Active => "active",
             });
         }

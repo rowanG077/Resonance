@@ -8,8 +8,9 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 const LAYER: usize = 25;
 const HOLD_TICKS: u16 = 22;
 const FADE_START: u16 = 43;
-const END_TICK: u16 = 90;
-const ENTRY_VOICE_TICK: u16 = HOLD_TICKS + (END_TICK - HOLD_TICKS) / 2;
+// Finish the fragment flight by the first controllable update.
+const END_TICK: u16 = HOLD_TICKS + 60;
+const ENTRY_VOICE_TICK: u16 = 56;
 const FADE_STEP: f32 = 1. / (END_TICK - FADE_START) as f32;
 const EDGE_SPEED: f32 = 2.5;
 const CRACK_SPREAD: f32 = 1.025;
@@ -30,7 +31,7 @@ struct Piece {
 }
 
 #[derive(Resource)]
-pub(super) struct State {
+pub(crate) struct State {
     capture: crate::menu_backdrop::Capture,
     warmup: gpu::Shared,
     capture_camera: Entity,
@@ -41,20 +42,63 @@ pub(super) struct State {
     size: Vec2,
     age: Option<u16>,
     mesh_age: f32,
-    crack_color: Color,
+    cracks: Option<Entity>,
     battle_ready: bool,
+    pub(super) entry_voice: Option<resonance_battle::Cue>,
     #[cfg(all(test, feature = "preparation-trace"))]
     skip_minimum_duration: bool,
 }
 
 impl State {
-    pub(super) fn start_shatter(&mut self) {
+    #[cfg(test)]
+    pub(super) fn captured_for_test() -> Self {
+        Self {
+            capture: crate::menu_backdrop::Capture::once(Handle::default()),
+            warmup: gpu::Shared::default(),
+            capture_camera: Entity::PLACEHOLDER,
+            camera: Entity::PLACEHOLDER,
+            entity: Entity::PLACEHOLDER,
+            mesh: Handle::default(),
+            pieces: Vec::new(),
+            size: Vec2::ZERO,
+            age: Some(0),
+            mesh_age: f32::from(HOLD_TICKS),
+            cracks: None,
+            battle_ready: false,
+            entry_voice: None,
+            #[cfg(feature = "preparation-trace")]
+            skip_minimum_duration: false,
+        }
+    }
+
+    pub(super) fn start_shatter(&mut self, scene: &mut Scene) {
         self.battle_ready = true;
         #[cfg(all(test, feature = "preparation-trace"))]
         if self.skip_minimum_duration {
             // Called only after capture, view activation and menu preparation.
             self.age = Some(END_TICK);
+            scene.state = SceneState::Active;
+            return;
         }
+        // The shatter owns its midpoint voice while the battle runs beneath it.
+        self.entry_voice = scene
+            .frame
+            .as_ref()
+            .and_then(|frame| scene.feedback.take_entry_voice(frame));
+        scene.state = if self.reveal_ready() {
+            SceneState::Active
+        } else {
+            SceneState::Revealing
+        };
+    }
+
+    /// Before the battle runs, the presentation clock follows the visible shatter.
+    pub(crate) fn advancing_to_reveal(&self) -> bool {
+        self.age.is_some_and(|age| age < HOLD_TICKS)
+    }
+
+    fn reveal_ready(&self) -> bool {
+        self.age.is_some_and(|age| age >= HOLD_TICKS)
     }
 
     pub(super) fn finished(&self) -> bool {
@@ -68,10 +112,6 @@ impl State {
         } else {
             hold
         }
-    }
-
-    pub(super) fn entry_voice_ready(&self) -> bool {
-        self.age.is_some_and(|age| age >= ENTRY_VOICE_TICK)
     }
 
     pub(super) fn diagnostic(&self) -> serde_json::Value {
@@ -176,26 +216,45 @@ pub(super) fn begin(world: &mut World, seed: u64, request: &Request) -> Result<(
     let mesh = world
         .resource_mut::<Assets<Mesh>>()
         .add(mesh(&pieces, size, f32::from(HOLD_TICKS)));
-    let material = world
-        .resource_mut::<Assets<crate::menu_backdrop::Material>>()
-        .add(crate::menu_backdrop::Material::visible(image).with_cover(cover));
+    let backdrop = crate::menu_backdrop::Material::visible(image);
+    let crack_color = crack_color(request.formation_count()).to_linear();
+    let mut materials = world.resource_mut::<Assets<crate::menu_backdrop::Material>>();
+    let cracks_material = materials.add(backdrop.clone().with_cover(crack_color.to_vec4()));
+    let material = materials.add(backdrop.with_cover(cover));
+    let cracks_mesh = world
+        .resource_mut::<Assets<Mesh>>()
+        .add(Rectangle::from_size(size));
     let mut report = gpu::Report {
         armed: true,
         ..default()
     };
     // The shatter draws in the scene pass once the field image is captured.
-    report.prepare(
-        gpu::View::Field,
-        mesh.id(),
-        crate::native::Prepare::Backdrop,
-        false,
-        None,
-    );
+    for mesh in [&mesh, &cracks_mesh] {
+        report.prepare(
+            gpu::View::Field,
+            mesh.id(),
+            crate::native::Prepare::Backdrop,
+            false,
+            None,
+        );
+    }
     let entity = world
         .spawn((
             Mesh2d(mesh.clone()),
             MeshMaterial2d(material),
             Transform::default(),
+            RenderLayers::layer(LAYER),
+            NoFrustumCulling,
+        ))
+        .id();
+    // Show the formation color through the stationary gaps. Drawing it behind
+    // the pieces lets the battlefield submit its first GPU frame underneath.
+    let cracks = world
+        .spawn((
+            ChildOf(entity),
+            Mesh2d(cracks_mesh),
+            MeshMaterial2d(cracks_material),
+            Transform::from_xyz(0., 0., -1.),
             RenderLayers::layer(LAYER),
             NoFrustumCulling,
         ))
@@ -231,8 +290,9 @@ pub(super) fn begin(world: &mut World, seed: u64, request: &Request) -> Result<(
         size,
         age: None,
         mesh_age: f32::from(HOLD_TICKS),
-        crack_color: crack_color(request.formation_count()),
+        cracks: Some(cracks),
         battle_ready: false,
+        entry_voice: None,
         #[cfg(all(test, feature = "preparation-trace"))]
         skip_minimum_duration,
     });
@@ -252,6 +312,8 @@ pub(super) fn dispose(world: &mut World) {
 
 fn advance(
     state: Option<ResMut<State>>,
+    mut owner: Option<ResMut<Owner>>,
+    mut playback: Option<ResMut<crate::battle_audio::Playback>>,
     audio: Option<Res<crate::field_audio::Control>>,
     mut exit: crate::diagnostics::Fatal,
 ) {
@@ -259,7 +321,7 @@ fn advance(
         && let Some(age) = state.age
     {
         // Keep the cracked field intact until the battle's first frame has
-        // completed on the GPU, then animate both scenes together.
+        // completed on the GPU, then start moving the fragments.
         if age >= HOLD_TICKS && !state.battle_ready {
             return;
         }
@@ -270,6 +332,25 @@ fn advance(
             exit.fail("Battle entry sound failed", error);
         }
         state.age = Some(age.saturating_add(1).min(END_TICK));
+        if let Some(owner) = owner.as_mut()
+            && let Phase::Scene(scene) = &mut owner.phase
+        {
+            if age == ENTRY_VOICE_TICK
+                && let Some(cue) = state.entry_voice.take()
+            {
+                let result = playback
+                    .as_mut()
+                    .context("battle entry lost its audio owner")
+                    .and_then(|playback| playback.dispatch(&[cue], |_| None));
+                if let Err(error) = result {
+                    scene.failure = Some(error);
+                    return;
+                }
+            }
+            if scene.state == SceneState::Revealing && state.reveal_ready() {
+                scene.state = SceneState::Active;
+            }
+        }
     }
 }
 
@@ -336,17 +417,20 @@ fn render(
         let battle_frame = owner.as_ref().is_some_and(|owner| {
             matches!(&owner.phase, Phase::Scene(scene) if scene.state != SceneState::Warming)
         });
-        camera.clear_color = if !battle_frame || state.age.is_some_and(|age| age < HOLD_TICKS) {
-            // Only the narrow cracks expose this backing; motion reveals battle.
-            ClearColorConfig::Custom(state.crack_color)
-        } else {
-            // Draw the held battle pose so its first-frame fence can complete
-            // before the shatter is allowed to move past HOLD_TICKS.
+        camera.clear_color = if battle_frame {
+            // Submit the battlefield under the fragments, including its first GPU frame.
             ClearColorConfig::None
+        } else {
+            ClearColorConfig::Default
         };
     }
     // Rebuild only once the pieces start moving.
     let age = state.fragment_age(prediction.alpha);
+    if age > f32::from(HOLD_TICKS)
+        && let Some(cracks) = state.cracks.take()
+    {
+        commands.entity(cracks).despawn();
+    }
     if age != state.mesh_age
         && let Some(mut target) = meshes.get_mut(&state.mesh)
     {
@@ -446,22 +530,7 @@ mod tests {
             let mut app = App::new();
             app.add_message::<AppExit>()
                 .add_systems(FixedUpdate, advance)
-                .insert_resource(State {
-                    capture: crate::menu_backdrop::Capture::once(Handle::default()),
-                    warmup: gpu::Shared::default(),
-                    capture_camera: Entity::PLACEHOLDER,
-                    camera: Entity::PLACEHOLDER,
-                    entity: Entity::PLACEHOLDER,
-                    mesh: Handle::default(),
-                    pieces: Vec::new(),
-                    size: Vec2::ZERO,
-                    age: Some(0),
-                    mesh_age: f32::from(HOLD_TICKS),
-                    crack_color: Color::WHITE,
-                    battle_ready: false,
-                    #[cfg(feature = "preparation-trace")]
-                    skip_minimum_duration: false,
-                });
+                .insert_resource(State::captured_for_test());
             for tick in 0..loading_ticks {
                 app.world_mut().run_schedule(FixedUpdate);
                 assert_eq!(
@@ -470,9 +539,8 @@ mod tests {
                 );
                 let state = app.world().resource::<State>();
                 assert_eq!(state.fragment_age(0.5), f32::from(HOLD_TICKS));
-                assert!(!state.entry_voice_ready());
             }
-            app.world_mut().resource_mut::<State>().start_shatter();
+            app.world_mut().resource_mut::<State>().battle_ready = true;
             let age = app.world().resource::<State>().age.unwrap();
             for next in age + 1..=END_TICK {
                 app.world_mut().run_schedule(FixedUpdate);
@@ -481,8 +549,8 @@ mod tests {
                 if next == HOLD_TICKS + 1 {
                     assert_eq!(state.fragment_age(0.5), f32::from(next) + 0.5);
                 }
+                assert_eq!(state.reveal_ready(), next >= HOLD_TICKS);
                 assert_eq!(state.finished(), next == END_TICK);
-                assert_eq!(state.entry_voice_ready(), next >= 56);
             }
             app.world_mut().run_schedule(FixedUpdate);
             assert!(app.world().resource::<State>().finished());

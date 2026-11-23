@@ -17,6 +17,23 @@ use resonance_battle::{ActionRequest, Activity, BattleFrame, BattleInput, item::
 #[cfg(feature = "test-support")]
 use resonance_content::diagnostics::Diagnostics;
 
+fn issue_order(
+    f: &mut PreparedFixture,
+    order: QuickOrder,
+    command: command::Input,
+) -> Result<BattleFrame> {
+    f.lifecycle.step(
+        &mut f.battle,
+        lifecycle::Input {
+            order: Some(order),
+            command,
+            ..Default::default()
+        },
+        &mut f.candidate,
+        &mut Display,
+    )
+}
+
 #[test]
 #[ignore = "requires cooked Strategy and encounter assets; CPU only"]
 fn lone_general_records_a_completed_strategy_order_with_only_lloyd_alive() -> Result<()> {
@@ -28,15 +45,7 @@ fn lone_general_records_a_completed_strategy_order_with_only_lloyd_alive() -> Re
     enter_battle(&mut f.candidate, &mut f.battle)?;
     let lloyd = f.candidate.setup.actors[0].0;
     assert!(!f.battle.ledger().achievements[lloyd.index()].commanded_alone);
-    f.lifecycle.step(
-        &mut f.battle,
-        lifecycle::Input {
-            order: Some(QuickOrder::LeftPreset),
-            ..Default::default()
-        },
-        &mut f.candidate,
-        &mut Display,
-    )?;
+    issue_order(&mut f, QuickOrder::LeftPreset, Default::default())?;
     for _ in 0..60 {
         visit(&mut f, Default::default())?;
     }
@@ -48,8 +57,7 @@ fn lone_general_records_a_completed_strategy_order_with_only_lloyd_alive() -> Re
 
 #[test]
 #[ignore = "requires cooked Strategy and encounter assets; CPU only"]
-fn quick_orders_apply_after_the_notice_and_cancel_without_editing_personal_strategy() -> Result<()>
-{
+fn quick_orders_apply_on_entry_and_after_the_combat_notice() -> Result<()> {
     let mut f =
         super::test_support::prepared_fixture_with_party(&[1, 3], 2, &[], |party, _, menus| {
             let mut presets = menus.strategy_presets()?;
@@ -58,23 +66,43 @@ fn quick_orders_apply_after_the_notice_and_cancel_without_editing_personal_strat
             party.strategy_presets = Some(presets);
             Ok(())
         })?;
-    enter_battle(&mut f.candidate, &mut f.battle)?;
-    f.lifecycle.step(
-        &mut f.battle,
-        lifecycle::Input {
-            order: Some(QuickOrder::LeftPreset),
-            ..Default::default()
-        },
-        &mut f.candidate,
-        &mut Display,
-    )?;
-    assert_eq!(f.lifecycle.order_selection(), QuickOrder::LeftPreset);
+    let open_menu = command::Input {
+        open: edge(),
+        ..Default::default()
+    };
+    issue_order(&mut f, QuickOrder::Cancel, Default::default())?;
+    assert_eq!(f.lifecycle.order_revision(), 0);
+    let frame = issue_order(&mut f, QuickOrder::UpperPreset, open_menu)?;
     assert_eq!(f.lifecycle.order_revision(), 1);
+    assert_eq!(f.lifecycle.command_controller(), None);
+    assert_eq!(f.candidate.active_order(), QuickOrder::UpperPreset);
+    let opening_choices = f.candidate.menus.strategy.presets[1];
+    for &(actor, character) in &f.candidate.setup.actors {
+        assert_eq!(
+            f.battle.companion_choices(actor),
+            Some(opening_choices[character.index()])
+        );
+    }
+    assert!(!frame.combat_active);
+    assert_eq!(f.battle.ledger().combat_ticks, 0);
+
+    // Opening updates count toward the 160-update wait to repeat the same order.
+    for _ in 1..159 {
+        visit(&mut f, Default::default())?;
+    }
+    issue_order(&mut f, QuickOrder::UpperPreset, Default::default())?;
+    assert_eq!(f.lifecycle.order_revision(), 1);
+    issue_order(&mut f, QuickOrder::UpperPreset, Default::default())?;
+    assert_eq!(f.lifecycle.order_revision(), 2);
+
+    issue_order(&mut f, QuickOrder::LeftPreset, Default::default())?;
+    assert_eq!(f.lifecycle.order_selection(), QuickOrder::LeftPreset);
+    assert_eq!(f.lifecycle.order_revision(), 3);
     assert_eq!(f.candidate.order_name(QuickOrder::LeftPreset)?, "Custom");
     for _ in 0..59 {
         visit(&mut f, Default::default())?;
     }
-    assert_eq!(f.candidate.active_order(), QuickOrder::Cancel);
+    assert_eq!(f.candidate.active_order(), QuickOrder::UpperPreset);
     assert_eq!(
         f.battle.ledger().achievements[f.candidate.setup.actors[0].0.index()].strategy_orders,
         0
@@ -89,19 +117,7 @@ fn quick_orders_apply_after_the_notice_and_cancel_without_editing_personal_strat
     for &(actor, _) in &f.candidate.setup.actors {
         assert_eq!(f.battle.companion_choices(actor).unwrap(), [2, 1, 6]);
     }
-    f.lifecycle.step(
-        &mut f.battle,
-        lifecycle::Input {
-            order: Some(QuickOrder::Cancel),
-            command: command::Input {
-                open: edge(),
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-        &mut f.candidate,
-        &mut Display,
-    )?;
+    issue_order(&mut f, QuickOrder::Cancel, open_menu)?;
     for _ in 0..60 {
         visit(&mut f, Default::default())?;
     }

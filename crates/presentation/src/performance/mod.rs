@@ -241,7 +241,7 @@ fn begin_frame(
                     "model_particles":battle.as_ref().and_then(|owner| owner.model_particle_stats()),
                     "battle_workload":battle.as_ref().and_then(|owner| owner.benchmark_counts()),
                     "overworld":session.as_ref().and_then(|s|s.overworld()).map(|s|s.session.travel.state()),
-                    "phase": if let Some(battle) = &battle { if battle.presenting() {"battle"} else {"battle_preparation"} } else if pending.is_some() || session.is_some() && resident.as_ref().is_some_and(|r| !r.active.load(std::sync::atomic::Ordering::Acquire)) {"field_preparation"} else if metrics.movie.as_ref().is_some_and(|m| m.active) {"movie"} else if session.is_some() {"field"} else {"title"},
+                    "phase": if let Some(battle) = &battle { if battle.view_ready() {"battle"} else {"battle_preparation"} } else if pending.is_some() || session.is_some() && resident.as_ref().is_some_and(|r| !r.active.load(std::sync::atomic::Ordering::Acquire)) {"field_preparation"} else if metrics.movie.as_ref().is_some_and(|m| m.active) {"movie"} else if session.is_some() {"field"} else {"title"},
                     "map":session.as_ref().map(|s| s.map_id()),
                     "tick":session.as_ref().map(|s| s.events().tick()),
                     "resources": {"images":metrics.images.as_ref().map(|a| a.len()), "meshes":metrics.meshes.as_ref().map(|a| a.len()), "surfaces":metrics.surfaces.as_ref().map(|a| a.len() + metrics.world_surfaces.as_ref().map_or(0, |w| w.len())),

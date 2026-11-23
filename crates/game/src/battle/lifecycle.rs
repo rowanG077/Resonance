@@ -132,7 +132,7 @@ impl Lifecycle {
             command_setup,
             command_events: Vec::new(),
             order: QuickOrder::Cancel,
-            order_age: ORDER_RESELECT_DELAY,
+            order_age: 0,
             order_revision: 0,
             order_issuer: None,
             events: None,
@@ -295,28 +295,29 @@ impl Lifecycle {
         if input.battle.paused {
             return candidate.world_update(battle, input.battle);
         }
-        if battle.phase() == BattlePhase::Combat
+        let phase = battle.phase();
+        let accepts_orders = matches!(phase, BattlePhase::Entry | BattlePhase::Combat);
+        if accepts_orders
             && self.command.input_kind() == command::InputKind::Command
             && let Some(order) = input.order
+            && (order != self.order || self.order_age >= ORDER_RESELECT_DELAY)
         {
-            if order != self.order || self.order_age >= ORDER_RESELECT_DELAY {
-                if order != self.order {
-                    self.command_events.push(command::Event::Cue(1));
-                }
-                self.order_issuer = battle.actor_ids().find(|id| {
-                    let actor = &battle.actors()[id.index()];
-                    actor.side == resonance_battle::Side::Party
-                        && actor.control_slot == input.command.controller
-                        && actor.available()
-                        && matches!(
-                            actor.control,
-                            resonance_battle::Control::Manual | resonance_battle::Control::SemiAuto
-                        )
-                });
-                self.order = order;
-                self.order_age = 0;
-                self.order_revision = self.order_revision.wrapping_add(1);
+            if order != self.order {
+                self.command_events.push(command::Event::Cue(1));
             }
+            self.order_issuer = battle.actor_ids().find(|id| {
+                let actor = &battle.actors()[id.index()];
+                actor.side == resonance_battle::Side::Party
+                    && actor.control_slot == input.command.controller
+                    && actor.available()
+                    && matches!(
+                        actor.control,
+                        resonance_battle::Control::Manual | resonance_battle::Control::SemiAuto
+                    )
+            });
+            self.order = order;
+            self.order_age = 0;
+            self.order_revision = self.order_revision.wrapping_add(1);
         }
         let admission = self
             .command_setup
@@ -326,13 +327,16 @@ impl Lifecycle {
             self.command
                 .step_with_candidate(input.command, admission, battle, candidate)?;
         self.command_events.extend(command.events);
-        if battle.phase() == BattlePhase::Combat {
-            if self.order_age >= ORDER_APPLY_DELAY
+        if accepts_orders {
+            // Opening orders set the initial tactics. Mid-fight changes wait for the notice.
+            if (phase == BattlePhase::Entry || self.order_age >= ORDER_APPLY_DELAY)
                 && self.command.controller().is_none()
                 && candidate.active_order() != self.order
             {
                 candidate.apply_order(battle, self.order)?;
-                if let Some(actor) = self.order_issuer.take() {
+                if let Some(actor) = self.order_issuer.take()
+                    && phase == BattlePhase::Combat
+                {
                     battle.record_strategy_order(actor);
                 }
             }

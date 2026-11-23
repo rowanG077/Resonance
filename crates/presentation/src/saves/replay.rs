@@ -941,7 +941,14 @@ fn scenario_input(world: &mut World) {
                 return;
             }
         };
-        let keys = if input.failed || input.complete() || input.capture().is_some() {
+        let before = (!input.complete() && !input.failed && input.capture().is_none())
+            .then(|| (world.resource::<Clock>().0.tick(), input.consumed));
+        if before.is_some() && scene::shattering(world, phase) {
+            // Count visible time without changing held keys or consuming an edge.
+            input.before = before;
+            return;
+        }
+        let keys = if before.is_none() {
             Vec::new()
         } else if scene::ready(world, phase) {
             next_keys.unwrap_or_default()
@@ -951,8 +958,7 @@ fn scenario_input(world: &mut World) {
         };
         send_input(world, &input.held, &keys, input.pad);
         input.held = keys;
-        input.before = (!input.complete() && !input.failed && input.capture().is_none())
-            .then(|| (world.resource::<Clock>().0.tick(), input.consumed));
+        input.before = before;
     });
 }
 

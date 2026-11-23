@@ -665,7 +665,7 @@ fn named_boss_defeat_voices_finish_before_victory() -> Result<()> {
             }
             let mut frame = battle.step(input)?;
             let clock = frame.clock;
-            feedback.resolve(&mut frame, true, |_| {});
+            feedback.resolve(&mut frame, |_| {});
             battle.advance_models(&mut frame, clock, true)?;
             if frame
                 .cues

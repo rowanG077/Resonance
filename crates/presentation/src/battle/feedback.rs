@@ -31,13 +31,20 @@ impl Feedback {
         }
     }
 
+    pub(super) fn take_entry_voice(&mut self, frame: &BattleFrame) -> Option<Cue> {
+        let (actor, sound) = self.resources.entry_voice.take()?;
+        Some(Cue::Voice {
+            action: None,
+            actor,
+            sound,
+            priority: VoicePriority::Reaction,
+            position: frame.actors[actor.index()].audio_position(),
+            centered: true,
+        })
+    }
+
     /// Resolve semantic events before models, effects and audio consume the frame.
-    pub fn resolve(
-        &mut self,
-        frame: &mut BattleFrame,
-        entry_voice_ready: bool,
-        mut record_voices: impl FnMut(&[Cue]),
-    ) {
+    pub fn resolve(&mut self, frame: &mut BattleFrame, mut record_voices: impl FnMut(&[Cue])) {
         if frame
             .cues
             .iter()
@@ -49,17 +56,9 @@ impl Feedback {
         frame.cues.reserve(original.len());
         let mut cues = Vec::new();
         let mut voices = Vec::new();
-        if entry_voice_ready && let Some((actor, sound)) = self.resources.entry_voice.take() {
-            voices.push(Cue::Voice {
-                action: None,
-                actor,
-                sound,
-                priority: VoicePriority::Reaction,
-                position: frame.actors[actor.index()].audio_position(),
-                centered: true,
-            });
-            record_voices(&voices);
-            frame.cues.append(&mut voices);
+        if let Some(voice) = self.take_entry_voice(frame) {
+            record_voices(std::slice::from_ref(&voice));
+            frame.cues.push(voice);
         }
         for event in original {
             frame.cues.push(event);
@@ -1078,7 +1077,7 @@ mod tests {
             ]);
             frame.actors[actor.index()].activity =
                 resonance_battle::Activity::Casting { held: false };
-            feedback.resolve(&mut frame, true, |cues| battle.record_voice_requests(cues));
+            feedback.resolve(&mut frame, |cues| battle.record_voice_requests(cues));
         }
         assert_eq!(battle.ledger().achievements[0].voices, 50);
         assert_eq!(battle.ledger().achievements[1].voices, 0);
@@ -1113,7 +1112,7 @@ mod tests {
                 resonance_battle::ActorId::from_index(1)?,
             ],
         }];
-        feedback.resolve(&mut frame, true, |_| {});
+        feedback.resolve(&mut frame, |_| {});
         assert_eq!(
             frame
                 .cues
@@ -1161,7 +1160,7 @@ mod tests {
         let mut frame = battle.snapshot();
         let actors = frame.actors.clone();
         frame.cues.push(Cue::Defeated { actor });
-        feedback.resolve(&mut frame, true, |_| {});
+        feedback.resolve(&mut frame, |_| {});
         let effects: Vec<_> = frame
             .cues
             .iter()
@@ -1219,7 +1218,7 @@ mod tests {
         );
         let mut frame = battle.snapshot();
         frame.cues = vec![event.clone()];
-        feedback.resolve(&mut frame, true, |_| {});
+        feedback.resolve(&mut frame, |_| {});
         let voices: Vec<_> = frame
             .cues
             .iter()
@@ -1235,7 +1234,7 @@ mod tests {
         }));
         assert_eq!(frame.actors[1].hp, 100);
         frame.cues = vec![event.clone()];
-        Feedback::default().resolve(&mut frame, true, |_| {});
+        Feedback::default().resolve(&mut frame, |_| {});
         assert_eq!(frame.cues, [event]);
         Ok(())
     }
@@ -1419,9 +1418,7 @@ mod tests {
         ] {
             let mut ordered = battle.publish(events);
             let before = battle.ledger().achievements[speaker.index()].voices;
-            feedback.resolve(&mut ordered, true, |cues| {
-                battle.record_voice_requests(cues)
-            });
+            feedback.resolve(&mut ordered, |cues| battle.record_voice_requests(cues));
             let speech: Vec<_> = ordered
                 .cues
                 .iter()
@@ -1465,7 +1462,7 @@ mod tests {
             frame.actors[caster.index()].hp = 0;
             frame.actors[caster.index()].availability = resonance_battle::ActorAvailability::Dead;
             let before = battle.ledger().achievements[caster.index()].voices;
-            feedback.resolve(&mut frame, true, |cues| battle.record_voice_requests(cues));
+            feedback.resolve(&mut frame, |cues| battle.record_voice_requests(cues));
             assert_eq!(
                 actor_lines(&frame.cues, caster),
                 [Sound::Stream(hurt), Sound::Stream(defeat)]
@@ -1515,11 +1512,8 @@ mod tests {
         );
         feedback.resources.entry_voice = Some((ids[0], Sound::Stream(90)));
         feedback.resources.target_changed = Some(Sound::Cue(108));
-        let mut held = base.clone();
-        feedback.resolve(&mut held, false, |_| {});
-        assert!(!held.cues.iter().any(|cue| matches!(cue, Cue::Voice { .. })));
         let mut entry = base.clone();
-        feedback.resolve(&mut entry, true, |_| {});
+        feedback.resolve(&mut entry, |_| {});
         assert!(entry.cues.iter().any(|cue| matches!(cue,
             Cue::Voice { actor, sound: Sound::Stream(90), centered: true, .. } if *actor == ids[0])));
         let mut next = base.clone();
@@ -1527,7 +1521,7 @@ mod tests {
             actor: ids[0],
             target: ids[1],
         });
-        feedback.resolve(&mut next, true, |_| {});
+        feedback.resolve(&mut next, |_| {});
         assert!(!next.cues.iter().any(|cue| matches!(cue, Cue::Voice { .. })));
         assert!(next.cues.iter().any(|cue| matches!(
             cue,
@@ -1580,7 +1574,7 @@ mod tests {
                 false,
             )];
             let actors = frame.actors.clone();
-            feedback.resolve(&mut frame, true, |_| {});
+            feedback.resolve(&mut frame, |_| {});
             let effects: Vec<_> = frame
                 .cues
                 .iter()
@@ -1648,7 +1642,7 @@ mod tests {
                     contact_hit(action, ids[0], ids[1], guard, was_casting, critical, true),
                     Cue::Defeated { actor: ids[1] },
                 ];
-                feedback.resolve(&mut frame, true, |_| {});
+                feedback.resolve(&mut frame, |_| {});
                 assert_eq!(actor_lines(&frame.cues, ids[1]), [Sound::Stream(5)]);
             }
             if matches!(guard, GuardResult::Blocked { .. }) {
@@ -1674,7 +1668,7 @@ mod tests {
                     };
                     *contact_sound = authored;
                     *suppress_guard_sound = suppressed;
-                    feedback.resolve(&mut guarded, true, |_| {});
+                    feedback.resolve(&mut guarded, |_| {});
                     let sounds: Vec<_> = guarded
                         .cues
                         .iter()
@@ -1707,7 +1701,7 @@ mod tests {
                     nominal,
                     applied: 0,
                 }];
-                feedback.resolve(&mut capped, true, |_| {});
+                feedback.resolve(&mut capped, |_| {});
                 assert_eq!(
                     capped.cues.contains(&Cue::ActorFlash {
                         actor: ids[0],
@@ -1765,7 +1759,7 @@ mod tests {
             .filter_map(|cue| feedback.resources.notice(cue))
             .collect();
         assert_eq!(notices, [(ids[0], "Self Cure"), (ids[0], "Angel's Tear")]);
-        feedback.resolve(&mut frame, true, |_| {});
+        feedback.resolve(&mut frame, |_| {});
         assert!(frame.cues.contains(&Cue::ActorPulse {
             actor: ids[0],
             color: [10, 20, 30]
@@ -1841,7 +1835,7 @@ mod tests {
                 action: resonance_battle::ActionKey(0),
                 phase,
             }];
-            feedback.resolve(&mut frame, true, |_| {});
+            feedback.resolve(&mut frame, |_| {});
             assert_eq!(
                 frame.cues.iter().any(|cue| matches!(
                     cue,
@@ -1896,7 +1890,7 @@ mod tests {
             Cue::GuardReady { actor: ids[0] },
             Cue::UnisonReady,
         ]);
-        feedback.resolve(&mut frame, true, |_| {});
+        feedback.resolve(&mut frame, |_| {});
         assert!(frame.models.is_empty());
         assert!(
             !frame
@@ -2027,7 +2021,7 @@ mod tests {
                 action: resonance_battle::ActionKey(0),
                 phase,
             }];
-            feedback.resolve(&mut frame, true, |_| {});
+            feedback.resolve(&mut frame, |_| {});
             let opening = phase == resonance_battle::CastPhase::SceneOpening;
             assert_eq!(
                 frame.cues.iter().any(|cue| matches!(cue,

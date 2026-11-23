@@ -37,15 +37,23 @@ pub(crate) struct ClockGate<'w> {
     loading: Option<Res<'w, super::loading::Pending>>,
     resident: Option<Res<'w, super::loading::Resident>>,
     battle: Option<Res<'w, super::battle::Owner>>,
+    shatter: Option<Res<'w, super::battle::Shatter>>,
     game_over: Option<Res<'w, super::game_over::Active>>,
 }
 
 impl ClockGate<'_> {
+    fn shattering(&self) -> bool {
+        self.shatter
+            .as_ref()
+            .is_some_and(|shatter| shatter.advancing_to_reveal())
+    }
+
     pub(crate) fn running(&self, session: Option<&super::new_game::Session>) -> bool {
         let battle = self
             .battle
             .as_ref()
-            .is_some_and(|battle| battle.presenting());
+            .is_some_and(|battle| battle.presenting())
+            || self.shattering();
         self.loading.is_none()
             && (battle
                 || session.is_none()
@@ -70,7 +78,7 @@ pub(super) fn advance_clock(
     // pure loading waits do not advance it.
     if gate.running(session.as_deref()) {
         clock.0.advance();
-        if gate.movie.active
+        if (gate.movie.active || gate.shattering())
             && let Some(session) = &mut session
         {
             session.advance_play_time();

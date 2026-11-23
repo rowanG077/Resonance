@@ -72,13 +72,13 @@ impl Fixture {
     }
 
     fn with_package(label: &str, configure: impl FnOnce(&mut Package)) -> Result<Self> {
-        Self::with_session_and_package(label, |_| {}, configure)
+        Self::configured(label, |_| {}, |_, package| configure(package))
     }
 
-    fn with_session_and_package(
+    fn configured(
         label: &str,
         configure_session: impl FnOnce(&mut new_game::Session),
-        configure: impl FnOnce(&mut Package),
+        configure_scene: impl FnOnce(&mut World, &mut Package),
     ) -> Result<Self> {
         let root = root();
         let mods = std::env::var_os("RESONANCE_NAMED_TITLE_FIELDS")
@@ -142,7 +142,6 @@ impl Fixture {
         let party = serde_json::to_value(&session.field().events.world.party)?;
         let entry = Entry::capture(&session, &request, &resident)?;
         let mut package = finish(loading::BattlePending::battle(entry, &resident)?)?;
-        configure(&mut package);
         let directory = tempfile::Builder::new()
             .prefix(&format!("resonance-host-{label}-"))
             .tempdir()?;
@@ -265,6 +264,7 @@ impl Fixture {
                 source: image.clone(),
                 brightness: Vec4::ONE,
             });
+        configure_scene(world, &mut package);
         let mut scene = construct_scene(world, package, RenderTarget::default())?;
         let art = scene.game_over.as_mut().context("fatal art missing")?;
         art.prepare(&mut world.commands());
@@ -841,7 +841,7 @@ fn battle_arte_recorder_owns_function_key_down_and_release_before_host_actions()
     };
     use resonance_content::input::StandardAction;
 
-    let mut fixture = Fixture::with_session_and_package(
+    let mut fixture = Fixture::configured(
         "recorder-host-controls",
         |session| {
             // The shared fixture starts with no learned artes. Its remembered
@@ -857,7 +857,7 @@ fn battle_arte_recorder_owns_function_key_down_and_release_before_host_actions()
                 .techniques
                 .insert(technique);
         },
-        |_| {},
+        |_, _| {},
     )?;
     let learned = *fixture
         .scene()
@@ -1392,26 +1392,21 @@ fn fatal_quit_cancels_the_request_and_restarts_title_once() -> Result<()> {
     Ok(())
 }
 
+fn completed_white_fade(session: &mut new_game::Session) {
+    session.events_mut().world.fade = Some(resonance_events::Fade {
+        start_tick: 0,
+        duration: 0,
+        from: 255.,
+        to: 255.,
+        white: true,
+    });
+}
+
 #[test]
 #[ignore = "requires current cooked opening/title assets; no GPU or audio device"]
 fn battle_activation_retains_the_white_field_cover_without_a_shatter() -> Result<()> {
-    let fixture = Fixture::with_session_and_package(
-        "white-entry",
-        |session| {
-            session.events_mut().world.fade = Some(resonance_events::Fade {
-                start_tick: 0,
-                duration: 0,
-                from: 255.,
-                to: 255.,
-                white: true,
-            });
-        },
-        |_| {},
-    )?;
-    let owner = fixture.app.world().resource::<Owner>();
-    let Phase::Scene(scene) = &owner.phase else {
-        unreachable!()
-    };
+    let fixture = Fixture::configured("white-entry", completed_white_fade, |_, _| {})?;
+    let scene = fixture.scene();
     let mut frame = scene.core.snapshot();
     scene.lifecycle.apply_view(&mut frame)?;
     let fade = frame
@@ -1419,6 +1414,112 @@ fn battle_activation_retains_the_white_field_cover_without_a_shatter() -> Result
         .context("battle activation lost the cover")?;
     assert_eq!((fade.color, fade.alpha), ([255; 3], 255));
     assert!(fixture.request.is_pending());
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires current cooked opening/title assets; no GPU or audio device"]
+fn shatter_releases_the_camera_on_a_fixed_update_without_a_render() -> Result<()> {
+    for ready_on in [3, 26] {
+        check_camera_release(ready_on)?;
+    }
+    Ok(())
+}
+
+fn check_camera_release(ready_on: u32) -> Result<()> {
+    let mut fixture = Fixture::configured("shatter-reveal", completed_white_fade, |world, _| {
+        world.insert_resource(transition::State::captured_for_test());
+    })?;
+    transition::install(&mut fixture.app);
+    fixture
+        .app
+        .init_resource::<crate::boot::Playback>()
+        .init_resource::<crate::movie::Playback>()
+        .add_systems(FixedUpdate, crate::timing::advance_clock.before(advance));
+    let world = fixture.app.world_mut();
+    world
+        .resource::<loading::Resident>()
+        .active
+        .store(false, Ordering::Release);
+    {
+        let mut owner = world.resource_mut::<Owner>();
+        let Phase::Scene(scene) = &mut owner.phase else {
+            unreachable!()
+        };
+        scene.state = SceneState::Activating;
+        let mut frame = scene.core.snapshot();
+        scene.lifecycle.apply_view(&mut frame)?;
+        scene.frame = Some(frame);
+        if scene.feedback.resources.entry_voice.is_none() {
+            let taunt = scene.feedback.resources.actors[0]
+                .taunt
+                .context("fixture has no battle voice")?;
+            scene.feedback.resources.entry_voice = Some((ActorId::from_index(0)?, taunt));
+        }
+    }
+    let initial = world.resource::<crate::Clock>().0.tick();
+    let played = world.resource::<new_game::Session>().play_time().total();
+    // Slow preparation holds the stationary cracks, then runs the same opening.
+    let extra_wait = ready_on.saturating_sub(23);
+    let mut previous_focus = 0.;
+    for tick in 1..=82 + extra_wait {
+        let age = if tick < ready_on {
+            tick.min(22)
+        } else {
+            tick - extra_wait
+        };
+        if tick == ready_on {
+            world.resource_scope(|world, mut shatter: Mut<transition::State>| {
+                let mut owner = world.resource_mut::<Owner>();
+                let Phase::Scene(scene) = &mut owner.phase else {
+                    unreachable!()
+                };
+                shatter.start_shatter(scene);
+            });
+        }
+        world.run_schedule(FixedUpdate);
+        assert_eq!(world.resource::<crate::Clock>().0.tick() - initial, age);
+        assert_eq!(
+            world.resource::<new_game::Session>().play_time().total() - played,
+            u64::from(age)
+        );
+        let owner = world.resource::<Owner>();
+        assert_eq!(owner.view_ready(), tick >= ready_on);
+        assert_eq!(owner.presenting(), tick >= ready_on && age >= 22);
+        let battle_update = age.saturating_sub(22);
+        assert_eq!(owner.input_tick, battle_update);
+        let Phase::Scene(scene) = &owner.phase else {
+            unreachable!()
+        };
+        let frame = scene.frame.as_ref().unwrap();
+        assert!(
+            frame.event_fade.is_none(),
+            "shatter age {age} has an entry cover"
+        );
+        assert_eq!(frame.update, u64::from(battle_update));
+        let focus = frame.camera.context("opening frame has no camera")?.focus[0];
+        if (1..=59).contains(&battle_update) {
+            assert!(focus < previous_focus, "camera held at shatter age {age}");
+        }
+        previous_focus = focus;
+        assert!(scene.failure.is_none());
+        assert_eq!(
+            scene.feedback.resources.entry_voice.is_some(),
+            tick < ready_on
+        );
+        assert_eq!(
+            world.resource::<transition::State>().entry_voice.is_some(),
+            tick >= ready_on && age <= 56
+        );
+        assert_eq!(
+            world.resource::<transition::State>().finished(),
+            battle_update == 60
+        );
+        assert_eq!(
+            scene.core.ledger().combat_ticks,
+            u32::from(battle_update == 60)
+        );
+    }
     Ok(())
 }
 
@@ -1525,7 +1626,6 @@ fn demon_fang_predicts_weapon_trails_without_changing_committed_battle() -> Resu
                     &input,
                     scene.hud.results_on_last_page(),
                     Default::default(),
-                    true,
                 )
             })?
         })?;
