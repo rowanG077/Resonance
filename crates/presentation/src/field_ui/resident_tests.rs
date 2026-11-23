@@ -989,7 +989,11 @@ fn boot_and_field_reentry_reuse_uploaded_ui() -> Result<()> {
             .push(resonance_events::AudioCommand::StopVoice);
         let request = scenario.battle()?;
         if costume == 1 {
-            assert_eq!(crate::loading::party::retained(scenario.app.world()), 1);
+            assert!(crate::loading::party::retains_costume(
+                scenario.app.world(),
+                1,
+                1
+            ));
             alternate = Some(Arc::downgrade(&battle.body(1, 1).unwrap()));
         }
         assert!(
@@ -1031,7 +1035,11 @@ fn boot_and_field_reentry_reuse_uploaded_ui() -> Result<()> {
         .members[0]
         .costume = 0;
     scenario.update()?;
-    assert_eq!(crate::loading::party::retained(scenario.app.world()), 0);
+    assert!(!crate::loading::party::retains_costume(
+        scenario.app.world(),
+        1,
+        1
+    ));
     assert!(alternate.unwrap().upgrade().is_none());
 
     let weak = resident.downgrade();

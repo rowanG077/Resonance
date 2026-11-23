@@ -101,20 +101,9 @@ impl Party {
                 member.titles = previous.titles.clone();
                 // Carry the independently selected outfit only when a carried
                 // title unlocks it. Story variants restart with the new run.
-                member.costume = if data
-                    .rules
-                    .as_ref()
-                    .and_then(|rules| rules.titles.get(index))
-                    .is_some_and(|titles| previous.costume_title(titles).is_some())
-                {
-                    previous.costume
-                } else {
-                    resonance_content::appearance::story_costume(
-                        index as u32 + 1,
-                        0,
-                        &BTreeSet::new(),
-                    )
-                };
+                if previous.owns_selected_costume(data, index) {
+                    member.costume = previous.costume;
+                }
             }
             if has(Benefit::Tech) {
                 member.techniques = previous.techniques.clone();
@@ -279,7 +268,7 @@ mod tests {
                 }
             );
             assert_eq!(party.members[1].costume, 0);
-            assert_eq!(party.members[6].costume, if carry { 3 } else { 0 });
+            assert_eq!(party.members[6].costume, 3);
             let saved = serde_json::to_vec(&party).unwrap();
             let loaded: Party = serde_json::from_slice(&saved).unwrap();
             assert_eq!(loaded.members[0].costume, party.members[0].costume);

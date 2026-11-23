@@ -9,7 +9,7 @@ pub fn run_title_load_probe(root: &Path, directory: &Path, output: &Path) -> Res
     else {
         anyhow::bail!("probe requires a field save");
     };
-    let app = harness::app_with_saves(
+    let mut app = harness::app_with_saves(
         root,
         output,
         SaveOptions {
@@ -66,7 +66,18 @@ pub fn run_title_load_probe(root: &Path, directory: &Path, output: &Path) -> Res
         updates: 8,
     });
     steps.push(Step::capture("field-continued"));
-    replay::record_app(app, output, &CheckpointReplay::new(steps), false)?;
+    replay::record_app(&mut app, output, &CheckpointReplay::new(steps), false)?;
+    // Compare the previous release's slot after applying just its outfit migration.
+    let mut recovered = expected.clone();
+    let session = app
+        .world()
+        .get_resource::<new_game::Session>()
+        .context("loaded session missing")?;
+    recovered
+        .progress
+        .party
+        .recover_story_costumes(session.data(), &recovered.progress.event_flags);
+    drop(app);
     let report: serde_json::Value =
         serde_json::from_slice(&fs::read(output.join("recording.json"))?)?;
     let banks = capture_from(&report, "title-load-banks")?;
@@ -102,7 +113,7 @@ pub fn run_title_load_probe(root: &Path, directory: &Path, output: &Path) -> Res
         "load menu survived field activation"
     );
     let restored: FieldCheckpoint = serde_json::from_value(loaded["restored_checkpoint"].clone())?;
-    assert_checkpoint(&restored, &expected)?;
+    assert_checkpoint(&restored, &recovered)?;
     let state: FieldCheckpoint =
         serde_json::from_value(capture_from(&report, "field-continued")?["checkpoint"].clone())?;
     ensure!(

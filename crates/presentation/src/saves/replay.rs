@@ -1038,7 +1038,7 @@ pub fn record_battle(
             }
         }
     });
-    record_app(app, output, spec, options.gamepad)
+    record_app(&mut app, output, spec, options.gamepad)
 }
 
 /// Record ordinary input through the player's window loop and wall clock.
@@ -1159,7 +1159,7 @@ fn record(
             );
         }
     }
-    let app = harness::app_with_saves_mode(
+    let mut app = harness::app_with_saves_mode(
         root,
         output,
         SaveOptions {
@@ -1173,11 +1173,11 @@ fn record(
         options.resolution,
         options.paranoid,
     )?;
-    record_app(app, output, spec, options.gamepad)
+    record_app(&mut app, output, spec, options.gamepad)
 }
 
 pub(crate) fn record_app(
-    app: App,
+    app: &mut App,
     output: &Path,
     spec: &CheckpointReplay,
     gamepad: bool,
@@ -1185,7 +1185,7 @@ pub(crate) fn record_app(
     run_app(app, Destination::Recording(output), spec, gamepad)
 }
 
-pub(crate) fn capture_image(app: App, path: &Path, spec: &CheckpointReplay) -> Result<()> {
+pub(crate) fn capture_image(mut app: App, path: &Path, spec: &CheckpointReplay) -> Result<()> {
     ensure!(
         spec.steps
             .iter()
@@ -1194,7 +1194,7 @@ pub(crate) fn capture_image(app: App, path: &Path, spec: &CheckpointReplay) -> R
             == 1,
         "single-image scenario requires one capture"
     );
-    run_app(app, Destination::Image(path), spec, false)
+    run_app(&mut app, Destination::Image(path), spec, false)
 }
 
 #[derive(Clone, Copy)]
@@ -1204,14 +1204,14 @@ enum Destination<'a> {
 }
 
 fn run_app(
-    mut app: App,
+    app: &mut App,
     output: Destination<'_>,
     spec: &CheckpointReplay,
     gamepad: bool,
 ) -> Result<()> {
     spec.validate()?;
     let pad = gamepad.then(|| app.world_mut().spawn(Gamepad::default()).id());
-    install_cursor(&mut app, spec.steps.clone(), pad);
+    install_cursor(app, spec.steps.clone(), pad);
     let began = Instant::now();
     while app.plugins_state() == PluginsState::Adding {
         ensure!(
@@ -1229,9 +1229,9 @@ fn run_app(
         std::time::Duration::ZERO,
     ));
     app.update();
-    crate::playthrough::check_exit(&app)?;
+    crate::playthrough::check_exit(app)?;
     let (mixer, mut audio) = resonance_playback::Offline::new();
-    record_live(&mut app, output, spec, &mixer, &mut audio, pad)
+    record_live(app, output, spec, &mixer, &mut audio, pad)
 }
 
 /// Continue an initialized application. Loading gets real preparation, never simulated disc time.

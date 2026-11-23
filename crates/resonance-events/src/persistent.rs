@@ -68,6 +68,7 @@ impl SavedProgress {
             "invalid persistent script globals"
         );
         self.party.recover(data)?;
+        self.party.recover_story_costumes(data, &self.event_flags);
         self.event_records.retain(|id, record| {
             record.tick = record.tick.min(self.tick);
             record.level = record

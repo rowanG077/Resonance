@@ -844,6 +844,10 @@ mod tests {
         let data = resonance_content::session::SessionData::load(&common.files)?;
         let menus = data.rules.as_ref().context("menu rules missing")?;
         let mut party = resonance_events::party::Party::new(&data, Default::default())?;
+        // Exercise each of the nine preloaded base bodies before Lloyd's alternate.
+        for member in &mut party.members {
+            member.costume = 0;
+        }
         let alternate = common.prepare_costume(1, 1, &|| false)?;
         assert!(!alternate.inputs.is_empty());
         let alternate_owner = Arc::downgrade(&alternate);

@@ -135,11 +135,19 @@ impl Member {
         Ok(())
     }
 
+    fn owns_selected_costume(&self, data: &SessionData, index: usize) -> bool {
+        data.rules
+            .as_ref()
+            .and_then(|rules| rules.titles.get(index))
+            .is_some_and(|titles| self.costume_title(titles).is_some())
+    }
+
     /// Owned title that unlocks the selected outfit, independent of equipped title.
     pub fn costume_title(&self, titles: &[resonance_content::menu_data::Title]) -> Option<u8> {
         self.titles.iter().copied().find(|&id| {
-            titles[usize::from(id - 1)]
-                .costume
+            id.checked_sub(1)
+                .and_then(|index| titles.get(usize::from(index)))
+                .and_then(|title| title.costume)
                 .is_some_and(|costume| costume as u8 == self.costume)
         })
     }
@@ -1234,6 +1242,9 @@ pub struct Party {
     pub(crate) field_steps: u16,
     #[serde(default)]
     pub viewed_skits: BTreeSet<u16>,
+    /// Older saves initialized every character in costume zero.
+    #[serde(default)]
+    story_costumes_initialized: bool,
     pub members: Vec<Member>,
     pub formation: Vec<u8>,
     /// One-based character ID, independent of the battle formation.
@@ -1526,13 +1537,18 @@ impl Party {
             cooking: Cooking::default(),
             encounter_modifier: None,
             field_steps: 0,
+            story_costumes_initialized: true,
             members: data
                 .characters
                 .iter()
                 .enumerate()
                 .map(|(index, character)| Member {
                     name: None,
-                    costume: 0,
+                    costume: resonance_content::appearance::story_costume(
+                        index as u32 + 1,
+                        0,
+                        &BTreeSet::new(),
+                    ),
                     rules: data.rules.clone().map(|data| ex_skills::Rules {
                         data,
                         character: index,

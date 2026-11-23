@@ -38,7 +38,7 @@ pub(super) fn capture(app: App, at: CaptureAt, path: &std::path::Path) -> Result
     )
 }
 
-pub(super) fn record(app: App, output: PathBuf) -> Result<()> {
+pub(super) fn record(mut app: App, output: PathBuf) -> Result<()> {
     use saves::{CheckpointReplay, ScenarioEvent as Event, ScenarioStep as Step};
     let ticks = app.world().resource::<RunOptions>().record_title_ticks;
     anyhow::ensure!(
@@ -88,7 +88,7 @@ pub(super) fn record(app: App, output: PathBuf) -> Result<()> {
         steps.push(Step::capture(format!("title-{tick}")));
         title_wait = 600;
     }
-    saves::record_app(app, &output, &CheckpointReplay::new(steps), false)
+    saves::record_app(&mut app, &output, &CheckpointReplay::new(steps), false)
 }
 
 pub(super) fn check_exit(app: &App) -> Result<()> {
