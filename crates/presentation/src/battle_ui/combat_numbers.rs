@@ -70,12 +70,12 @@ impl ActorNumbers {
         }
     }
 
-    fn advance(&mut self, current: [i16; 2], elapsed: u32) {
+    fn advance(&mut self, current: [i16; 2], elapsed: u32, floating_elapsed: u32) {
         for (trail, value) in self.trails.iter_mut().zip(current) {
             *trail = trail.saturating_sub(elapsed.min(100) as i16).max(value);
         }
         self.floating.retain_mut(|number| {
-            number.age = number.age.saturating_add(elapsed);
+            number.age = number.age.saturating_add(floating_elapsed);
             number.age < FLOATING_LIFETIME
         });
         for number in &mut self.recovery {
@@ -131,10 +131,15 @@ impl Numbers {
         self.presentation_tick += 1;
         self.actors
             .resize_with(frame.actors.len(), ActorNumbers::default);
+        let floating_elapsed = super::hit_feedback_time(frame.clock, 1, elapsed);
         for (numbers, actor) in self.actors.iter_mut().zip(&frame.actors) {
             // The displayed counters continue settling while menus hold combat.
             numbers.advance_vitals([actor.hp, i32::from(actor.tp)]);
-            numbers.advance([actor.hp_percent(), actor.tp_percent()], elapsed);
+            numbers.advance(
+                [actor.hp_percent(), actor.tp_percent()],
+                elapsed,
+                floating_elapsed,
+            );
         }
         for cue in &frame.cues {
             match *cue {
@@ -281,7 +286,7 @@ impl super::Artwork {
     pub(super) fn render_numbers(
         &mut self,
         frame: &BattleFrame,
-        fraction: f32,
+        time: super::HudTime,
         commands: &mut super::Commands,
     ) -> Result<()> {
         let mut floating = Batch::default();
@@ -304,7 +309,7 @@ impl super::Artwork {
                     hit,
                     actor.side,
                     projected,
-                    fraction,
+                    time.hit_feedback(),
                 )?;
             }
             if actor.side == Side::Party {
@@ -316,7 +321,7 @@ impl super::Artwork {
                             number,
                             actor.control_slot.index(),
                             row,
-                            fraction,
+                            time.feedback,
                         )?;
                     }
                 }
@@ -343,14 +348,14 @@ mod tests {
             [2, 3, 4, 5]
         );
         assert_eq!(numbers.floating.last().unwrap().origin, [5., 50., 0.]);
-        numbers.advance([50, 25], 0);
+        numbers.advance([50, 25], 0, 0);
         assert!(numbers.floating.iter().all(|n| n.age == 0));
-        numbers.advance([50, 25], FLOATING_HOLD);
+        numbers.advance([50, 25], FLOATING_HOLD, FLOATING_HOLD);
         assert_eq!(alpha(FLOATING_HOLD as f32, FLOATING_HOLD), 255);
         assert_eq!(alpha(FLOATING_HOLD as f32 + 0.5, FLOATING_HOLD), 251);
         numbers.float(6, NumberStyle::Normal, [10., 50., 0.]);
         assert_eq!(numbers.floating.last().unwrap().slot, 0);
-        numbers.advance([50, 25], FLOATING_LIFETIME);
+        numbers.advance([50, 25], FLOATING_LIFETIME, FLOATING_LIFETIME);
         assert!(numbers.floating.is_empty());
     }
 
@@ -359,7 +364,7 @@ mod tests {
         let mut numbers = ActorNumbers::default();
         numbers.recover(RecoveryKind::Hp, 12, [10., 80., 0.], Side::Party, true);
         numbers.recover(RecoveryKind::Hp, 7, [20., 80., 0.], Side::Party, true);
-        numbers.advance([100, 80], 0);
+        numbers.advance([100, 80], 0, 0);
         assert_eq!(numbers.recovery[0].as_ref().unwrap().value, 19);
         assert_eq!(
             numbers.floating.iter().map(|n| n.value).collect::<Vec<_>>(),
@@ -370,9 +375,9 @@ mod tests {
             numbers.floating[1].style,
             NumberStyle::Recovery(RecoveryKind::Hp)
         ));
-        numbers.advance([40, 30], 10);
+        numbers.advance([40, 30], 10, 10);
         assert_eq!(numbers.trails, [90, 70]);
-        numbers.advance([40, 30], 100);
+        numbers.advance([40, 30], 100, 100);
         assert_eq!(numbers.trails, [40, 30]);
         assert!(numbers.recovery[0].is_none());
         assert!(numbers.floating.is_empty());
@@ -411,5 +416,14 @@ mod tests {
         assert_eq!(numbers.actors[0].vitals, Some([543, 66]));
         numbers.advance(&frame, 0);
         assert_eq!(numbers.actors[0].vitals, Some([654, 77]));
+
+        numbers.actors[0].recover(RecoveryKind::Hp, 7, [0.; 3], Side::Party, true);
+        frame.clock = resonance_battle::BattleClock::Held;
+        numbers.advance(&frame, u32::from(!frame.clock.feedback_paused()));
+        assert_eq!(numbers.actors[0].floating[0].age, 0);
+        frame.clock = resonance_battle::BattleClock::DefeatHold;
+        numbers.advance(&frame, u32::from(!frame.clock.feedback_paused()));
+        assert_eq!(numbers.actors[0].floating[0].age, 1);
+        assert_eq!(numbers.actors[0].recovery[0].as_ref().unwrap().age, 0);
     }
 }

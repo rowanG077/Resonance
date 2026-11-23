@@ -154,6 +154,22 @@ pub(crate) struct HudTime<'a> {
     pub feedback: f32,
 }
 
+fn hit_feedback_time<T>(clock: resonance_battle::BattleClock, visit: T, feedback: T) -> T {
+    if clock == resonance_battle::BattleClock::DefeatHold {
+        visit
+    } else {
+        feedback
+    }
+}
+
+impl HudTime<'_> {
+    fn hit_feedback(self) -> f32 {
+        self.next.map_or(self.feedback, |next| {
+            hit_feedback_time(next.frame.clock, self.visit, self.feedback)
+        })
+    }
+}
+
 impl Artwork {
     pub(crate) fn displayed_vitals(&self, actor: usize) -> Option<[i32; 2]> {
         self.numbers
@@ -543,7 +559,7 @@ impl Artwork {
                 layer.show(false, commands);
             }
         } else {
-            self.render_numbers(frame, time.feedback, commands)?;
+            self.render_numbers(frame, time, commands)?;
         }
         self.render_notices(frame, party, time.feedback, commands)?;
         self.render_combat(frame, command, marker_anchors, time, commands)?;

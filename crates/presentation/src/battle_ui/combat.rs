@@ -212,8 +212,11 @@ impl Hud {
                     | View::Equipment(_)
             )
         }) {
-            self.technical_smash
-                .draw(&art.font, time.feedback, &mut batch[TECHNICAL_SMASH])?;
+            self.technical_smash.draw(
+                &art.font,
+                time.hit_feedback(),
+                &mut batch[TECHNICAL_SMASH],
+            )?;
         }
         Ok(())
     }

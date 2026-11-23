@@ -38,7 +38,7 @@ fn victim_position(frame: &BattleFrame, victim: ActorId) -> Option<[f32; 2]> {
 
 impl Combos {
     pub fn advance(&mut self, frame: &BattleFrame, elapsed: u32) -> Result<()> {
-        if frame.recognized_result.is_some() {
+        if frame.recognized_result.is_some() || frame.enemy_defeat_started {
             self.displayed = Default::default();
             return Ok(());
         }
@@ -234,11 +234,12 @@ mod tests {
     fn completed_damage_travels_holds_and_fades_without_advancing_while_paused() -> Result<()> {
         let mut frame = fixtures::frame(fixtures::actor(Default::default()));
         frame.actors[0].reaction.combo_hits = 3;
-        frame.cues.push(Cue::Combo {
+        let hit = Cue::Combo {
             actor: ActorId::from_index(0)?,
             hits: 3,
             damage: 25,
-        });
+        };
+        frame.cues.push(hit.clone());
         let mut combos = Combos::default();
         combos.advance(&frame, 1)?;
         frame.cues.clear();
@@ -254,6 +255,13 @@ mod tests {
         assert!(combos.displayed[0].is_some());
         combos.advance(&frame, 0)?;
         assert!(combos.displayed[0].is_some());
+        combos.advance(&frame, 1)?;
+        assert!(combos.displayed[0].is_none());
+
+        frame.cues.push(hit);
+        combos.advance(&frame, 1)?;
+        assert!(combos.displayed[0].is_some());
+        frame.enemy_defeat_started = true;
         combos.advance(&frame, 1)?;
         assert!(combos.displayed[0].is_none());
         Ok(())

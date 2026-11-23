@@ -688,8 +688,8 @@ mod tests {
         assert_eq!(markers.positions[0][0], left(1) + 28. + 2. + 4. - 320.);
         assert_eq!(markers.positions[0][1], 240. - (TOP - 1. + 2.));
         assert!(artwork.ui.reserved_commands.definition.depth < Depth::Commands.value());
-        let mut number_positions = |fraction| -> Result<_> {
-            artwork.render_numbers(&frame, fraction, &mut Commands::new(&mut queue, &world))?;
+        let mut number_positions = |time| -> Result<_> {
+            artwork.render_numbers(&frame, time, &mut Commands::new(&mut queue, &world))?;
             Ok([&artwork.ui.floating, &artwork.ui.recovery].map(|layer| {
                 layer
                     .rendered
@@ -703,8 +703,20 @@ mod tests {
                     .clone()
             }))
         };
-        let [hit, recovered] = number_positions(0.)?;
-        let [hit_half, recovery_half] = number_positions(0.5)?;
+        let [hit, recovered] = number_positions(HudTime::default())?;
+        let [hit_half, recovery_half] = number_positions(HudTime {
+            feedback: 0.5,
+            ..Default::default()
+        })?;
+        let mut next = crate::battle::prediction::Endpoint::default();
+        next.frame.clock = resonance_battle::BattleClock::DefeatHold;
+        let [defeat_hit, defeat_recovery] = number_positions(HudTime {
+            next: Some(&next),
+            visit: 0.5,
+            ..Default::default()
+        })?;
+        assert_eq!(defeat_hit, hit_half);
+        assert_eq!(defeat_recovery, recovered);
         // Over the first update the floating glyph shrinks four pixels and recovery moves one.
         let width = |positions: &[[f32; 3]]| positions[1][0] - positions[0][0];
         assert!((width(&hit) - width(&hit_half) - 2.).abs() < 0.001);
