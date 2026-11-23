@@ -1,7 +1,7 @@
 //! Scene setup supplies the original script with cooked resource bindings.
 use anyhow::{Context, Result, ensure};
 use resonance_content::field::SCENERY_RESOURCE_BASE;
-use resonance_content::field::{CollisionQuery, FieldAssets, SLIDING_SURFACE};
+use resonance_content::field::{FieldAssets, SLIDING_SURFACE};
 use resonance_events::input::{Button, Buttons};
 use resonance_events::{
     ACTOR_CONTACT_HEIGHT, Actor, AnimationClip, EventRuntime, ModelResource, ResourceKind,
@@ -722,9 +722,16 @@ impl FieldSession {
             self.effect_clock.tick(),
             |events| {
                 let mut player_destination = None;
-                if can_trigger {
-                    let id = events.world.controlled_actor;
-                    if let Some(actor) = events.world.actors.get(&id) {
+                let id = events.world.controlled_actor;
+                if let Some(actor) = events.world.actors.get(&id) {
+                    // A live update without a walking step interrupts pressure on a body.
+                    if (!can_trigger || falling)
+                        && actor.collidable
+                        && !events.world.mapped_input_disabled
+                    {
+                        player_movement.clear_contact_delay();
+                    }
+                    if can_trigger {
                         let start = actor.position;
                         let mut stick = input
                             .direction
@@ -772,37 +779,10 @@ impl FieldSession {
                         let target = if falling {
                             start
                         } else {
-                            walkmesh.move_by(start, delta, size.floor_clearance(), |p| {
-                                const MODEL_PROBE_HEIGHT: f32 = 45.;
-                                walkmesh.blocked(
-                                    [p[0], p[1], p[2] + MODEL_PROBE_HEIGHT],
-                                    CollisionQuery::Player,
-                                    actor.instance,
-                                ) || events.world.actors.iter().any(|(other, a)| {
-                                    if *other == id {
-                                        return false;
-                                    }
-                                    let blocked = a.visible
-                                        && a.collidable
-                                        && a.contact == resonance_events::ActorContact::Cylinder
-                                        && actor.contact
-                                            == resonance_events::ActorContact::Cylinder
-                                        && (p[2] - a.position[2]).abs() <= ACTOR_CONTACT_HEIGHT
-                                        && movement::body_blocks_step(
-                                            start,
-                                            p,
-                                            a.position,
-                                            actor.radius + a.radius,
-                                        );
-                                    if blocked
-                                        && a.contact_event
-                                        && attempted_contact.get().is_none()
-                                    {
-                                        attempted_contact.set(Some(*other));
-                                    }
-                                    blocked
-                                })
-                            })
+                            let (target, contact) =
+                                player_movement.step(&walkmesh, &events.world, actor, delta);
+                            attempted_contact.set(contact);
+                            target
                         };
                         player_movement.record(actor, target);
                         let heading = (delta != [0.; 2]).then(|| movement_heading(delta));
@@ -1876,7 +1856,7 @@ mod tests {
         .unwrap()
     }
 
-    fn empty_session() -> FieldSession {
+    pub(super) fn empty_session() -> FieldSession {
         session(runtime(
             vec![4, 0, 0, 0, 0x20ff],
             ResourceLibrary::default(),
@@ -2850,7 +2830,7 @@ mod tests {
     }
 
     #[test]
-    fn overlapping_bodies_can_separate_but_cannot_move_deeper_into_each_other() {
+    fn overlapping_scripted_npcs_can_separate_while_player_contact_clips_each_axis() {
         for moving_npc in [false, true] {
             for separation in [0., 60.] {
                 for direction in [[-1., 0.], [1., 0.], [0., 1.]] {
@@ -2883,7 +2863,7 @@ mod tests {
                         }
                     };
                     session.step(input).unwrap();
-                    let blocked = separation > 0. && direction[0] > 0.;
+                    let blocked = !moving_npc || (separation > 0. && direction[0] > 0.);
                     assert_eq!(
                         session.events.world.actors[&moving].position,
                         if blocked {
@@ -3377,7 +3357,12 @@ mod tests {
         let mut code = vec![10, 0, 0, 1, 0, 0, 0xffff, 0xfffe, 0, 1, 0x20ff];
         native(&mut code, NativeCall::SetEventBit, &[77]);
         code.push(0x20ff);
-        for resource in [2, SCENERY_RESOURCE_BASE + 0x100] {
+        // At x=240 the floor ends before the player can approach the callback actor.
+        for (resource, x, reachable) in [
+            (2, 0., true),
+            (SCENERY_RESOURCE_BASE + 0x100, 0., true),
+            (2, 240., false),
+        ] {
             let mut session = session(runtime(code.clone(), ResourceLibrary::default()));
             session.walkmesh =
                 navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
@@ -3389,10 +3374,10 @@ mod tests {
             let world = &mut session.events.world;
             world.input_enabled = true;
             world.controlled_actor = 1;
-            let mut player = Actor::new(1, [0.; 3]);
+            let mut player = Actor::new(1, [x, 0., 0.]);
             player.radius = 25.;
             world.insert_actor(1, player);
-            let mut obstacle = Actor::new(resource, [52., 0., 0.]);
+            let mut obstacle = Actor::new(resource, [x + 52., 0., 0.]);
             obstacle.radius = 25.;
             obstacle.contact_event = true;
             world.insert_actor(42, obstacle);
@@ -3402,8 +3387,8 @@ mod tests {
                     ..Default::default()
                 })
                 .unwrap();
-            assert_eq!(session.events.world.actors[&1].position, [0.; 3]);
-            assert!(session.events.world.event_flags.contains(&77));
+            assert_eq!(session.events.world.actors[&1].position, [x, 0., 0.]);
+            assert_eq!(session.events.world.event_flags.contains(&77), reachable);
         }
     }
 
