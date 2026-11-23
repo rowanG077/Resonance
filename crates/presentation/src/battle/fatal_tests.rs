@@ -72,13 +72,13 @@ impl Fixture {
     }
 
     fn with_package(label: &str, configure: impl FnOnce(&mut Package)) -> Result<Self> {
-        Self::with_session_and_package(label, |_| {}, configure)
+        Self::configured(label, |_| {}, |_, package| configure(package))
     }
 
-    fn with_session_and_package(
+    fn configured(
         label: &str,
         configure_session: impl FnOnce(&mut new_game::Session),
-        configure: impl FnOnce(&mut Package),
+        configure_scene: impl FnOnce(&mut World, &mut Package),
     ) -> Result<Self> {
         let root = root();
         let mods = std::env::var_os("RESONANCE_NAMED_TITLE_FIELDS")
@@ -142,7 +142,6 @@ impl Fixture {
         let party = serde_json::to_value(&session.field().events.world.party)?;
         let entry = Entry::capture(&session, &request, &resident)?;
         let mut package = finish(loading::BattlePending::battle(entry, &resident)?)?;
-        configure(&mut package);
         let directory = tempfile::Builder::new()
             .prefix(&format!("resonance-host-{label}-"))
             .tempdir()?;
@@ -265,6 +264,7 @@ impl Fixture {
                 source: image.clone(),
                 brightness: Vec4::ONE,
             });
+        configure_scene(world, &mut package);
         let mut scene = construct_scene(world, package, RenderTarget::default())?;
         let art = scene.game_over.as_mut().context("fatal art missing")?;
         art.prepare(&mut world.commands());
@@ -841,7 +841,7 @@ fn battle_arte_recorder_owns_function_key_down_and_release_before_host_actions()
     };
     use resonance_content::input::StandardAction;
 
-    let mut fixture = Fixture::with_session_and_package(
+    let mut fixture = Fixture::configured(
         "recorder-host-controls",
         |session| {
             // The shared fixture starts with no learned artes. Its remembered
@@ -857,7 +857,7 @@ fn battle_arte_recorder_owns_function_key_down_and_release_before_host_actions()
                 .techniques
                 .insert(technique);
         },
-        |_| {},
+        |_, _| {},
     )?;
     let learned = *fixture
         .scene()
@@ -1392,26 +1392,21 @@ fn fatal_quit_cancels_the_request_and_restarts_title_once() -> Result<()> {
     Ok(())
 }
 
+fn completed_white_fade(session: &mut new_game::Session) {
+    session.events_mut().world.fade = Some(resonance_events::Fade {
+        start_tick: 0,
+        duration: 0,
+        from: 255.,
+        to: 255.,
+        white: true,
+    });
+}
+
 #[test]
 #[ignore = "requires current cooked opening/title assets; no GPU or audio device"]
 fn battle_activation_retains_the_white_field_cover_without_a_shatter() -> Result<()> {
-    let fixture = Fixture::with_session_and_package(
-        "white-entry",
-        |session| {
-            session.events_mut().world.fade = Some(resonance_events::Fade {
-                start_tick: 0,
-                duration: 0,
-                from: 255.,
-                to: 255.,
-                white: true,
-            });
-        },
-        |_| {},
-    )?;
-    let owner = fixture.app.world().resource::<Owner>();
-    let Phase::Scene(scene) = &owner.phase else {
-        unreachable!()
-    };
+    let fixture = Fixture::configured("white-entry", completed_white_fade, |_, _| {})?;
+    let scene = fixture.scene();
     let mut frame = scene.core.snapshot();
     scene.lifecycle.apply_view(&mut frame)?;
     let fade = frame
@@ -1425,7 +1420,9 @@ fn battle_activation_retains_the_white_field_cover_without_a_shatter() -> Result
 #[test]
 #[ignore = "requires current cooked opening/title assets; no GPU or audio device"]
 fn shatter_releases_the_camera_on_a_fixed_update_without_a_render() -> Result<()> {
-    let mut fixture = Fixture::new("shatter-reveal")?;
+    let mut fixture = Fixture::configured("shatter-reveal", completed_white_fade, |world, _| {
+        world.insert_resource(transition::State::captured_for_test());
+    })?;
     transition::install(&mut fixture.app);
     fixture
         .app
@@ -1437,14 +1434,15 @@ fn shatter_releases_the_camera_on_a_fixed_update_without_a_render() -> Result<()
         .resource::<loading::Resident>()
         .active
         .store(false, Ordering::Release);
-    world.insert_resource(transition::State::captured_for_test());
     {
         let mut owner = world.resource_mut::<Owner>();
         let Phase::Scene(scene) = &mut owner.phase else {
             unreachable!()
         };
         scene.state = SceneState::Activating;
-        scene.frame = Some(scene.core.snapshot());
+        let mut frame = scene.core.snapshot();
+        scene.lifecycle.apply_view(&mut frame)?;
+        scene.frame = Some(frame);
         if scene.feedback.resources.entry_voice.is_none() {
             let taunt = scene.feedback.resources.actors[0]
                 .taunt
@@ -1454,26 +1452,15 @@ fn shatter_releases_the_camera_on_a_fixed_update_without_a_render() -> Result<()
     }
     let initial = world.resource::<crate::Clock>().0.tick();
     let played = world.resource::<new_game::Session>().play_time().total();
-    // A prepared field image cracks for 22 updates then waits on the GPU.
-    for tick in 1..=25 {
-        world.run_schedule(FixedUpdate);
-        assert_eq!(
-            world.resource::<crate::Clock>().0.tick() - initial,
-            tick.min(22)
-        );
-        assert_eq!(
-            world.resource::<new_game::Session>().play_time().total() - played,
-            u64::from(tick.min(22))
-        );
-        let owner = world.resource::<Owner>();
-        assert!(!owner.capture_ready());
-        assert_eq!(owner.input_tick, 0);
-    }
-    world.resource_mut::<transition::State>().start_shatter();
-    if let Phase::Scene(scene) = &mut world.resource_mut::<Owner>().phase {
-        scene.state = SceneState::Revealing;
-    }
-    for age in 23..=61 {
+    // The cracks hold at 22 for three extra updates while the GPU prepares.
+    for age in (1..=22).chain([22; 3]).chain(23..=61) {
+        if age == 23 {
+            world.resource_mut::<transition::State>().start_shatter();
+            let Phase::Scene(scene) = &mut world.resource_mut::<Owner>().phase else {
+                unreachable!()
+            };
+            scene.state = SceneState::Revealing;
+        }
         world.run_schedule(FixedUpdate);
         assert_eq!(world.resource::<crate::Clock>().0.tick() - initial, age);
         assert_eq!(
@@ -1481,13 +1468,18 @@ fn shatter_releases_the_camera_on_a_fixed_update_without_a_render() -> Result<()
             u64::from(age)
         );
         let owner = world.resource::<Owner>();
-        assert!(owner.capture_ready());
+        assert_eq!(owner.capture_ready(), age > 22);
         assert_eq!(owner.presenting(), age >= 60);
         assert_eq!(owner.input_tick, u32::from(age > 60));
         let Phase::Scene(scene) = &owner.phase else {
             unreachable!()
         };
-        assert_eq!(scene.frame.as_ref().unwrap().update, u64::from(age > 60));
+        let frame = scene.frame.as_ref().unwrap();
+        assert!(
+            frame.event_fade.is_none(),
+            "shatter age {age} has an entry cover"
+        );
+        assert_eq!(frame.update, u64::from(age > 60));
         assert!(scene.failure.is_none());
         assert_eq!(scene.feedback.resources.entry_voice.is_some(), age <= 56);
         assert_eq!(scene.core.ledger().combat_ticks, 0);
