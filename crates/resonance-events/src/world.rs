@@ -51,6 +51,7 @@ pub struct FieldModelPose {
     pub opacity: u8,
     pub casts_shadow: bool,
     pub shadow_alpha: u8,
+    pub shadow_radius: f32,
     pub texture_variant: u8,
     pub costume_frame: u8,
     pub mouth: Option<Face>,
@@ -218,6 +219,8 @@ impl Enemy {
     }
 }
 impl Actor {
+    pub const DEFAULT_RADIUS: f32 = 42.;
+
     /// Simulation slots retain their order when an actor is replaced.
     pub fn update_order(&self) -> usize {
         self.update_order
@@ -259,6 +262,7 @@ impl Actor {
             opacity: self.opacity,
             casts_shadow: self.casts_shadow,
             shadow_alpha: self.shadow_alpha,
+            shadow_radius: self.radius,
             texture_variant: self.appearance.expression,
             costume_frame: self.appearance.costume_frame,
             mouth: self.appearance.mouth,
@@ -558,7 +562,7 @@ impl Actor {
             model_collision: None,
             model_bounds: None,
             collision_parent: None,
-            radius: 42.,
+            radius: Self::DEFAULT_RADIUS,
             path: Default::default(),
             casts_shadow: true,
             shadow_alpha: 64,
