@@ -139,3 +139,34 @@ impl Atlas {
         })
     }
 }
+
+#[test]
+fn packed_sprite_preserves_its_palette_and_neighboring_blocks_after_wrap() -> Result<()> {
+    let index = |x: usize, y: usize| ((x + 3 * y) % 16) as u8;
+    let sheet = Sheet {
+        indices: (0..SIDE * SIDE)
+            .map(|i| index(i % SIDE, i / SIDE))
+            .collect(),
+        colors: (0..32).map(|i| [i, 0, 0, 255]).collect(),
+    };
+    let mut atlas = Atlas::new();
+    atlas.insert(&sheet, 0, [0, 0, SIDE, 4])?;
+    let sprite = atlas.insert(&sheet, 1, [13, 31, 5, 6])?;
+
+    // The full-width strip occupies eight rows including its bottom gutter.
+    // The second sprite and its surrounding blocks span [8, 24) × [24, 44).
+    assert_eq!(sprite.offset, [-8, -16]);
+    let pixel = |x, y| &atlas.pixels.as_chunks::<4>().0[y * SIDE + x];
+    assert_eq!(pixel(0, 7), &[index(0, 7), 0, 0, 255]);
+    for y in 0..20 {
+        for x in 0..16 {
+            assert_eq!(
+                pixel(x, 8 + y),
+                &[16 + index(8 + x, 24 + y), 0, 0, 255],
+                "packed pixel ({x}, {})",
+                8 + y
+            );
+        }
+    }
+    Ok(())
+}
