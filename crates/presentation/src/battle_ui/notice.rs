@@ -677,6 +677,7 @@ mod tests {
         let first = border.positions.len() - 4;
         let origin = Vec2::new(border.positions[first][0], border.positions[first][1]);
         let [u, v] = border.uv[first].map(|value| value as u32);
+        let mut visible_fill = false;
         for y in 0..40 {
             let alpha = |x: u32| frame.rgba[(((v + y) * frame.width + u + x) * 4 + 3) as usize];
             let Some(left) = (0..40).find(|&x| alpha(x) != 0) else {
@@ -687,12 +688,13 @@ mod tests {
                 let point = origin + Vec2::new(x as f32 + 0.5, -(y as f32 + 0.5));
                 let fills = covered(&batches[FILL], &fill, point);
                 ensure!(fills <= 1, "overlapping emblem fill at {x},{y}");
-                ensure!(
-                    covered(border, &frame, point) != 0 || fills == 1,
-                    "empty emblem interior at {x},{y}"
-                );
+                if covered(border, &frame, point) == 0 {
+                    ensure!(fills == 1, "empty emblem interior at {x},{y}");
+                    visible_fill = true;
+                }
             }
         }
+        ensure!(visible_fill, "no visible fill inside the emblem border");
         Ok(())
     }
 
