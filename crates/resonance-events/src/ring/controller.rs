@@ -405,7 +405,10 @@ impl Cast {
             };
             member.tp = tp;
         }
-        if ability != Ability::Shrink {
+        if ability == Ability::Shrink {
+            // The transformation pose starts next update, after actors move.
+            world.actors.get_mut(&source.0).unwrap().motion = None;
+        } else {
             cast.play_pose(&mut events.world, &events.resources, true)?;
         }
         sound(&mut events.world, ServiceCue::RingPrepare, 127);

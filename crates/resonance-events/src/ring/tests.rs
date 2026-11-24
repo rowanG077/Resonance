@@ -706,6 +706,23 @@ fn background_control_ends_radar_and_admits_its_callback_while_input_stays_disab
 }
 
 #[test]
+fn shrink_cast_stops_the_pending_walking_step_before_its_pose_starts() {
+    let mut events = field(Ability::Shrink, None);
+    let actor = events.world.actors.get_mut(&1).unwrap();
+    let start = actor.position;
+    actor.motion = Some(crate::ActorMotion {
+        target: [start[0] + 12., start[1], start[2]],
+        speed: 12.,
+    });
+
+    events.activate_ring(true).unwrap();
+    assert!(!events.world.actors[&1].scripted_animation);
+    events.step().unwrap();
+    assert!(events.world.actors[&1].scripted_animation);
+    assert_eq!(events.world.actors[&1].position, start);
+}
+
+#[test]
 fn area_and_transformation_powers_finish_without_leaving_control_or_visuals() {
     for ability in [
         Ability::Shrink,
