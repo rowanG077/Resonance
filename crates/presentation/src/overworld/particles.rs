@@ -114,8 +114,11 @@ impl Particles {
                 } else {
                     u16::from(party.field_leader)
                 };
-                let slot =
-                    locomotion_slot(session.travel.displayed_mount(), session.travel.speed());
+                let slot = locomotion_slot(
+                    session.travel.displayed_mount(),
+                    session.travel.speed(),
+                    session.travel.speed_fraction(),
+                );
                 let clip = models[&Model::Actor(actor)]
                     .iter()
                     .flat_map(|p| &p.clips)
@@ -547,6 +550,8 @@ fn world_movement_emits_footsteps_and_stops_when_idle() -> Result<()> {
     persistent
         .memory
         .write(0x40, symphonia_script::Width::S32, 14_000_000)?;
+    // Keep Noishe unlocked while the movement checks cross travel regions.
+    persistent.event_flags.extend(900..=922);
     let state = TravelState {
         world: WorldKind::Sylvarant,
         position: Position::from_map([9770., 24160., 0.])?,
@@ -586,11 +591,12 @@ fn world_movement_emits_footsteps_and_stops_when_idle() -> Result<()> {
             } else {
                 movement.foot_stick_divisor
             };
-        let limit = resonance_events::stride::MAXIMUM_WALK_SPEED / maximum;
+        let limit = 0.5;
         for (pressure, slot) in [
             (0.1, 1),
             (0.25, 1),
             (0.999 * limit, 1),
+            (limit, 1),
             (limit + 0.001, 2),
             (1., 2),
         ] {
