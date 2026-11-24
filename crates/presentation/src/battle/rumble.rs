@@ -20,7 +20,7 @@ impl State {
     ) -> Vec<GamepadRumbleRequest> {
         let mut requests = Vec::new();
         for slot in 0..4 {
-            let next = (enabled && devices_enabled && motors[slot])
+            let next = (enabled && devices_enabled && !duration.is_zero() && motors[slot])
                 .then_some(pads[slot])
                 .flatten();
             if self.devices[slot] != next
@@ -48,6 +48,7 @@ pub(super) fn present(
     controls: Res<super::input::Controls>,
     output: Res<crate::display::OutputStage>,
     fixed: Res<Time<Fixed>>,
+    time: Res<Time<Virtual>>,
     mut state: ResMut<State>,
     mut messages: MessageWriter<GamepadRumbleRequest>,
 ) {
@@ -71,7 +72,7 @@ pub(super) fn present(
         controls.devices(),
         enabled,
         *output != crate::display::OutputStage::Framebuffer,
-        fixed.timestep() * 2,
+        crate::testing::rumble_lease(&time, fixed.timestep() * 2),
     );
     messages.write_batch(requests);
 }
@@ -97,6 +98,33 @@ mod tests {
         let requests = state.update(motors, pads, true, true, duration);
         assert!(
             matches!(&requests[..], [GamepadRumbleRequest::Add { gamepad, intensity, duration: lease }] if *gamepad == first && intensity.strong_motor == 1. && intensity.weak_motor == 0. && *lease == duration)
+        );
+        let mut time = Time::<Virtual>::default();
+        let mut render = |time: &Time<Virtual>| {
+            state.update(
+                motors,
+                pads,
+                true,
+                true,
+                crate::testing::rumble_lease(time, duration),
+            )
+        };
+        time.pause();
+        assert!(
+            matches!(&render(&time)[..], [GamepadRumbleRequest::Stop { gamepad }] if *gamepad == first)
+        );
+        assert!(render(&time).is_empty());
+        time.advance_by(duration / 2);
+        assert!(
+            matches!(&render(&time)[..], [GamepadRumbleRequest::Add { gamepad, duration: lease, .. }] if *gamepad == first && *lease == duration / 2)
+        );
+        time.advance_by(Duration::ZERO);
+        assert!(
+            matches!(&render(&time)[..], [GamepadRumbleRequest::Stop { gamepad }] if *gamepad == first)
+        );
+        time.unpause();
+        assert!(
+            matches!(&render(&time)[..], [GamepadRumbleRequest::Add { duration: lease, .. }] if *lease == duration)
         );
         let requests = state.update(
             motors,
@@ -130,6 +158,7 @@ mod tests {
         let mut app = App::new();
         app.init_resource::<super::super::input::Controls>()
             .init_resource::<Time<Fixed>>()
+            .init_resource::<Time<Virtual>>()
             .init_resource::<State>()
             .insert_resource(crate::display::OutputStage::Scanout)
             .add_message::<GamepadRumbleRequest>()

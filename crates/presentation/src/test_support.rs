@@ -1,9 +1,60 @@
 //! Helpers shared by presentation tests.
 use bevy::{
-    prelude::{App, Handle, Image, On, ResMut, Resource},
+    input::{
+        ButtonState,
+        keyboard::{Key, KeyboardInput},
+    },
+    prelude::{App, Entity, Handle, Image, KeyCode, On, ResMut, Resource, World},
     shader::{ShaderCacheError, ShaderCacheSource},
+    window::WindowEvent,
 };
 use resonance_battle::{Actor, PreparedBattle, Side};
+
+/// Winit publishes each keyboard input both by type and in the ordered window stream.
+pub(crate) fn send_key(
+    world: &mut World,
+    window: Entity,
+    key_code: KeyCode,
+    state: ButtonState,
+    repeat: bool,
+) {
+    let event = KeyboardInput {
+        key_code,
+        logical_key: Key::Character("test".into()),
+        state,
+        text: None,
+        repeat,
+        window,
+    };
+    world.write_message(WindowEvent::KeyboardInput(event.clone()));
+    world.write_message(event);
+}
+
+/// Run the field script that requests the credits and return its completion token.
+pub(crate) fn request_credits(
+    session: &mut crate::new_game::Session,
+) -> anyhow::Result<resonance_events::Operation> {
+    use resonance_events::{EventRuntime, GameWorld, ResourceLibrary, session_screen::Target};
+    let program = symphonia_script::scenario::assemble(
+        ".scenario\n.code_base 4\n.word 4\n.word 0\n.word 0\n.word 0\n\
+         push.s8 18\ncalc 0\narg\npush.s8 0\ncalc 0\narg\nproc 0x6d\nend\n",
+    )?;
+    let resources = ResourceLibrary {
+        session_data: session.events().resources().session_data.clone(),
+        ..Default::default()
+    };
+    let mut state = GameWorld::default();
+    state.party = session.events_mut().world.party.take();
+    *session.events_mut() = EventRuntime::with_state(
+        symphonia_script::Program::decode(&program)?.into(),
+        resources.into(),
+        state,
+        Default::default(),
+    )?;
+    let request = session.events().world.screen_request.as_ref().unwrap();
+    assert_eq!(request.target, Target::Credits);
+    Ok(request.operation.clone())
+}
 
 /// Expected world position of an inertial cloth joint under a turning animated pin.
 pub(crate) fn inertial_joint(

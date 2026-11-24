@@ -3,7 +3,7 @@ use bevy::{
     ecs::system::SystemParam,
     input::{ButtonState, keyboard::KeyboardInput},
     prelude::*,
-    window::PrimaryWindow,
+    window::{PrimaryWindow, WindowEvent},
 };
 use resonance_content::input::{AxisDirection, Keymap, PhysicalInput, StandardAction};
 use std::collections::{BTreeMap, BTreeSet};
@@ -233,6 +233,19 @@ pub(super) struct HostActions;
 pub(super) struct HostInput {
     actions: Vec<StandardAction>,
     pub slow_motion: bool,
+    pub tick_step: InspectionKey,
+    pub tick_hold_lost: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum InspectionKey {
+    #[default]
+    Unavailable,
+    Up,
+    Pressed(u32),
+    // The batch ended in a release and may also contain complete taps.
+    Released(u32),
+    Held,
 }
 
 impl HostInput {
@@ -243,6 +256,7 @@ impl HostInput {
 
 pub(super) fn install(app: &mut App) {
     app.init_resource::<HostInput>()
+        .add_message::<WindowEvent>()
         // Every host action runs before a field recorder can finish this frame.
         .configure_sets(
             PreUpdate,
@@ -286,12 +300,15 @@ impl HostAxes {
 struct HostDevices<'w, 's> {
     keys: Res<'w, ButtonInput<KeyCode>>,
     keyboard: MessageReader<'w, 's, KeyboardInput>,
+    window_events: MessageReader<'w, 's, WindowEvent>,
+    tick_key_down: Local<'s, bool>,
+    tick_unfocused: Local<'s, bool>,
     windows: Query<'w, 's, Entity, With<PrimaryWindow>>,
     pads: Query<'w, 's, (Entity, &'static Gamepad)>,
     axes: Local<'s, BTreeMap<Entity, HostAxes>>,
 }
 impl HostDevices<'_, '_> {
-    fn sample(&mut self) -> PhysicalState {
+    fn sample(&mut self) -> (PhysicalState, InspectionKey, bool) {
         let mut physical = PhysicalState::keyboard(&self.keys);
         let primary = self.windows.single().ok();
         let presses: BTreeSet<_> = self
@@ -299,11 +316,49 @@ impl HostDevices<'_, '_> {
             .read()
             .filter(|event| {
                 Some(event.window) == primary
-                    && event.state == ButtonState::Pressed
                     && !event.repeat
+                    && event.state == ButtonState::Pressed
             })
             .map(|event| PhysicalInput::Key(format!("{:?}", event.key_code)))
             .collect();
+        let mut ticks = 0;
+        let mut released = false;
+        let mut hold_lost = false;
+        // Focus can leave and return between updates. Winit does not synthesize
+        // releases in that case, so handle focus and F9 in delivery order.
+        for event in self.window_events.read() {
+            match event {
+                WindowEvent::WindowFocused(event) if Some(event.window) == primary => {
+                    *self.tick_unfocused = !event.focused;
+                    if !event.focused {
+                        // A release delivered before the loss still ends the old hold normally.
+                        hold_lost |= *self.tick_key_down && !released;
+                        *self.tick_key_down = false;
+                    }
+                }
+                WindowEvent::KeyboardInput(event)
+                    if !*self.tick_unfocused
+                        && Some(event.window) == primary
+                        && event.key_code == KeyCode::F9
+                        && !event.repeat =>
+                {
+                    let down = event.state == ButtonState::Pressed;
+                    ticks += u32::from(down && !*self.tick_key_down);
+                    released |= !down && *self.tick_key_down;
+                    *self.tick_key_down = down;
+                }
+                _ => {}
+            }
+        }
+        let tick_step = if !*self.tick_key_down && (released || ticks != 0) {
+            InspectionKey::Released(ticks)
+        } else if ticks != 0 {
+            InspectionKey::Pressed(ticks)
+        } else if *self.tick_key_down {
+            InspectionKey::Held
+        } else {
+            InspectionKey::Up
+        };
         physical.pressed.retain(|input| presses.contains(input));
         self.axes.retain(|entity, _| self.pads.contains(*entity));
         for (entity, pad) in &self.pads {
@@ -311,7 +366,7 @@ impl HostDevices<'_, '_> {
             self.axes.entry(entity).or_default().sample(&mut state);
             physical.merge(&state);
         }
-        physical
+        (physical, tick_step, hold_lost)
     }
 }
 
@@ -324,9 +379,11 @@ fn gather_host_input(
     mut input: ResMut<HostInput>,
 ) {
     // Consume device edges even while recording so held inputs cannot leak on exit.
-    let physical = devices.sample();
+    let (physical, tick_step, hold_lost) = devices.sample();
     input.actions.clear();
     input.slow_motion = false;
+    input.tick_step = InspectionKey::Unavailable;
+    input.tick_hold_lost = hold_lost;
     if battle
         .as_ref()
         .is_some_and(|battle| battle.capturing_arte_binding())
@@ -346,25 +403,25 @@ fn gather_host_input(
     }) {
         return;
     }
-    let party = battle
+    let battle_party = battle.as_ref().and_then(|battle| battle.prompt_party());
+    let session_party = session
         .as_ref()
-        .and_then(|battle| battle.prompt_party())
-        .or_else(|| {
-            session
-                .as_ref()
-                .and_then(|session| session.events().world.party.as_ref())
-        });
-    let map = active_keymap(menu, party, preferences.as_deref());
+        .and_then(|s| s.events().world.party.as_ref());
+    let map = active_keymap(menu, battle_party.or(session_party), preferences.as_deref());
     input.actions.extend(
         StandardAction::HOST
             .into_iter()
             .filter(|&action| physical.edge(&map, action)),
     );
-    // Inspection shortcuts obey recorder ownership and never shadow a binding.
-    input.slow_motion = physical.pressed.iter().any(|key| {
-        matches!(key, PhysicalInput::Key(name) if name == "F10")
-            && !map.bindings.iter().any(|inputs| inputs.contains(key))
-            && !party.is_some_and(|party| {
+    // A field or overworld recorder edits the menu party before the next
+    // fixed update publishes the binding to the session.
+    let menu_party = menu
+        .and_then(|menu| menu.checkpoint.as_ref())
+        .map(|checkpoint| &checkpoint.progress().party);
+    let arte_party = battle_party.or(menu_party).or(session_party);
+    let bound = |key: &PhysicalInput| {
+        map.bindings.iter().any(|inputs| inputs.contains(key))
+            || arte_party.is_some_and(|party| {
                 party.members.iter().any(|member| {
                     member
                         .arte_bindings
@@ -372,7 +429,16 @@ fn gather_host_input(
                         .any(|binding| binding.chord.0.contains(key))
                 })
             })
-    });
+    };
+    input.slow_motion = physical
+        .pressed
+        .iter()
+        .any(|key| matches!(key, PhysicalInput::Key(name) if name == "F10") && !bound(key));
+    input.tick_step = if tick_step != InspectionKey::Up && bound(&PhysicalInput::Key("F9".into())) {
+        InspectionKey::Unavailable
+    } else {
+        tick_step
+    };
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -621,11 +687,12 @@ mod tests {
 
     #[test]
     fn host_shortcuts_sample_primary_nonrepeat_keys_controller_buttons_and_axes_once() {
+        use crate::test_support::send_key;
         use bevy::input::gamepad::{
             RawGamepadAxisChangedEvent, RawGamepadButtonChangedEvent, RawGamepadEvent,
         };
         #[derive(Resource, Default)]
-        struct Edges([usize; 4]);
+        struct Edges([usize; 5]);
         let mut app = App::new();
         app.add_plugins(bevy::input::InputPlugin)
             .init_resource::<crate::config::Preferences>()
@@ -642,6 +709,11 @@ mod tests {
                     edges.0[index] += usize::from(input.pressed(action));
                 }
                 edges.0[3] += usize::from(input.slow_motion);
+                if let InspectionKey::Pressed(count) | InspectionKey::Released(count) =
+                    input.tick_step
+                {
+                    edges.0[4] += count as usize;
+                }
             });
         install(&mut app);
         let window = app
@@ -665,7 +737,7 @@ mod tests {
                 PhysicalInput::Axis(AxisDirection::RightRight),
             );
         }
-        for key_code in [KeyCode::F2, KeyCode::F10] {
+        for key_code in [KeyCode::F2, KeyCode::F9, KeyCode::F10] {
             for (target, state, repeat) in [
                 (window, ButtonState::Pressed, false),
                 (window, ButtonState::Released, false),
@@ -673,14 +745,7 @@ mod tests {
                 (window, ButtonState::Released, false),
                 (other, ButtonState::Pressed, false),
             ] {
-                app.world_mut().write_message(KeyboardInput {
-                    key_code,
-                    logical_key: bevy::input::keyboard::Key::Character("test".into()),
-                    state,
-                    text: None,
-                    repeat,
-                    window: target,
-                });
+                send_key(app.world_mut(), target, key_code, state, repeat);
                 app.update();
             }
         }
@@ -701,7 +766,7 @@ mod tests {
                 )));
             app.update();
         }
-        assert_eq!(app.world().resource::<Edges>().0, [1, 1, 2, 1]);
+        assert_eq!(app.world().resource::<Edges>().0, [1, 1, 2, 1, 1]);
 
         // The inspection key follows recorder ownership, and a player binding
         // takes precedence after recording ends.
@@ -721,36 +786,36 @@ mod tests {
                 ButtonState::Pressed,
                 ButtonState::Released,
             ] {
-                app.world_mut().write_message(KeyboardInput {
-                    key_code: KeyCode::F10,
-                    logical_key: bevy::input::keyboard::Key::F10,
-                    state,
-                    text: None,
-                    repeat: false,
-                    window,
-                });
+                for key_code in [KeyCode::F9, KeyCode::F10] {
+                    send_key(app.world_mut(), window, key_code, state, false);
+                }
                 app.update();
-                assert!(!app.world().resource::<HostInput>().slow_motion);
+                let shortcuts = app.world().resource::<HostInput>();
+                assert!(!shortcuts.slow_motion);
+                assert_eq!(shortcuts.tick_step, InspectionKey::Unavailable);
             }
         }
         app.world_mut().remove_resource::<TitleMenu>();
-        app.world_mut()
-            .resource_mut::<crate::config::Preferences>()
-            .settings
-            .keymap
-            .assign(StandardAction::Fullscreen, PhysicalInput::Key("F10".into()));
-        app.world_mut().write_message(KeyboardInput {
-            key_code: KeyCode::F10,
-            logical_key: bevy::input::keyboard::Key::F10,
-            state: ButtonState::Pressed,
-            text: None,
-            repeat: false,
-            window,
-        });
-        app.update();
-        let input = app.world().resource::<HostInput>();
-        assert!(input.pressed(StandardAction::Fullscreen));
-        assert!(!input.slow_motion);
+        for key_code in [KeyCode::F9, KeyCode::F10] {
+            app.world_mut()
+                .resource_mut::<crate::config::Preferences>()
+                .settings
+                .keymap
+                .assign(
+                    StandardAction::Fullscreen,
+                    PhysicalInput::Key(format!("{key_code:?}")),
+                );
+            for state in [ButtonState::Released, ButtonState::Pressed] {
+                send_key(app.world_mut(), window, key_code, state, false);
+            }
+            app.update();
+            let input = app.world().resource::<HostInput>();
+            assert!(input.pressed(StandardAction::Fullscreen));
+            assert!(!input.slow_motion);
+            if key_code == KeyCode::F9 {
+                assert_eq!(input.tick_step, InspectionKey::Unavailable);
+            }
+        }
     }
 
     fn host_axis_app(direction: AxisDirection) -> (App, Entity) {

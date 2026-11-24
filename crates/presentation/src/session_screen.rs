@@ -79,12 +79,7 @@ fn retire_session(world: &mut World) {
         .active
         .store(false, std::sync::atomic::Ordering::Release);
     *resident.files.write().unwrap() = None;
-    if let Some(mut controls) = world.get_resource_mut::<crate::testing::Controls>() {
-        *controls = default();
-        let mut time = world.resource_mut::<Time<Virtual>>();
-        time.unpause();
-        time.set_relative_speed(1.);
-    }
+    crate::testing::reset_session(world);
     reset_input(world);
 }
 

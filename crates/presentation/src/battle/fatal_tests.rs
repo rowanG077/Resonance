@@ -835,10 +835,10 @@ fn translucent_battle_pages_preserve_the_hud_and_pause_without_a_capture() -> Re
 #[test]
 #[ignore = "requires cooked battle assets; CPU battle recorder and host shortcut ownership"]
 fn battle_arte_recorder_owns_function_key_down_and_release_before_host_actions() -> Result<()> {
-    use bevy::input::{
-        ButtonState,
-        keyboard::{Key, KeyboardInput},
-    };
+    use crate::input::{HostInput, InspectionKey::Unavailable};
+    use crate::test_support::send_key;
+    use crate::testing::Controls as TestingControls;
+    use bevy::input::{ButtonState, keyboard::KeyboardInput};
     use resonance_content::input::StandardAction;
 
     let mut fixture = Fixture::configured(
@@ -874,14 +874,33 @@ fn battle_arte_recorder_owns_function_key_down_and_release_before_host_actions()
     fixture.draw_hud_and_menu()?;
     fixture.press(KeyCode::Enter)?; // Open the real battle Artes page.
     fixture.draw_menu()?;
-    fixture.press(KeyCode::Enter)?; // Record the first learned arte.
-    assert!(
-        fixture
-            .app
-            .world()
-            .resource::<Owner>()
-            .capturing_arte_binding()
-    );
+    let window = fixture
+        .app
+        .world_mut()
+        .spawn((Window::default(), bevy::window::PrimaryWindow))
+        .id();
+    fixture
+        .app
+        .init_resource::<TestingControls>()
+        .init_resource::<crate::boot::Playback>()
+        .init_resource::<crate::movie::Playback>()
+        .add_message::<KeyboardInput>()
+        .configure_sets(PreUpdate, crate::input::HostActions.before(input::gather))
+        .add_systems(
+            PreUpdate,
+            crate::timing::live_gameplay
+                .pipe(crate::testing::controls)
+                .in_set(crate::input::HostActions),
+        );
+    crate::input::install(&mut fixture.app);
+    // Freeze on the open Artes page, then step the Confirm that opens the recorder.
+    for key in [None, Some(KeyCode::Enter)] {
+        for state in [ButtonState::Pressed, ButtonState::Released] {
+            send_key(fixture.app.world_mut(), window, KeyCode::F9, state, false);
+        }
+        fixture.step(key)?;
+        assert!(fixture.app.world().resource::<TestingControls>().stepping());
+    }
     let Some(resonance_game::battle::command::Frame {
         view: resonance_game::battle::command::View::Tech(recording),
         ..
@@ -891,22 +910,8 @@ fn battle_arte_recorder_owns_function_key_down_and_release_before_host_actions()
     };
     assert_eq!(recording.binding_technique, learned);
 
-    let window = fixture
-        .app
-        .world_mut()
-        .spawn((Window::default(), bevy::window::PrimaryWindow))
-        .id();
-    fixture
-        .app
-        .init_resource::<crate::testing::Controls>()
-        .add_message::<KeyboardInput>()
-        .configure_sets(PreUpdate, crate::input::HostActions.before(input::gather))
-        .add_systems(
-            PreUpdate,
-            crate::testing::controls.in_set(crate::input::HostActions),
-        );
-    crate::input::install(&mut fixture.app);
     for (index, key_code) in [
+        KeyCode::F9,
         KeyCode::F1,
         KeyCode::F3,
         KeyCode::F4,
@@ -919,8 +924,6 @@ fn battle_arte_recorder_owns_function_key_down_and_release_before_host_actions()
     .enumerate()
     {
         if index != 0 {
-            fixture.press(KeyCode::Enter)?; // Dismiss the prior protected-input error.
-            fixture.draw_menu()?;
             fixture.press(KeyCode::Enter)?;
         }
         assert!(
@@ -931,24 +934,18 @@ fn battle_arte_recorder_owns_function_key_down_and_release_before_host_actions()
                 .capturing_arte_binding()
         );
         for state in [ButtonState::Pressed, ButtonState::Released] {
-            fixture.app.world_mut().write_message(KeyboardInput {
-                key_code,
-                logical_key: Key::Character("test".into()),
-                state,
-                text: None,
-                repeat: false,
-                window,
-            });
+            send_key(fixture.app.world_mut(), window, key_code, state, false);
             fixture.step((state == ButtonState::Pressed).then_some(key_code))?;
-            let controls = fixture.app.world().resource::<crate::testing::Controls>();
+            let controls = fixture.app.world().resource::<TestingControls>();
             assert!(
                 !controls.paused
                     && controls.speed == resonance_playback::Speed::Normal
                     && !controls.skipping
             );
             assert!(!fixture.app.world().resource::<Time<Virtual>>().is_paused());
-            let host = fixture.app.world().resource::<crate::input::HostInput>();
+            let host = fixture.app.world().resource::<HostInput>();
             assert!(!host.slow_motion);
+            assert_eq!(host.tick_step, Unavailable);
             assert!(
                 StandardAction::HOST
                     .into_iter()
@@ -969,63 +966,41 @@ fn battle_arte_recorder_owns_function_key_down_and_release_before_host_actions()
         else {
             anyhow::bail!("recorder lost the battle Artes page");
         };
-        assert_eq!(
-            state.focus,
-            if key_code == KeyCode::F10 {
-                resonance_game::menu::techniques::Focus::List
-            } else {
-                resonance_game::menu::techniques::Focus::BindingError
+        if matches!(key_code, KeyCode::F9 | KeyCode::F10) {
+            assert_eq!(state.focus, resonance_game::menu::techniques::Focus::List);
+            // The battle's candidate party owns this binding immediately after recording.
+            for state in [ButtonState::Pressed, ButtonState::Released] {
+                send_key(fixture.app.world_mut(), window, key_code, state, false);
+                fixture.step((state == ButtonState::Pressed).then_some(key_code))?;
+                let host = fixture.app.world().resource::<HostInput>();
+                assert!(!host.slow_motion);
+                if key_code == KeyCode::F9 {
+                    assert_eq!(host.tick_step, Unavailable);
+                }
             }
-        );
-        eprintln!("recorder retained ownership for {key_code:?} down/release");
+        } else {
+            assert_eq!(
+                state.focus,
+                resonance_game::menu::techniques::Focus::BindingError
+            );
+            fixture.draw_menu()?;
+            fixture.press(KeyCode::Enter)?; // Dismiss the protected-input error.
+        }
         fixture.draw_menu()?;
-    }
-    // The newly recorded arte is owned by the battle's candidate party until
-    // commit; it must take precedence over the inspection shortcut immediately.
-    for state in [ButtonState::Pressed, ButtonState::Released] {
-        fixture.app.world_mut().write_message(KeyboardInput {
-            key_code: KeyCode::F10,
-            logical_key: Key::F10,
-            state,
-            text: None,
-            repeat: false,
-            window,
-        });
-        fixture.step((state == ButtonState::Pressed).then_some(KeyCode::F10))?;
-        assert!(
-            !fixture
-                .app
-                .world()
-                .resource::<crate::input::HostInput>()
-                .slow_motion
-        );
-        assert_eq!(
-            fixture
-                .app
-                .world()
-                .resource::<crate::testing::Controls>()
-                .speed,
-            resonance_playback::Speed::Normal
-        );
     }
     // The guard ends with the recorder; the same production Pause handler then
     // pauses and resumes on new presses while the battle page remains open.
     for paused in [true, false] {
-        fixture.app.world_mut().write_message(KeyboardInput {
-            key_code: KeyCode::F7,
-            logical_key: Key::F7,
-            state: ButtonState::Pressed,
-            text: None,
-            repeat: false,
+        send_key(
+            fixture.app.world_mut(),
             window,
-        });
+            KeyCode::F7,
+            ButtonState::Pressed,
+            false,
+        );
         fixture.step(Some(KeyCode::F7))?;
         assert_eq!(
-            fixture
-                .app
-                .world()
-                .resource::<crate::testing::Controls>()
-                .paused,
+            fixture.app.world().resource::<TestingControls>().paused,
             paused
         );
         fixture.step(None)?;

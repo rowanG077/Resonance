@@ -96,6 +96,12 @@ Pause displays a visible panel and resumes with the same configured control.
 Existing keymaps keep their assignments; newly added actions remain unbound
 until assigned in Controls.
 
+Press **F9** to freeze fields, overworld travel, battles, and in-engine cutscenes. Each further press advances one simulation tick.
+Hold **F9** for three seconds to resume at the selected playback speed.
+Movies and credits play automatically. F9 is inactive during the intro and on the title screen.
+Opening the Controls editor or recording an arte binding resumes gameplay so you
+can assign F9. An existing gameplay or arte binding on F9 takes priority.
+
 Use **Customize** in the game to change display mode, resolution, graphics
 backend, anti-aliasing and controls. Saves and `config.toml` normally live in:
 

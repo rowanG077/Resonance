@@ -7,6 +7,7 @@ use bevy::{
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
     window::PrimaryWindow,
 };
+use resonance_playback::Speed;
 use std::time::{Duration, Instant};
 
 const WIDTH: u32 = 368;
@@ -19,7 +20,7 @@ pub(crate) struct Panel;
 #[derive(Resource)]
 pub(super) struct Artwork {
     image: Handle<Image>,
-    last_draw: Option<Instant>,
+    last_draw: Option<(Instant, Speed)>,
 }
 
 /// The panel's numbers change slowly; redrawing them more often only costs
@@ -38,7 +39,7 @@ pub(super) fn setup(
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
-        pixels(&monitor, resonance_playback::Speed::Normal),
+        pixels(&monitor, Speed::Normal),
         TextureFormat::Rgba8UnormSrgb,
         default(),
     );
@@ -89,23 +90,19 @@ pub(super) fn update(
         }
     }
     let now = Instant::now();
-    if !testing.as_ref().is_some_and(|t| t.is_changed())
-        && art
-            .last_draw
-            .is_some_and(|last| now.duration_since(last) < REDRAW)
-    {
+    let speed = testing.as_ref().map_or_default(|controls| controls.speed);
+    if art.last_draw.is_some_and(|(last, shown_speed)| {
+        speed == shown_speed && now.duration_since(last) < REDRAW
+    }) {
         return;
     }
-    art.last_draw = Some(now);
+    art.last_draw = Some((now, speed));
     if let Some(mut image) = images.get_mut(&art.image) {
-        image.data = Some(pixels(
-            &monitor,
-            testing.as_ref().map_or(Default::default(), |t| t.speed),
-        ));
+        image.data = Some(pixels(&monitor, speed));
     }
 }
 
-fn pixels(monitor: &Monitor, speed: resonance_playback::Speed) -> Vec<u8> {
+fn pixels(monitor: &Monitor, speed: Speed) -> Vec<u8> {
     let mut rgba = [12, 17, 25, 235].repeat((WIDTH * HEIGHT) as usize);
     let mut lines = vec!["PERFORMANCE".to_owned()];
     if let Some(s) = monitor.history.summary() {
@@ -250,7 +247,7 @@ mod tests {
                 app_ms: 3.2,
             });
         }
-        let rgba = pixels(&monitor, resonance_playback::Speed::Tenth);
+        let rgba = pixels(&monitor, Speed::Tenth);
         assert!(
             rgba.chunks_exact(4).any(|p| p == [255, 99, 109, 255]),
             "graph should identify stalls"

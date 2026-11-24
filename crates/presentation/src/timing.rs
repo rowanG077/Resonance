@@ -48,12 +48,15 @@ impl ClockGate<'_> {
             .is_some_and(|shatter| shatter.advancing_to_reveal())
     }
 
-    pub(crate) fn running(&self, session: Option<&super::new_game::Session>) -> bool {
-        let battle = self
-            .battle
+    fn battle_running(&self) -> bool {
+        self.battle
             .as_ref()
             .is_some_and(|battle| battle.presenting())
-            || self.shattering();
+            || self.shattering()
+    }
+
+    pub(crate) fn running(&self, session: Option<&super::new_game::Session>) -> bool {
+        let battle = self.battle_running();
         self.loading.is_none()
             && (battle
                 || session.is_none()
@@ -67,6 +70,28 @@ impl ClockGate<'_> {
             && (session.is_some() || self.ready.0)
             && (self.boot.active() || !self.movie.active || self.movie.is_presenting())
     }
+}
+
+/// Manual ticks belong to a running gameplay scene. Media and terminal screens
+/// continue using their ordinary clocks.
+pub(super) fn live_gameplay(
+    gate: ClockGate,
+    session: Option<Res<new_game::Session>>,
+    credits: Option<Res<credits::Playback>>,
+    scenario: Option<Res<saves::ScenarioInput>>,
+) -> bool {
+    session.as_deref().is_some_and(|session| {
+        let events = &session.events().world;
+        scenario.is_none()
+            && gate.running(Some(session))
+            && (session.audio.is_none() || gate.battle_running())
+            && !gate.movie.active
+            && !gate.boot.active()
+            && gate.game_over.is_none()
+            && credits.is_none()
+            && events.screen_request.is_none()
+            && !events.blocked_by_movie()
+    })
 }
 
 pub(super) fn advance_clock(

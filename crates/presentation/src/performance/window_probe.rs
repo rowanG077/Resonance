@@ -372,7 +372,7 @@ fn run(
         PreUpdate,
         drive
             .after(bevy::input::InputSystems)
-            .before(crate::testing::controls)
+            .before(crate::input::HostActions)
             .before(crate::gather_input)
             .before(crate::field_view::gather_controls),
     );

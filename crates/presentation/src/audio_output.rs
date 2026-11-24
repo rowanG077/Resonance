@@ -53,8 +53,6 @@ pub(super) struct Device {
     suspended: Option<Suspended>,
     pending_device: Option<resonance_audio_device::Device>,
     retry: Instant,
-    resume_game: bool,
-    recovering: bool,
     pub silent: bool,
     control: Control,
     output: Arc<Output>,
@@ -94,8 +92,6 @@ pub(super) fn install(app: &mut App, silent: bool) -> Result<()> {
         suspended: None,
         pending_device: None,
         retry: Instant::now(),
-        resume_game: false,
-        recovering: false,
         silent,
         control,
         output,
@@ -131,8 +127,6 @@ pub(super) fn install_offscreen(app: &mut App) -> Result<()> {
         suspended: None,
         pending_device: None,
         retry: Instant::now(),
-        resume_game: false,
-        recovering: false,
         silent: true,
         control,
         output,
@@ -197,27 +191,57 @@ pub(super) fn attach<T: Asset + Decodable + Clone>(
             .get(&asset)
             .context("audio source asset missing")?
             .clone();
-        let handle = control.play(paused, move || {
-            use resonance_playback::Source;
-            let source = asset.decoder();
-            ensure!(
-                source.sample_rate().get() == resonance_playback::SOURCE_RATE
-                    && source.channels().get() == 2,
-                "source must be cooked to the native stereo mix rate"
-            );
-            Ok(Box::new(source))
-        })?;
+        let transport = world
+            .get_resource::<super::testing::Controls>()
+            .map_or(Some(resonance_playback::Speed::Normal), |controls| {
+                (!controls.paused).then_some(controls.speed)
+            });
+        let handle =
+            control.schedule_with_transport(control.rendered(), paused, transport, move || {
+                use resonance_playback::Source;
+                let source = asset.decoder();
+                ensure!(
+                    source.sample_rate().get() == resonance_playback::SOURCE_RATE
+                        && source.channels().get() == 2,
+                    "source must be cooked to the native stereo mix rate"
+                );
+                Ok(Box::new(source))
+            })?;
         world.entity_mut(entity).insert(Sink(handle));
     }
     Ok(())
 }
+/// Keeps simulation time stopped while a replacement device is being primed.
+#[derive(Resource)]
+pub(super) struct DevicePause {
+    pub resume: bool,
+}
+
+impl DevicePause {
+    pub(super) fn begin(world: &mut World) {
+        let mut time = world.resource_mut::<Time<Virtual>>();
+        let resume = !time.is_paused();
+        time.pause();
+        world.insert_resource(Self { resume });
+    }
+
+    pub(super) fn finish(world: &mut World) {
+        if world
+            .remove_resource::<Self>()
+            .is_some_and(|pause| pause.resume)
+        {
+            world.resource_mut::<Time<Virtual>>().unpause();
+        }
+    }
+}
+
 impl Device {
     fn poll(&mut self, world: &mut World) -> Result<()> {
         if self.clocked_sink.is_some() {
             return self.output.check();
         }
         let lost = self.output.diagnostics().device_lost > 0;
-        if lost && !self.recovering {
+        if lost && !world.contains_resource::<DevicePause>() {
             warn!(
                 "Audio device lost; freezing playback and preparing to reconnect: {:?}",
                 self.output.diagnostics()
@@ -230,12 +254,10 @@ impl Device {
                     .context("audio worker missing")?
                     .suspend()?,
             );
-            self.resume_game = !world.resource::<Time<Virtual>>().is_paused();
-            world.resource_mut::<Time<Virtual>>().pause();
-            self.recovering = true;
+            DevicePause::begin(world);
             self.retry = Instant::now() - Duration::from_secs(1);
         }
-        if self.recovering {
+        if world.contains_resource::<DevicePause>() {
             if self.suspended.is_some() && self.retry.elapsed() >= Duration::from_secs(1) {
                 self.retry = Instant::now();
                 if let Ok(device) = resonance_audio_device::Device::default_output() {
@@ -262,10 +284,7 @@ impl Device {
                     match device.start(self.output.clone(), self.silent) {
                         Ok(stream) => {
                             self.stream = Some(stream);
-                            self.recovering = false;
-                            if self.resume_game {
-                                world.resource_mut::<Time<Virtual>>().unpause();
-                            }
+                            DevicePause::finish(world);
                             info!("Audio device restored: {:?}", device.description);
                         }
                         Err(error) => {
@@ -297,7 +316,7 @@ fn update(world: &mut World) {
     if let Err(error) = result {
         let error = error.context(format!(
             "recovering={}; pending device={:?}; output={:?}",
-            device.recovering,
+            world.contains_resource::<DevicePause>(),
             device
                 .pending_device
                 .as_ref()
@@ -377,7 +396,7 @@ mod tests {
             device.output.device_error(false, true);
             let began = Instant::now();
             device.poll(app.world_mut()).unwrap();
-            while device.recovering {
+            while app.world().contains_resource::<DevicePause>() {
                 assert!(
                     began.elapsed() < Duration::from_secs(10),
                     "device recovery timed out"

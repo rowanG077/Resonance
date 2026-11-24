@@ -81,12 +81,18 @@ struct Shared {
     clock: Arc<Clock>,
     paused: AtomicBool,
     rate: AtomicU64,
-    suspended: AtomicBool,
+    // Manual credit and its consumed (or cancelled) prefix, in tenths of a
+    // source frame. An unrestricted block never spends a manual grant.
+    transport_end: AtomicU64, // MAX permits continuous playback.
+    manual_position: AtomicU64,
     stopped: AtomicBool,
     ended: AtomicBool,
     rendered_units: AtomicU64,
     timeline: Mutex<VecDeque<Span>>,
 }
+/// Controls and observes one playback source. Serialize calls to [`Self::set_transport`]
+/// and [`Self::step_transport`] across all clones for that source. Rendering and
+/// observation may run concurrently with those calls.
 #[derive(Clone)]
 pub struct Handle {
     shared: Arc<Shared>,
@@ -95,8 +101,43 @@ pub struct Handle {
 impl Handle {
     /// Change playback rate without changing the source's own pause state.
     pub fn set_transport(&self, paused: bool, speed: Speed) {
-        self.shared.suspended.store(paused, Ordering::Release);
         self.shared.rate.store(speed.tenths(), Ordering::Release);
+        let next = if paused { 0 } else { u64::MAX };
+        if self.shared.transport_end.load(Ordering::Acquire) != next {
+            let end = self.shared.transport_end.swap(next, Ordering::AcqRel);
+            if end != u64::MAX && end != 0 {
+                self.shared.manual_position.fetch_max(end, Ordering::AcqRel);
+            }
+        }
+    }
+
+    /// Advance a frozen source by this many native frames. The audio worker may
+    /// consume the allowance over several output blocks or receive another step first.
+    pub fn step_transport(&self, frames: u64) {
+        if frames == 0 || self.shared.paused.load(Ordering::Acquire) {
+            // Freeze continuous playback. A source-local pause withholds new
+            // frames while preserving any unspent grant for when the source plays.
+            let _ = self.shared.transport_end.compare_exchange(
+                u64::MAX,
+                0,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            );
+        } else {
+            let spent = self.shared.manual_position.load(Ordering::Acquire);
+            self.shared
+                .transport_end
+                .update(Ordering::AcqRel, Ordering::Acquire, |end| {
+                    let start = if end == u64::MAX {
+                        spent
+                    } else {
+                        end.max(spent)
+                    };
+                    start
+                        .saturating_add(frames.saturating_mul(10))
+                        .min(u64::MAX - 1)
+                });
+        }
     }
     pub fn pause(&self) {
         self.shared.paused.store(true, Ordering::Release);
@@ -108,7 +149,9 @@ impl Handle {
         self.shared.stopped.store(true, Ordering::Release);
     }
     pub fn is_paused(&self) -> bool {
-        self.shared.paused.load(Ordering::Acquire) || self.shared.suspended.load(Ordering::Acquire)
+        self.shared.paused.load(Ordering::Acquire)
+            || self.shared.transport_end.load(Ordering::Acquire)
+                <= self.shared.manual_position.load(Ordering::Acquire)
     }
     pub fn position(&self) -> Duration {
         duration(self.audible_frames())
@@ -243,6 +286,18 @@ impl Control {
         paused: bool,
         factory: impl FnOnce() -> Result<Source> + Send + 'static,
     ) -> Result<Handle> {
+        self.schedule_with_transport(at, paused, Some(Speed::Normal), factory)
+    }
+
+    /// Set the initial transport before publishing the source to the worker.
+    /// A frozen transport (`None`) is independent of the source's own pause.
+    pub fn schedule_with_transport(
+        &self,
+        at: NativeFrame,
+        paused: bool,
+        transport: Option<Speed>,
+        factory: impl FnOnce() -> Result<Source> + Send + 'static,
+    ) -> Result<Handle> {
         self.failure.check()?;
         let handle = Handle {
             epoch: self.next_epoch.fetch_add(1, Ordering::Relaxed),
@@ -250,8 +305,9 @@ impl Control {
                 failure: self.failure.clone(),
                 clock: self.clock.clone(),
                 paused: AtomicBool::new(paused),
-                rate: AtomicU64::new(Speed::Normal.tenths()),
-                suspended: AtomicBool::new(false),
+                rate: AtomicU64::new(transport.unwrap_or_default().tenths()),
+                transport_end: AtomicU64::new(if transport.is_some() { u64::MAX } else { 0 }),
+                manual_position: AtomicU64::new(0),
                 stopped: AtomicBool::new(false),
                 ended: AtomicBool::new(false),
                 rendered_units: AtomicU64::new(0),
@@ -331,9 +387,10 @@ impl Mixer {
         output.fill([0.; 2]);
         for playing in &mut self.playing {
             let state = playing.handle.shared.clone();
+            let end = state.transport_end.load(Ordering::Acquire);
             if state.stopped.load(Ordering::Acquire)
                 || state.paused.load(Ordering::Acquire)
-                || state.suspended.load(Ordering::Acquire)
+                || end == 0
                 || state.ended.load(Ordering::Acquire)
             {
                 continue;
@@ -343,10 +400,26 @@ impl Mixer {
                 .0
                 .saturating_sub(self.frame)
                 .min(output.len() as u64) as usize;
-            let rate = state.rate.load(Ordering::Acquire);
+            let available = &mut output[start..];
+            let (rate, limit, manual_start) = if end == u64::MAX {
+                (state.rate.load(Ordering::Acquire), available.len(), None)
+            } else {
+                let spent = state.manual_position.load(Ordering::Acquire);
+                let remaining = end.saturating_sub(spent);
+                if remaining == 0 {
+                    continue;
+                }
+                // A temporarily starved source can leave a partial frame.
+                let rate = remaining.min(Speed::Normal.tenths());
+                (
+                    rate,
+                    (remaining / rate).min(available.len() as u64) as usize,
+                    Some(spent),
+                )
+            };
             let mut count = 0;
             let mut consumed = 0;
-            for frame in &mut output[start..] {
+            for frame in &mut available[..limit] {
                 let (samples, read) = playing.sample(rate)?;
                 if read == 0 {
                     break;
@@ -357,6 +430,11 @@ impl Mixer {
                 consumed += read;
             }
             if count > 0 {
+                if let Some(spent) = manual_start {
+                    state
+                        .manual_position
+                        .fetch_max(spent + consumed, Ordering::AcqRel);
+                }
                 let source = state.rendered_units.load(Ordering::Relaxed);
                 let span = Span {
                     start: self.frame + start as u64,

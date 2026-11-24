@@ -16,7 +16,7 @@ pub(super) struct Playing {
 pub(super) fn update(
     state: State,
     pads: Query<Entity, With<Gamepad>>,
-    time: Res<Time>,
+    time: Res<Time<Virtual>>,
     mut playing: Local<Playing>,
     mut requests: MessageWriter<GamepadRumbleRequest>,
 ) {
@@ -27,8 +27,10 @@ pub(super) fn update(
             .filter(|s| s.is_field() && s.ready_for_field && s.audio.is_none())
             .map(|s| s.field())
     });
+    // Renew long effects while the scene owns them. A stall expires the lease.
+    let lease = crate::testing::rumble_lease(&time, Duration::from_secs(1));
     let desired = field
-        .filter(|f| !f.menu_is_open() && f.active_skit.is_none())
+        .filter(|f| !lease.is_zero() && !f.menu_is_open() && f.active_skit.is_none())
         .and_then(|f| {
             let world = &f.events.world;
             let effect = world.rumble?;
@@ -60,17 +62,15 @@ pub(super) fn update(
     }
     playing.effect = identity;
     if let Some((gamepad, _, remaining)) = desired {
-        // Renew long effects while this scene owns them. Bounded device requests
-        // also stop feedback if the renderer or controller disappears.
-        const LEASE_SECONDS: f64 = 1.;
-        let seconds = remaining.map_or(LEASE_SECONDS, |ticks| {
-            (f64::from(ticks) / resonance_content::ANIMATION_HZ as f64).min(LEASE_SECONDS)
+        let duration = remaining.map_or(lease, |ticks| {
+            Duration::from_secs_f64(f64::from(ticks) / resonance_content::ANIMATION_HZ as f64)
+                .min(lease)
         });
         requests.write(GamepadRumbleRequest::Add {
             gamepad,
             intensity: GamepadRumbleIntensity::strong_motor(1.),
-            duration: Duration::from_secs_f64(seconds),
+            duration,
         });
-        playing.refresh = now + seconds * 0.5;
+        playing.refresh = now + duration.as_secs_f64() * 0.5;
     }
 }

@@ -426,7 +426,12 @@ pub(super) fn install(app: &mut App) {
         )
         .add_systems(Update, prediction::update.after(prepare))
         .add_systems(PostUpdate, render.in_set(PublishBattle))
-        .add_systems(PostUpdate, rumble::present.after(PublishBattle));
+        .add_systems(
+            PostUpdate,
+            rumble::present
+                .after(PublishBattle)
+                .before(bevy::gilrs::RumbleSystems),
+        );
     super::battle_view::install(app);
     transition::install(app);
 }

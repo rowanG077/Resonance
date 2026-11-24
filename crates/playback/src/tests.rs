@@ -72,6 +72,76 @@ fn scheduled_sources_pause_resume_and_complete_on_consumed_frames() {
     assert!(fast.empty());
 }
 
+#[test]
+fn manual_steps_bound_audio_across_output_blocks() {
+    let (control, mut mixer) = Mixer::new(Arc::new(Clock::new(SOURCE_RATE)));
+    let pcm = Arc::<Pcm>::default();
+    pcm.push(0, vec![1.; 2]).unwrap();
+    let source = pcm.source(false, 1.);
+    let handle = control
+        .schedule_with_transport(control.rendered(), false, None, move || {
+            Ok(Box::new(source))
+        })
+        .unwrap();
+    let mut block = [[0.; 2]; 4];
+    // The worker may render immediately upon attachment, before any control update.
+    mixer.render(&mut block).unwrap();
+    assert_eq!(block, [[0.; 2]; 4]);
+    handle.step_transport(3);
+    mixer.render(&mut block).unwrap();
+    assert_eq!(block, [[1.; 2], [0.; 2], [0.; 2], [0.; 2]]);
+    // Keep the two unconsumed frames across a temporary decoder underrun.
+    pcm.push(1, vec![1.; 32]).unwrap();
+    pcm.finish();
+    handle.step_transport(3);
+    mixer.render(&mut block).unwrap();
+    assert_eq!(block, [[1.; 2]; 4]);
+    handle.step_transport(0);
+    mixer.render(&mut block).unwrap();
+    assert_eq!(block, [[1.; 2], [0.; 2], [0.; 2], [0.; 2]]);
+    assert_eq!(handle.rendered_frames(), 6);
+    assert!(handle.is_paused());
+    handle.step_transport(2);
+    handle.pause();
+    handle.step_transport(3);
+    mixer.render(&mut block).unwrap();
+    assert_eq!(block, [[0.; 2]; 4]);
+    handle.play();
+    mixer.render(&mut block).unwrap();
+    assert_eq!(block, [[1.; 2], [1.; 2], [0.; 2], [0.; 2]]);
+    handle.set_transport(false, Speed::Normal);
+    mixer.render(&mut block).unwrap();
+    assert_eq!(block, [[1.; 2]; 4]);
+    handle.step_transport(0);
+    mixer.render(&mut block).unwrap();
+    assert_eq!(block, [[0.; 2]; 4]);
+}
+
+#[test]
+fn an_in_flight_continuous_block_cannot_spend_a_manual_step() {
+    // Issue the controls from the first sample. The mixer has chosen continuous
+    // playback for this block but has not yet published its rendered position.
+    let (control, mut mixer) = Mixer::new(Arc::new(Clock::new(SOURCE_RATE)));
+    let (send, receive) = std::sync::mpsc::channel::<Handle>();
+    let handle = control
+        .play(false, move || {
+            let handle = receive.recv().unwrap();
+            let first = std::iter::once_with(move || {
+                handle.step_transport(0);
+                handle.step_transport(3);
+                1.
+            });
+            Ok(Box::new(Samples(first.chain(std::iter::repeat(1.)))))
+        })
+        .unwrap();
+    send.send(handle).unwrap();
+    let mut block = [[0.; 2]; 4];
+    mixer.render(&mut block).unwrap();
+    assert_eq!(block, [[1.; 2]; 4]);
+    mixer.render(&mut block).unwrap();
+    assert_eq!(block, [[1.; 2], [1.; 2], [1.; 2], [0.; 2]]);
+}
+
 struct Identity;
 
 #[test]

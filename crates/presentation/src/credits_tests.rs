@@ -1,5 +1,4 @@
 use super::*;
-use resonance_events::{EventRuntime, GameWorld, ResourceLibrary};
 use resonance_game::clock::{UPDATE_RATE_DENOMINATOR, UPDATE_RATE_NUMERATOR};
 
 #[test]
@@ -35,33 +34,13 @@ fn credits_finish_the_music_and_hold_before_resuming_and_cancel_cleanly() -> Res
         gain: 1.,
         mono: false,
     };
-    let program = Arc::new(symphonia_script::Program::decode(
-        &symphonia_script::scenario::assemble(
-            ".scenario\n.code_base 4\n.word 4\n.word 0\n.word 0\n.word 0\n\
-         push.s8 18\ncalc 0\narg\npush.s8 0\ncalc 0\narg\nproc 0x6d\nend\n",
-        )?,
-    )?);
     let mut session = crate::new_game::Session::load(root)?;
-    let resources = Arc::new(ResourceLibrary {
-        session_data: session.events().resources().session_data.clone(),
-        ..default()
-    });
     let mut world = World::new();
     world.init_resource::<Assets<Audio>>();
+    world.init_resource::<Assets<crate::field_audio::FieldSource>>();
     // Exercise cancellation first, then reuse the session and decoded music.
     for cancel in [true, false] {
-        let mut state = GameWorld::default();
-        state.party = session.field_mut().events.world.party.take();
-        session.field_mut().events =
-            EventRuntime::with_state(program.clone(), resources.clone(), state, default())?;
-        let operation = session
-            .events()
-            .world
-            .screen_request
-            .as_ref()
-            .unwrap()
-            .operation
-            .clone();
+        let operation = crate::test_support::request_credits(&mut session)?;
         world.insert_resource(session);
         begin(&mut world, audio.clone(), manifest.final_hold_ticks)?;
         let entity = world.resource::<Playback>().audio;

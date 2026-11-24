@@ -104,8 +104,8 @@ pub(crate) fn update(
     mut commands: Commands,
     mut elapsed: Local<f32>,
 ) {
-    camera.is_active = controls.paused && panel.is_some();
-    if !controls.paused {
+    camera.is_active = controls.paused && !controls.stepping() && panel.is_some();
+    if !camera.is_active {
         *elapsed = 0.;
         return;
     }

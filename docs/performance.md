@@ -134,6 +134,10 @@ roughly 167 ms between committed ticks, making unsmoothed motion easy to spot.
 Movies still present decoded frames without blending. Use normal speed for FPS
 comparisons: slow motion intentionally reduces the amount of simulation work.
 
+During gameplay, press **F9** to freeze on a committed tick and inspect the scene without the
+pause panel. Press it again for each tick, or hold it for three seconds to
+resume. Each step also advances gameplay audio by one tick. Starting a movie or the credits exits stepping mode.
+
 The authoritative simulation remains at 60000/1001 Hz. An isolated branch executes
 one ordinary update with the latest latched input. Render frames reuse the branch
 until its source session or inputs change, including held axes and latched presses.

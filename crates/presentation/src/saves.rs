@@ -7,8 +7,6 @@ mod overworld_test;
 mod replay;
 pub use fixture::prepare_checkpoint_fixture;
 pub use overworld_test::{prepare_overworld_test_fixture, run_overworld_field_probe};
-#[cfg(test)]
-pub(crate) use replay::assert_checkpoint;
 pub use replay::{
     CheckpointRecordingOptions, CheckpointReplay, record_battle, record_checkpoint,
     record_checkpoint_window, record_new_game,
@@ -17,6 +15,8 @@ pub(crate) use replay::{
     Event as ScenarioEvent, ScenarioInput, Step as ScenarioStep, capture_image,
     install_benchmark_replay, record_app, recording_scene, scenario_consumed,
 };
+#[cfg(test)]
+pub(crate) use replay::{assert_checkpoint, install_scenario_input};
 pub(super) mod title;
 mod title_probe;
 use super::{field_view, loading, new_game};

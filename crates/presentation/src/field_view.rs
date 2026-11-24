@@ -856,7 +856,7 @@ pub(super) fn gather_controls(
         physical.merge(&crate::input::PhysicalState::gamepad(pad));
     }
     physical.track_edges(&mut previous_inputs);
-    if testing.is_some_and(|c| c.paused || c.skipping) {
+    if testing.is_some_and(|c| (c.paused && !c.stepping()) || c.skipping) {
         *controls = Controls::default();
         return;
     }
