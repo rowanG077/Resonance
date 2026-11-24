@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.6.1 - *23 Nov, 2026*
+
+### Fixed:
+- Apply D-pad strategy orders during the battle opening so allies use the selected tactics from their first move.
+  [P142](https://github.com/rowanG077/Resonance/pull/142)
+- When a boss falls as the last active enemy, the Unison gauge, Tech notices, and combo totals now clear on the next battle update. If a Unison Attack is already running, it keeps its HUD until it ends. Floating damage numbers and Technical Smash continue animating through the boss defeat freeze.
+  [P144](https://github.com/rowanG077/Resonance/pull/144)
+- Fix a crash when sailing to or from Thoda Geyser.
+  [P151](https://github.com/rowanG077/Resonance/pull/151)
+- Ease the camera into the battle opening and finish the pan before tracking the fighters.
+  [P142](https://github.com/rowanG077/Resonance/pull/142)
+- Start the battle camera pan as soon as the field fragments move and reveal the arena.
+  [P142](https://github.com/rowanG077/Resonance/pull/142)
+- Field enemies can turn and walk in place during the grace period after a battle or when Sheena’s Personal EX Skill prevents an encounter.
+  [P146](https://github.com/rowanG077/Resonance/pull/146)
+- Keep Rheairds airborne when landing at a cliff edge would leave the party stuck.
+  [P150](https://github.com/rowanG077/Resonance/pull/150)
+- Players can squeeze past the cliffside treasure chest on Mt. Fooji by keeping pressure on it at an angle.
+  [P145](https://github.com/rowanG077/Resonance/pull/145)
+- Pressing the Tech button again after closing the battle menu can now chain a technique from a normal attack while you keep the stick tilted.
+  [P147](https://github.com/rowanG077/Resonance/pull/147)
+- Colette’s jacket and hair now settle during her winged victory pose.
+  [P148](https://github.com/rowanG077/Resonance/pull/148)
+- Battle openings now show the enemy names and counts on red ribbons before they slide away.
+  [P144](https://github.com/rowanG077/Resonance/pull/144)
+- Temporary stat icons such as Defense Down now clear when the party enters the victory screen. Party portraits keep their combat expressions until that transition.
+  [P144](https://github.com/rowanG077/Resonance/pull/144)
+- Magnius now turns in the same direction as his chair in the Palmacosta Ranch control room.
+  [P143](https://github.com/rowanG077/Resonance/pull/143)
+- Moving the stick from a partial tilt to full tilt no longer skips a menu item.
+  [P141](https://github.com/rowanG077/Resonance/pull/141)
+- Presea now has her lifeless eyes when she first appears in Meltokio, including in existing saves.
+  [P149](https://github.com/rowanG077/Resonance/pull/149)
+
 ## 0.6.0 - *22 Nov, 2026*
 
 **Upgrading from v0.5.1:** Recook your assets with the v0.6.0 importer. You can continue from your existing saves.
