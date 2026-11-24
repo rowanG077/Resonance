@@ -24,8 +24,8 @@ pub struct Art<Font = BitmapFont> {
     pub result_colors: [[[u8; 4]; 2]; 3],
     /// Shared target frame followed by one pointer palette per controller.
     #[serde(with = "crate::ui_art::targets")]
-    pub targets: [UiTexture; 5],
-    pub stun: UiTexture,
+    pub targets: [HudImage; 5],
+    pub stun: HudImage,
     pub notices: NoticeArt,
     pub combo: ComboArt,
     #[serde(with = "crate::ui_art::vertical")]
@@ -36,12 +36,23 @@ pub struct Art<Font = BitmapFont> {
     /// Attack, defense, up arrow, magic attack, physical/magical barriers,
     /// accuracy/curse, reduced item effect, Holy Song, down arrow.
     #[serde(with = "crate::ui_art::status")]
-    pub stat_icons: [UiTexture; 10],
+    pub stat_icons: [HudImage; 10],
     /// Source bank roles retained in the art document; runtime prompts use the shared input atlas.
     #[serde(with = "crate::ui_art::unison")]
     pub unison_buttons: [UiTexture; 2],
     pub commands: CommandArt,
     pub feedback: FeedbackArt,
+}
+
+/// A palette-colored region placed on a shared HUD sheet. Older artwork uses
+/// a whole image in the original coordinate space, with no translation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HudImage {
+    #[serde(flatten)]
+    pub texture: UiTexture,
+    #[serde(default)]
+    pub offset: [i16; 2],
 }
 
 /// Timers, enemy inspection, and battle gauges use the shared battle atlas.
@@ -55,13 +66,13 @@ pub struct FeedbackArt {
     pub scan_vitals: [[[u8; 4]; 2]; 2],
     /// Neutral and eight elements, followed by weakness/resistance headings.
     #[serde(with = "crate::ui_art::scan")]
-    pub scan_icons: [UiTexture; 10],
-    pub unison_frame: UiTexture,
+    pub scan_icons: [HudImage; 10],
+    pub unison_frame: HudImage,
     pub unison_ready: String,
     pub unison_text: [[u8; 4]; 2],
     /// Frame, needle, and fill.
     #[serde(with = "crate::ui_art::escape")]
-    pub escape: [UiTexture; 3],
+    pub escape: [HudImage; 3],
     #[serde(with = "crate::ui_art::sides")]
     pub escape_positions: [[u16; 2]; 2],
 }
@@ -167,11 +178,11 @@ impl CommandArt {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoticeArt {
-    pub frame: UiTexture,
-    pub fill: UiTexture,
+    pub frame: HudImage,
+    pub fill: HudImage,
     /// Martial arte, spell, item, and outcome emblems.
     #[serde(with = "crate::ui_art::notices")]
-    pub icons: [UiTexture; 4],
+    pub icons: [HudImage; 4],
     #[serde(with = "crate::ui_art::notices")]
     pub icon_origins: [[u16; 2]; 4],
     pub defeated: String,
@@ -179,7 +190,7 @@ pub struct NoticeArt {
     #[serde(default = "escaped_notice")]
     pub escaped: String,
     #[serde(with = "crate::ui_art::characters")]
-    pub faces: [UiTexture; 9],
+    pub faces: [HudImage; 9],
 }
 
 fn escaped_notice() -> String {
@@ -242,30 +253,16 @@ impl Art {
     }
 
     pub fn files(&self) -> impl Iterator<Item = &str> {
-        [
-            self.font.texture.as_str(),
-            self.commands.texture.path.as_str(),
-        ]
-        .into_iter()
-        .chain(
-            self.portraits
-                .iter()
-                .flatten()
-                .map(|image| image.path.as_str()),
-        )
-        .chain(
-            self.targets
-                .iter()
-                .chain([&self.stun])
-                .chain([&self.notices.frame, &self.notices.fill])
-                .chain(&self.notices.icons)
-                .chain(&self.notices.faces)
-                .chain(&self.stat_icons)
-                .chain(&self.feedback.scan_icons)
-                .chain([&self.feedback.unison_frame])
-                .chain(&self.feedback.escape)
-                .map(|image| image.path.as_str()),
-        )
+        let mut seen = std::collections::BTreeSet::new();
+        std::iter::once(self.font.texture.as_str())
+            .chain(self.required_images().map(|image| image.path.as_str()))
+            .chain(
+                self.portraits
+                    .iter()
+                    .flatten()
+                    .map(|image| image.path.as_str()),
+            )
+            .filter(move |path| seen.insert(*path))
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -277,8 +274,12 @@ impl Art {
     }
 
     fn required_images(&self) -> impl Iterator<Item = &UiTexture> {
-        std::iter::once(&self.commands.texture)
-            .chain(&self.targets)
+        std::iter::once(&self.commands.texture).chain(self.hud_images().map(|image| &image.texture))
+    }
+
+    fn hud_images(&self) -> impl Iterator<Item = &HudImage> {
+        self.targets
+            .iter()
             .chain([&self.stun, &self.notices.frame, &self.notices.fill])
             .chain(&self.notices.icons)
             .chain(&self.notices.faces)
@@ -302,20 +303,11 @@ impl Art {
                 .all(|&size| (1..=128).contains(&size)),
             "invalid damage numeral dimensions"
         );
-        for image in self
-            .targets
-            .iter()
-            .chain([&self.stun, &self.notices.frame, &self.notices.fill])
-            .chain(&self.notices.icons)
-            .chain(&self.notices.faces)
-            .chain(&self.stat_icons)
-            .chain(&self.feedback.scan_icons)
-            .chain([&self.feedback.unison_frame])
-            .chain(&self.feedback.escape)
-        {
-            image.validate()?;
+        for image in self.hud_images() {
+            image.texture.validate()?;
             ensure!(
-                [image.width, image.height] == [512, 512],
+                [image.texture.width, image.texture.height] == [512, 512]
+                    && image.offset.iter().all(|v| v.unsigned_abs() < 512),
                 "invalid battle marker atlas"
             );
         }

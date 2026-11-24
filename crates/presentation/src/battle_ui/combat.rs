@@ -67,9 +67,8 @@ impl Hud {
             .chain(&art.feedback.escape)
             .enumerate()
         {
-            let image = load(texture, false, true);
-            let mut definition =
-                LayerDefinition::new(image, [texture.width, texture.height], Depth::Meters);
+            let image = load(&texture.texture, false, true);
+            let mut definition = LayerDefinition::hud(image, texture, Depth::Meters);
             definition.depth += [1., 2., 3., 1.][index];
             layers.push(definition);
         }
@@ -96,10 +95,9 @@ impl Hud {
         let mut roster_marker_layers = [None; TARGET_ORNAMENTS];
         for (index, (slot, texture)) in marker_layers.iter_mut().zip(art.targets.iter()).enumerate()
         {
-            let image = load(texture, false, false);
+            let image = load(&texture.texture, false, false);
             *slot = Some(layers.len());
-            let mut definition =
-                LayerDefinition::new(image, [texture.width, texture.height], Depth::Labels);
+            let mut definition = LayerDefinition::hud(image, texture, Depth::Labels);
             definition.depth += index as f32;
             layers.push(definition.clone());
             roster_marker_layers[index] = Some(layers.len());
@@ -112,9 +110,9 @@ impl Hud {
         labels.depth += markers::LABELS as f32;
         layers.push(labels);
         marker_layers[markers::PARALYSIS] = Some(layers.len());
-        let mut paralysis = LayerDefinition::new(
-            load(&art.stun, false, true),
-            [art.stun.width, art.stun.height],
+        let mut paralysis = LayerDefinition::hud(
+            load(&art.stun.texture, false, true),
+            &art.stun,
             Depth::Labels,
         );
         paralysis.depth += markers::PARALYSIS as f32;

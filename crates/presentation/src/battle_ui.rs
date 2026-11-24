@@ -225,17 +225,16 @@ impl Artwork {
         art.font
             .validate_text("HP TP XX +0123456789. RESERVE. FORMATION DEFAULT REVERSE")?;
         let inputs = crate::input_icons::prepare(&read, server)?;
-        let mut pending_images = vec![PendingImage {
-            image: inputs.image.clone(),
-            required: true,
-        }];
+        let mut textures = BTreeMap::new();
         let mut load_image = |path: String, repeat, required| {
-            let image = menu::menu_image(server, path, repeat);
-            pending_images.push(PendingImage {
-                image: image.clone(),
-                required,
-            });
-            image
+            let pending = textures
+                .entry((path, repeat))
+                .or_insert_with_key(|(path, repeat)| PendingImage {
+                    image: menu::menu_image(server, path.clone(), *repeat),
+                    required: false,
+                });
+            pending.required |= required;
+            pending.image.clone()
         };
         let atlas = load_image(art.font.texture.clone(), false, true);
         let main_font = load_image(font.texture.clone(), false, true);
@@ -276,9 +275,8 @@ impl Artwork {
             .iter()
             .enumerate()
             .map(|(index, texture)| {
-                let image = load(texture, false, true);
-                let definition =
-                    LayerDefinition::new(image, [texture.width, texture.height], Depth::Vitals);
+                let image = load(&texture.texture, false, true);
+                let definition = LayerDefinition::hud(image, texture, Depth::Vitals);
                 if index == party::StatusIcon::UpArrow as usize
                     || index == party::StatusIcon::DownArrow as usize
                 {
@@ -358,6 +356,11 @@ impl Artwork {
         };
         let combat =
             combat::Hud::load(&art, enemies, stack_enemies, &palette, materials, &mut load)?;
+        let mut pending_images: Vec<_> = textures.into_values().collect();
+        pending_images.push(PendingImage {
+            image: inputs.image.clone(),
+            required: true,
+        });
         let windows = menu::MenuArtwork::load(
             &read,
             session.experience.clone().into(),

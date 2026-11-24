@@ -33,6 +33,7 @@ impl Depth {
 pub(super) struct LayerDefinition {
     pub(super) image: Handle<Image>,
     pub(super) size: [u32; 2],
+    offset: [i16; 2],
     pub(super) depth: f32,
     pub(super) nearest: bool,
     pub(super) interpolation: UiInterpolation,
@@ -43,10 +44,21 @@ impl LayerDefinition {
         Self {
             image,
             size,
+            offset: [0; 2],
             depth: depth.value(),
             nearest: false,
             interpolation: UiInterpolation::Centroid,
             texture_effect: TextureEffect::Plain,
+        }
+    }
+    pub(super) fn hud(
+        image: Handle<Image>,
+        region: &resonance_content::battle_ui::HudImage,
+        depth: Depth,
+    ) -> Self {
+        Self {
+            offset: region.offset,
+            ..Self::new(image, [region.texture.width, region.texture.height], depth)
         }
     }
     pub(super) fn offset_depth(mut self, offset: f32) -> Self {
@@ -129,12 +141,13 @@ impl HudLayer {
             commands,
         ));
     }
-    pub(super) fn upload(&mut self, batch: Batch, commands: &mut Commands) -> Result<()> {
+    pub(super) fn upload(&mut self, mut batch: Batch, commands: &mut Commands) -> Result<()> {
         let visible = !batch.indices.is_empty();
         let layer = self
             .rendered
             .as_mut()
             .context("battle HUD layer was not prepared")?;
+        batch.translate_uv(self.definition.offset);
         layer.update(batch, self.definition.size);
         layer.show(visible, commands);
         Ok(())

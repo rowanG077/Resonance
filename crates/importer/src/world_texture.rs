@@ -15,7 +15,7 @@ fn rgb565(value: u16) -> [u8; 4] {
     ]
 }
 
-fn rgb5a3(value: u16) -> [u8; 4] {
+pub(crate) fn rgb5a3(value: u16) -> [u8; 4] {
     let three = |value: u16| ((value << 5) | (value << 2) | (value >> 1)) as u8;
     let four = |value: u16| ((value << 4) | value) as u8;
     let five = |value: u16| ((value << 3) | (value >> 2)) as u8;

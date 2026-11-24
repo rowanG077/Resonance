@@ -33,9 +33,8 @@ pub(super) fn layers(
         palette.main_font.clone().at(Depth::Scan),
     ];
     for (index, texture) in art.feedback.scan_icons.iter().enumerate() {
-        let image = load(texture, false, true);
-        let mut definition =
-            LayerDefinition::new(image, [texture.width, texture.height], Depth::Scan);
+        let image = load(&texture.texture, false, true);
+        let mut definition = LayerDefinition::hud(image, texture, Depth::Scan);
         // Later symbols cover earlier ones without overtaking the inspection text.
         definition.depth += (index + 1) as f32 / (art.feedback.scan_icons.len() + 1) as f32;
         // Element symbols stay crisp; the final weakness/resistance headings are smooth.
