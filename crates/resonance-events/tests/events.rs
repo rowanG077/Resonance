@@ -1872,28 +1872,28 @@ fn scattering_particles_preserve_dark_blending_and_release_expanding_rings() {
 }
 
 #[test]
-fn layered_orbs_and_radial_bursts_inherit_scripted_appearance() {
+fn particles_inherit_scripted_appearance_from_their_emitter() {
     use resonance_events::effect::Blend;
     for (kind, parameters, count) in [
+        (9, vec![1, 60, 60, 1, 90, 13, 25, 20, 4, 0], 4),
         (14, vec![32, 40, 0, 0, 0, 0, 0, 0, 0, 0], 7),
         (14, vec![32, 40, 0, 0, 0, 0, 0, 0, 0, 1], 7),
         (34, vec![32, 210, 5, 4, 1, 75, 100], 5),
     ] {
-        for override_blend in [false, true] {
+        for scripted_appearance in [false, true] {
             let args = emitter(kind, 100, &parameters);
             let mut calls = vec![(Call::CreateEffectEmitter, args.as_slice())];
-            if override_blend {
+            if scripted_appearance {
                 calls.extend([
                     (Call::SetActorProperty, [500, 45, 2].as_slice()),
                     (Call::SetActorProperty, [500, 8, 91].as_slice()),
-                    (Call::SetActorProperty, [500, 14, 1].as_slice()),
                     (Call::SetActorProperty, [500, 42, 17].as_slice()),
                 ]);
             }
             let mut events = interactive_effect(&script(&calls), &[0x20ff]);
             events.step().unwrap();
             assert_eq!(events.world.billboards.len(), count);
-            let expected = if override_blend {
+            let expected = if scripted_appearance {
                 Some(Blend::Subtractive)
             } else if kind == 14 && parameters[9] == 1 {
                 Some(Blend::Alpha)
@@ -1902,7 +1902,7 @@ fn layered_orbs_and_radial_bursts_inherit_scripted_appearance() {
             };
             for particle in events.world.billboards.values() {
                 assert_eq!(particle.blend, expected);
-                if override_blend {
+                if scripted_appearance {
                     assert_eq!(particle.rgba[0], 17);
                     assert_eq!(particle.rgba[3], 91);
                 }

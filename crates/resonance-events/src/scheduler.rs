@@ -1082,11 +1082,11 @@ impl EventRuntime {
                 .map(|_| self.world.try_attached_position(&self.resources, *id))
                 .transpose()?;
             let actor = self.world.actors.get_mut(id).unwrap();
-            // Custom lighting updates the native enable bit before this update's
-            // scripts. Automatic lighting clears flashes but retains that bit.
+            // Automatic model lighting clears flashes. Emitters keep their tint
+            // for particles created on later updates.
             if actor.keeps_script_lighting() {
                 actor.ambient_modulation = actor.opacity != u8::MAX;
-            } else {
+            } else if actor.emitter.is_none() {
                 actor.tint = [crate::effect::NEUTRAL_TINT; 3];
             }
             let previous = actor.position;
