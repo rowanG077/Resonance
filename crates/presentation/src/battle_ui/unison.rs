@@ -239,34 +239,16 @@ impl Artwork {
                     .sum::<f32>();
                 let x = (684. - (f32::from(row.age) + time.feedback) * 24.).max(624. - width);
                 let y = 104. + index as f32 * 32.;
-                let icon_width = row.actors.len() as f32 * 32.;
+                label(&mut batches[TEXT], &self.font, &row.name, [x, y])?;
+                let left = row_faces(&mut batches, &row.actors, party.characters, [x, y])?;
+                let right = x + width + (row.actors.len() + 1) as f32 * 32.;
                 party::backdrop(
                     &mut batches[1],
-                    [
-                        x - icon_width,
-                        y + 16.,
-                        x + width + icon_width + 32.,
-                        y + 28.,
-                    ],
+                    [left, y + 16., right, y + 28.],
                     self.art.combo.bar_colors[1],
                     3.,
                     4.,
                 );
-                label(&mut batches[TEXT], &self.font, &row.name, [x, y])?;
-                for (index, actor) in row.actors.iter().enumerate() {
-                    let character = *party
-                        .characters
-                        .get(actor.index())
-                        .context("Unison row actor is outside party")?;
-                    let left = x - (index + 1) as f32 * 32.;
-                    face(
-                        &mut batches,
-                        character,
-                        [left - 2., y - 2.],
-                        [0., 0., 0., 128. / 255.],
-                    );
-                    face(&mut batches, character, [left - 4., y - 4.], [1.; 4]);
-                }
             }
         }
         for (layer, batch) in self.ui.unison.iter_mut().zip(batches) {
@@ -276,10 +258,32 @@ impl Artwork {
     }
 }
 
+fn row_faces(
+    batches: &mut [Batch],
+    actors: &[ActorId],
+    characters: &[Character],
+    [x, y]: [f32; 2],
+) -> Result<f32> {
+    let mut left = x;
+    for actor in actors {
+        let character = *characters
+            .get(actor.index())
+            .context("Unison row actor is outside party")?;
+        left -= notice::face_art(character).0;
+        face(
+            batches,
+            character,
+            [left - 2., y - 2.],
+            [0., 0., 0., 128. / 255.],
+        );
+        face(batches, character, [left - 4., y - 4.], [1.; 4]);
+    }
+    Ok(left)
+}
+
 fn face(batches: &mut [Batch], character: Character, [x, y]: [f32; 2], tint: [f32; 4]) {
-    let index = character.index();
-    let u = 64. + index as f32 * 32.;
-    batches[FACES + index].quad([x, y, x + 32., y + 32.], [u, 104., u + 32., 136.], tint);
+    let (width, uv) = notice::face_art(character);
+    batches[FACES + character.index()].quad([x, y, x + width, y + 32.], uv, tint);
 }
 
 fn advance(font: &BitmapFont, character: char) -> f32 {
@@ -315,4 +319,38 @@ fn label(batch: &mut Batch, font: &BitmapFont, name: &str, [x, y]: [f32; 2]) -> 
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unison_faces_use_their_complete_atlas_cells_and_reserve_their_width() -> Result<()> {
+        let actors = [ActorId::from_index(1)?, ActorId::from_index(0)?];
+        for pair in [
+            [
+                (Character::Presea, 256., 296., -44., -4.),
+                (Character::Regal, 296., 328., -76., -44.),
+            ],
+            [
+                (Character::Kratos, 328., 360., -36., -4.),
+                (Character::Presea, 256., 296., -76., -36.),
+            ],
+        ] {
+            let party = [pair[1].0, pair[0].0];
+            let mut batches = vec![Batch::default(); FACES + Character::ALL.len()];
+            let left = row_faces(&mut batches, &actors, &party, [320., 240.])?;
+            assert_eq!(left, 248.);
+            for (character, u0, u1, x0, x1) in pair {
+                let batch = &batches[FACES + character.index()];
+                // The foreground quad follows the shadow.
+                assert_eq!(batch.uv[4], [u0, 104.]);
+                assert_eq!(batch.uv[6], [u1, 136.]);
+                assert_eq!(batch.positions[4], [x0, 4., 0.]);
+                assert_eq!(batch.positions[6], [x1, -28., 0.]);
+            }
+        }
+        Ok(())
+    }
 }

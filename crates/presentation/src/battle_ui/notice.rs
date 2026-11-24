@@ -74,17 +74,20 @@ pub(super) fn layers(
     palette.layers(definitions, materials)
 }
 
-fn draw_face(character: Character, destination: [f32; 4], alpha: u8, batches: &mut [Batch]) {
-    let index = character.index();
+pub(super) fn face_art(character: Character) -> (f32, [f32; 4]) {
     let (x, width) = match character {
         Character::Presea => (256., 40.),
         Character::Regal => (296., 32.),
         Character::Kratos => (328., 32.),
-        _ => (64. + index as f32 * 32., 32.),
+        _ => (64. + character.index() as f32 * 32., 32.),
     };
-    batches[FACES + index].quad(
+    (width, [x, 104., x + width, 136.])
+}
+
+fn draw_face(character: Character, destination: [f32; 4], alpha: u8, batches: &mut [Batch]) {
+    batches[FACES + character.index()].quad(
         destination,
-        [x, 104., x + width, 136.],
+        face_art(character).1,
         hud_color([128, 128, 128, alpha]),
     );
 }
@@ -105,11 +108,7 @@ fn draw_party_face(
         .characters
         .get(slot)
         .context("notice party character missing")?;
-    let width = if character == Character::Presea {
-        40.
-    } else {
-        32.
-    };
+    let (width, _) = face_art(character);
     draw_face(
         character,
         [left, top, left + width, top + 32.],
