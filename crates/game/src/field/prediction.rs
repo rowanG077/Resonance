@@ -78,7 +78,11 @@ impl FieldSession {
         let mut fork = resonance_events::OperationFork::default();
         let state = if self.prediction_available() {
             let mut state = self.fork_for_prediction(&mut fork);
-            state.step(input)?;
+            state.step(if self.menu_is_open() {
+                input.for_menu_prediction()
+            } else {
+                input
+            })?;
             state.prediction_available().then_some(state)
         } else {
             None

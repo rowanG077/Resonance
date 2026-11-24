@@ -97,6 +97,16 @@ impl FieldInput {
         self.pressed_buttons.contains(button)
     }
 
+    /// Taps are latched until the next tick. A held direction can still be
+    /// released before its repeat is due, so only predict latched navigation.
+    pub fn for_menu_prediction(self) -> Self {
+        Self {
+            direction: [0.; 2],
+            scroll_direction: 0,
+            ..self
+        }
+    }
+
     /// Held and latched navigation, shared by menus, shops and crafting.
     pub(crate) fn navigation(self) -> [(bool, bool); 6] {
         [
@@ -2242,6 +2252,37 @@ mod tests {
             );
         }
         assert!(field.events.world.actors[&1].position[0] < 80.);
+    }
+
+    #[test]
+    fn a_menu_repeat_waits_for_the_committed_tick() {
+        let mut field = empty_session();
+        field.menu = Some(crate::menu::Menu::new(crate::menu::Page::Main, None, false));
+        let right = FieldInput {
+            direction: [1., 0.],
+            ..Default::default()
+        };
+        let tap = FieldInput {
+            pressed_buttons: [Button::Right].into(),
+            ..Default::default()
+        };
+        let selection = |field: &FieldSession| field.menu.as_ref().unwrap().selected;
+        let predicted = |field: &FieldSession, input| {
+            selection(&field.predict_next(input).unwrap().state.unwrap())
+        };
+        // Even a tap released between ticks is already latched.
+        assert_eq!(predicted(&field, tap), 1);
+        for _ in 0..31 {
+            field.step(right).unwrap();
+        }
+        assert_eq!(selection(&field), 1);
+        // Either outcome is still possible on tick 32.
+        assert_eq!(predicted(&field, right), 1);
+        let mut released = field.fork_for_prediction(&mut Default::default());
+        released.step(FieldInput::default()).unwrap();
+        assert_eq!(selection(&released), 1);
+        field.step(right).unwrap();
+        assert_eq!(selection(&field), 2);
     }
 
     #[test]
