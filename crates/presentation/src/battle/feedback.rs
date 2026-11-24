@@ -205,11 +205,20 @@ impl Feedback {
                         continue;
                     };
                     let owner = &frame.actors[actor.index()];
-                    if matches!(
-                        phase,
-                        CastPhase::Started | CastPhase::Chanting | CastPhase::Incantation
-                    ) && !matches!(owner.activity, resonance_battle::Activity::Casting { .. })
-                    {
+                    use resonance_battle::Activity;
+                    let active = match phase {
+                        CastPhase::Started | CastPhase::Incantation => {
+                            matches!(owner.activity, Activity::Casting { .. })
+                        }
+                        CastPhase::Chanting => {
+                            matches!(
+                                owner.activity,
+                                Activity::Casting { .. } | Activity::Recovering
+                            )
+                        }
+                        _ => true,
+                    };
+                    if !active {
                         continue;
                     }
                     let (appearance, sound, voice) = match phase {
@@ -1821,14 +1830,19 @@ mod tests {
                 tint: Default::default(),
             },
         );
-        for phase in [
-            resonance_battle::CastPhase::Started,
-            resonance_battle::CastPhase::Chanting,
-            resonance_battle::CastPhase::Incantation,
+        use resonance_battle::{Activity, CastPhase};
+        let casting = Activity::Casting { held: false };
+        for (phase, activity, emits) in [
+            (CastPhase::Started, casting, true),
+            (CastPhase::Started, Activity::Recovering, false),
+            (CastPhase::Chanting, casting, true),
+            (CastPhase::Chanting, Activity::Recovering, true),
+            (CastPhase::Chanting, Activity::Hurt, false),
+            (CastPhase::Incantation, casting, true),
+            (CastPhase::Incantation, Activity::Recovering, false),
         ] {
             let mut frame = base.clone();
-            frame.actors[ids[0].index()].activity =
-                resonance_battle::Activity::Casting { held: false };
+            frame.actors[ids[0].index()].activity = activity;
             frame.cues = vec![Cue::Casting {
                 source: None,
                 actor: ids[0],
@@ -1844,7 +1858,7 @@ mod tests {
                         ..
                     }
                 )),
-                phase == resonance_battle::CastPhase::Incantation
+                emits && phase == CastPhase::Incantation
             );
             assert_eq!(
                 frame.cues.iter().any(|cue| matches!(
@@ -1854,11 +1868,11 @@ mod tests {
                         ..
                     }
                 )),
-                phase == resonance_battle::CastPhase::Started
+                emits && phase == CastPhase::Started
             );
             assert_eq!(
                 frame.cues.iter().any(|cue| matches!(cue, Cue::Effect(_))),
-                phase == resonance_battle::CastPhase::Chanting
+                emits && phase == CastPhase::Chanting
             );
         }
         let mut frame = base.clone();

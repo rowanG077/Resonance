@@ -14,10 +14,12 @@ fn held(actor: ActorId, guard: bool, technique: bool) -> BattleInput {
 #[test]
 fn guard_cancels_unfinished_casts_without_payment_or_release() {
     for mode in [Control::Manual, Control::SemiAuto] {
-        {
+        for (wait_updates, expect_circle) in [(0, true), (1, false)] {
             let mut battle = controlled(mode, 20);
             battle.step(request()).unwrap();
-            battle.step(BattleInput::default()).unwrap();
+            for _ in 0..wait_updates {
+                battle.step(BattleInput::default()).unwrap();
+            }
             let tp = battle.actors[0].tp;
             assert!(
                 battle
@@ -42,6 +44,17 @@ fn guard_cancels_unfinished_casts_without_payment_or_release() {
                     ..
                 }
             )));
+            let circle = frame.cues.iter().any(|cue| {
+                matches!(
+                    cue,
+                    Cue::Casting {
+                        actor: ActorId(0),
+                        phase: CastPhase::Chanting,
+                        ..
+                    }
+                )
+            });
+            assert_eq!(circle, expect_circle);
             assert_eq!(frame.actors[0].activity, crate::Activity::Recovering);
             assert_eq!(frame.actors[0].tp, tp);
             assert_eq!(battle.actors[0].casting_state.interrupted, None);
