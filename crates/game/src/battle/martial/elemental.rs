@@ -111,6 +111,7 @@ impl Technique {
             .clone();
         const LIGHTNING_STRIKE_EFFECT: u8 = 74;
         projectile.birth_effect.member = LIGHTNING_STRIKE_EFFECT;
+        projectile.contact.bypass_guard = false;
         if tiger {
             projectile.spawn_offset[2] = 120.;
         }

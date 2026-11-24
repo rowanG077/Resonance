@@ -537,6 +537,11 @@ pub(crate) fn resolve_contact(
     if unison && affinity == Affinity::Absorb {
         affinity = Affinity::Normal;
     }
+    // Physical hits can strip either stance. Magic retains its own ordinary
+    // guard mitigation and can still be defended with a special guard.
+    if !rule.guard.enabled && rule.kind != DamageKind::Magic {
+        target.guard.active = false;
+    }
     let (mut amount, critical, boosted) = calculate_amount(
         owner,
         target,
@@ -583,8 +588,7 @@ pub(crate) fn resolve_contact(
         target.reaction.stagger.window,
         rule.reaction.hits_down,
     );
-    let special_guard =
-        rule.guard.enabled && target.guard.active && target.guard.kind == GuardKind::Special;
+    let special_guard = target.guard.active && target.guard.kind == GuardKind::Special;
     let small_hit = target.equipment.damage.suppress_small_hits
         && amount < i64::from(target.equipment.max_hp) / 100;
     let force_reaction = rule.reaction.force && !overlimit && !special_guard && !small_hit;
@@ -630,9 +634,8 @@ pub(crate) fn resolve_contact(
             hit.protection = HitProtection::Armored;
         }
     }
-    if !rule.guard.enabled {
-        target.guard.active = false;
-    } else if !target.guard.active
+    if rule.guard.enabled
+        && !target.guard.active
         && hit.protection == HitProtection::None
         && rule.kind != DamageKind::Magic
         && target.time_stop == 0
@@ -1320,26 +1323,50 @@ mod tests {
     }
 
     #[test]
-    fn unguardable_physical_hits_clear_guard_without_selecting_automatic_guard() {
+    fn bypass_guard_distinguishes_physical_hits_from_magic() {
+        use DamageKind::{Magic, Slash};
+        use GuardKind::{Normal, Special};
+
         let owner = actor(Side::Enemy);
-        let mut target = actor(Side::Party);
-        target.control = crate::Control::Auto;
-        target.guard.active = true;
-        target.guard.auto_chance = 100;
-        let mut rule = rule(DamageKind::Slash, Power::Fixed(20));
-        rule.guard.enabled = false;
-        let mut random = Random::new(1);
-        let hit = resolve(
-            &owner,
-            &mut target,
-            rule,
-            100,
-            [0.; 3],
-            &mut |_| random.next_u16(),
-            false,
-        );
-        assert_eq!((hit.amount, hit.guard), (20, GuardResult::None));
-        assert!(!target.guard.active);
+        for (kind, stance, suppress_small_hits, amount, blocked) in [
+            (Slash, Normal, false, 20, false),
+            (Slash, Special, false, 20, false),
+            (Slash, Special, true, 0, false),
+            (Magic, Normal, false, 10, false),
+            (Magic, Special, false, 4, true),
+        ] {
+            let mut target = actor(Side::Party);
+            target.control = crate::Control::Auto;
+            target.equipment.max_hp = 5000;
+            target.equipment.damage.suppress_small_hits = suppress_small_hits;
+            target.guard.active = true;
+            target.guard.kind = stance;
+            target.guard.auto_chance = 100;
+            let mut rule = rule(kind, Power::Fixed(20));
+            rule.guard.enabled = false;
+            let hit = resolve(
+                &owner,
+                &mut target,
+                rule,
+                100,
+                [0.; 3],
+                &mut neutral_roll,
+                false,
+            );
+            assert_eq!(hit.amount, amount);
+            assert_eq!(
+                hit.guard,
+                if blocked {
+                    GuardResult::Blocked {
+                        first: false,
+                        special: true,
+                    }
+                } else {
+                    GuardResult::None
+                }
+            );
+            assert_eq!(target.guard.active, blocked);
+        }
     }
 
     #[test]

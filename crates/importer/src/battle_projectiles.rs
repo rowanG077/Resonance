@@ -147,6 +147,7 @@ pub(crate) fn scene_record(row: &[u8], reset_scale: f32) -> Result<Projectile> {
             ..ProjectileMotion::default()
         },
         contact: Contact {
+            bypass_guard: row[0x12] == 0,
             repeat_limit: row[0x17],
             shape,
             recoil_direction,

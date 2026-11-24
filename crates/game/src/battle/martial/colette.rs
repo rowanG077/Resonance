@@ -18,18 +18,24 @@ impl Technique {
     ) -> Result<PreparedAttack> {
         let source = self.authored_timeline(resources.voices.party_table())?;
         let recoil = resources.recoil;
+        const LIGHTNING: usize = 4;
         let mut projectile = |member: usize, rule: u8| {
-            let row = resources
+            let mut row = resources
                 .projectiles
                 .records
                 .get(member)
                 .context("missing Colette projectile")?
                 .clone();
-            let hit = source
+            let mut hit = *source
                 .callback_hits
                 .get(&rule)
                 .context("missing Colette projectile hit")?;
-            super::sword::projectile(resources, &row, hit, None, recoil)
+            if member == LIGHTNING {
+                // Para Ball and the crossed rays reuse Lightning for a blockable physical burst.
+                row.contact.bypass_guard = false;
+                hit.kind = resonance_content::battle_projectile::DamageKind::Slash;
+            }
+            super::sword::projectile(resources, &row, &hit, None, recoil)
         };
         let shot = |definition, offset, heading_offset, scatter| {
             AttackEvent::ProjectileShot(Arc::new(ProjectileShot {
@@ -54,7 +60,7 @@ impl Technique {
                 }
             }
             43 | 44 => {
-                let mut child = projectile(4, 1)?;
+                let mut child = projectile(LIGHTNING, 1)?;
                 let mut ball = projectile(10, 0)?;
                 const REBOUND_EFFECT: u16 = 74;
                 resources.effect(true, &[REBOUND_EFFECT])?;
@@ -63,12 +69,6 @@ impl Technique {
                     resource: resources.techniques.resource,
                     member: REBOUND_EFFECT,
                 });
-                rebound
-                    .contact
-                    .as_mut()
-                    .context("missing Para Ball rebound contact")?
-                    .hit
-                    .kind = resonance_content::battle_projectile::DamageKind::Slash;
                 let effects = &mut Arc::make_mut(&mut ball).effects;
                 effects.rebound_projectile = Some(child);
                 effects.spin_on_rebound = true;
@@ -97,7 +97,7 @@ impl Technique {
             }
             50 => {
                 let ray = projectile(25, 0)?;
-                let mut burst = projectile(4, 1)?;
+                let mut burst = projectile(LIGHTNING, 1)?;
                 const CROSS_BURST_EFFECT: u16 = 75;
                 resources.effect(true, &[CROSS_BURST_EFFECT])?;
                 let definition = Arc::make_mut(&mut burst);
@@ -105,12 +105,6 @@ impl Technique {
                     resource: resources.techniques.resource,
                     member: CROSS_BURST_EFFECT,
                 });
-                definition
-                    .contact
-                    .as_mut()
-                    .context("missing cross burst contact")?
-                    .hit
-                    .kind = resonance_content::battle_projectile::DamageKind::Slash;
                 const CROSSING_ORIGIN: [f32; 3] = [0., 0., 200.];
                 for angle in [45., -45.] {
                     events.push((28, shot(Arc::clone(&ray), CROSSING_ORIGIN, angle, None)));

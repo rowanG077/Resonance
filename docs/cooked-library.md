@@ -2559,7 +2559,9 @@ The `rules` section of `battle/enemies/<enemy>/enemy.json` keeps action choices
 and their named `attacks`, `projectiles` and `contacts` together. An action selects an attack
 such as `{"attack":"attack-1"}`. Its timeline uses events such as
 `[74,{"projectile":"projectile-1"}]`. Edit that projectile once to change every
-shot using it. Names are local to the file and can be renamed with their uses.
+shot using it. Set `definition.contact.bypass_guard` on the shot to let a
+physical hit interrupt guard. Magic still allows special guard.
+Names are local to the file and can be renamed with their uses.
 These are ordinary names; there are no hashes, inheritance chains or extra files.
 
 Absent flags are false, optional values are absent, and lists are empty.

@@ -35,6 +35,7 @@ impl ActionResources {
         };
         let contact = &row.contact;
         hit.overlimit_pause = false;
+        hit.guard.enabled &= !contact.bypass_guard;
         hit.reaction.direction = contact.recoil_direction;
         let trail = effect(row.trail_effect)?;
         let definition = ProjectileDefinition {

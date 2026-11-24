@@ -25,6 +25,7 @@ fn preparation_binds_gameplay_and_distinct_effect_banks() -> Result<()> {
     assert_eq!(definition.birth.unwrap().resource, local.resource);
     let contact = definition.contact.as_ref().unwrap();
     assert!(contact.clashes);
+    assert!(!contact.hit.guard.enabled);
     assert_eq!(definition.effects.clash.unwrap().resource, common.resource);
     assert_eq!(resources.effects[&common.resource].members, [11]);
     assert_eq!(resources.effects[&local.resource].members, [28]);

@@ -190,6 +190,8 @@ pub struct ProjectileShadow {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Contact {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bypass_guard: bool,
     #[serde(default, skip_serializing_if = "crate::defaults::is_default")]
     pub repeat_limit: u8,
     pub shape: HitShape,
