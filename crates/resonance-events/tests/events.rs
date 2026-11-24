@@ -5416,6 +5416,7 @@ fn actor_attachments_start_hidden_and_script_toggles_are_instance_local() {
         (Call::SpawnActor, &[8, 0, 0, 0, 0, 99, 0, 0]),
         (Call::CreateSceneActor, &[9, 0, 0, 0, 0, 99, 0, 0]),
         (Call::SpawnInteractionActor, &[10, 0, 0, 0, 0, 99, 0, 0]),
+        (Call::SetActorProperty, &[7, 18, 1]),
         (Call::YieldCommand, &[0, 1]),
         (Call::SetActorProperty, &[7, 39, -1]),
         (Call::SetActorAnimation, &[7, 1, 1]),
@@ -5451,13 +5452,15 @@ fn actor_attachments_start_hidden_and_script_toggles_are_instance_local() {
         assert_eq!(events.world.actors[&id].appearance.hidden_nodes, [1].into());
     }
     for expected in [
-        (2, [1].into(), None),
+        (1, [1].into(), None),
         (-1, [].into(), Some(7)),
         (-3, [0].into(), None),
+        (2, [0].into(), None),
     ] {
         events.step().unwrap();
         assert_eq!(presented(&events.world), expected);
     }
+    assert_eq!(events.world.actors[&8].field_model_pose().draw_layer, 1);
     assert_eq!(events.world.actors[&8].appearance.hidden_nodes, [1].into());
 }
 
