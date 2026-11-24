@@ -65,6 +65,17 @@ the pause after the music. The recording stays in shared `audio/music/`.
 | Fonts | `fonts/dialogue.json` and `fonts/battle.json` | Shared glyph definitions and spacing, with the matching KTX2 atlas beside each document. |
 | Authored scripts | `scripts/` | Ordinary `.sym` source, compiled automatically when preparing the content. |
 
+Fresh imports pack palette-colored battle HUD artwork into `ui/battle/hud.ktx2`.
+Each role's `offset` adds `[x, y]` to its original texture coordinates in pixels.
+Mods that replace an older per-role texture must also point the role at that file.
+For example, a mod that supplies `ui/battle/target/frame.ktx2` can add
+`ui/battle/battle/targets/frame.json` with the following contents. Omitting
+`offset` uses the original coordinates on the full sheet.
+
+```json
+{"image":"ui/battle/target/frame.ktx2","size":[512,512]}
+```
+
 Additional original variants live under `meshes/originals/`. The party catalogue
 uses character IDs for the original battle bodies. Rutee, symbols and other
 models without known script IDs have direct named model paths. These are ordinary

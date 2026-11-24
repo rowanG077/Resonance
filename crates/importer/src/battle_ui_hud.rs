@@ -1,10 +1,12 @@
 //! Native battle HUD palette pages and final named artwork/document.
+mod atlas;
 use crate::{dol, native_archive, rel::Rel};
 use anyhow::{Context, Result, ensure};
+use atlas::{Atlas, Sheet};
 use resonance_content::{
     battle_ui::{
-        Art, ComboArt, CommandArt, CommandMotion, DamageNumbers, FeedbackArt, MeterColors,
-        NoticeArt,
+        Art, ComboArt, CommandArt, CommandMotion, DamageNumbers, FeedbackArt, HudRegions,
+        MeterColors, NoticeArt,
     },
     font::UiTexture,
 };
@@ -19,78 +21,11 @@ fn hud_tpl(disc: &Path) -> Result<Vec<u8>> {
         .to_vec())
 }
 
-fn pixel(value: u16) -> [u8; 4] {
-    let x3 = |v: u16| ((v << 5) | (v << 2) | (v >> 1)) as u8;
-    let x4 = |v: u16| ((v << 4) | v) as u8;
-    let x5 = |v: u16| ((v << 3) | (v >> 2)) as u8;
-    if value & 0x8000 != 0 {
-        [
-            x5((value >> 10) & 31),
-            x5((value >> 5) & 31),
-            x5(value & 31),
-            255,
-        ]
-    } else {
-        [
-            x4((value >> 8) & 15),
-            x4((value >> 4) & 15),
-            x4(value & 15),
-            x3(value >> 12),
-        ]
-    }
-}
-
-/// Decode a complete 512×512 CI4 image with the selected authored palette.
-fn page(tpl: &[u8], palette_page: usize) -> Result<Vec<u8>> {
-    ensure!(
-        dol::u32(tpl, 0)? == 0x0020_af30 && dol::u32(tpl, 4)? == 1,
-        "unexpected battle HUD TPL"
-    );
-    let table = dol::u32(tpl, 8)? as usize;
-    let descriptor = dol::u32(tpl, table)? as usize;
-    let palette = dol::u32(tpl, table + 4)? as usize;
-    ensure!(
-        dol::u16(tpl, descriptor)? == 512
-            && dol::u16(tpl, descriptor + 2)? == 512
-            && dol::u32(tpl, descriptor + 4)? == 8,
-        "unsupported battle HUD image"
-    );
-    ensure!(
-        dol::u32(tpl, palette + 4)? == 2,
-        "unsupported battle HUD palette"
-    );
-    let entries = usize::from(dol::u16(tpl, palette)?);
-    ensure!(
-        entries == 96 * 16 && palette_page < 96,
-        "unexpected battle HUD palette pages"
-    );
-    let palette_start = dol::u32(tpl, palette + 8)? as usize + palette_page * 32;
-    let colors = (0..16)
-        .map(|index| dol::u16(tpl, palette_start + index * 2).map(pixel))
-        .collect::<Result<Vec<_>>>()?;
-    let start = dol::u32(tpl, descriptor + 8)? as usize;
-    let blocks = tpl
-        .get(start..start + 512 * 512 / 2)
-        .context("truncated battle HUD image")?;
-    let mut rgba = vec![0; 512 * 512 * 4];
-    for (index, block) in blocks.chunks_exact(32).enumerate() {
-        let left = index % 64 * 8;
-        let top = index / 64 * 8;
-        for y in 0..8 {
-            for x in 0..8 {
-                let packed = block[(y * 8 + x) / 2];
-                let color = colors[usize::from(if x % 2 == 0 { packed >> 4 } else { packed & 15 })];
-                let at = ((top + y) * 512 + left + x) * 4;
-                rgba[at..at + 4].copy_from_slice(&color);
-            }
-        }
-    }
-    Ok(rgba)
-}
-
 /// Shared with the battle font owner; page zero is the HUD glyph sheet.
 pub(crate) fn hud_page(disc: &Path, palette_page: usize) -> Result<Vec<u8>> {
-    let mut pixels = page(&hud_tpl(disc)?, palette_page)?;
+    let sheet = Sheet::read(&hud_tpl(disc)?)?;
+    let mut pixels = vec![0; 512 * 512 * 4];
+    sheet.copy(palette_page, [0, 0, 512, 512], &mut pixels, [0, 0])?;
     // Every palette page shares the same tile sheet. These eight face-button
     // cells are obsolete; all live prompts use the configurable input atlas.
     for row in 64..128 {
@@ -121,25 +56,6 @@ fn number(module: &Rel, at: usize) -> Result<f32> {
 
 fn half(module: &Rel, at: usize) -> Result<u16> {
     dol::u16(module.slice(4, at, 2)?, 0)
-}
-
-fn image(
-    tpl: &[u8],
-    files: &mut Vec<(String, Vec<u8>)>,
-    palette: usize,
-    name: &str,
-) -> Result<UiTexture> {
-    let path = format!("{name}.ktx2");
-    let rgba = page(tpl, palette)?;
-    files.push((
-        path.clone(),
-        resonance_asset_writer::gpu::encode_rgba8(512, 512, &rgba)?,
-    ));
-    Ok(UiTexture {
-        path,
-        width: 512,
-        height: 512,
-    })
 }
 
 fn commands(module: &Rel) -> Result<CommandArt> {
@@ -204,19 +120,14 @@ fn commands(module: &Rel) -> Result<CommandArt> {
     })
 }
 
-fn command_atlas(tpl: &[u8], art: &mut CommandArt) -> Result<Vec<u8>> {
+fn command_atlas(sheet: &Sheet, art: &mut CommandArt) -> Result<Vec<u8>> {
     let mut pixels = vec![0; 512 * 1024 * 4];
     let mut tile = 0usize;
     let mut copy = |palette: usize, rect: &mut [u16; 4]| -> Result<()> {
-        let source = page(tpl, palette)?;
         let [u, v, width, height] = rect.map(usize::from);
         let x = tile % 4 * 128 + 2;
         let y = tile / 4 * 64 + 2;
-        for row in 0..height {
-            let from = ((v + row) * 512 + u) * 4;
-            let to = ((y + row) * 512 + x) * 4;
-            pixels[to..to + width * 4].copy_from_slice(&source[from..from + width * 4]);
-        }
+        sheet.copy(palette, [u, v, width, height], &mut pixels, [x, y])?;
         *rect = [x as u16, y as u16, width as u16, height as u16];
         tile += 1;
         Ok(())
@@ -261,13 +172,12 @@ fn convert(disc: &Path) -> Result<Vec<(String, Vec<u8>)>> {
         module.slice(4, 0xe74, 4)? == [25, 25, 24, 24],
         "unsupported Unison button palettes"
     );
-    let tpl = hud_tpl(disc)?;
-    let mut files = Vec::new();
-    macro_rules! image {
-        ($page:expr, $name:expr $(,)?) => {
-            image(&tpl, &mut files, $page, $name)
-        };
-    }
+    let sheet = Sheet::read(&hud_tpl(disc)?)?;
+    let mut atlas = Atlas::new();
+    let mut region = |palette, rect: [u16; 4]| atlas.insert(&sheet, palette, rect.map(usize::from));
+    let icon_origins: [[u16; 2]; 4] =
+        array(|index| array(|axis| half(&module, 0x4280 + index * 4 + axis * 2)))?;
+    let regions = HudRegions::new(icon_origins);
     let portraits = std::array::from_fn(|index| {
         let name = PartyCharacterId::RESOURCE_NAMES[index];
         Some(UiTexture {
@@ -295,32 +205,16 @@ fn convert(disc: &Path) -> Result<Vec<(String, Vec<u8>)>> {
             colors(&module, 0x2dc8)?,
             colors(&module, 0x2de0)?,
         ],
-        targets: array(|index| {
-            let names = ["frame", "player-1", "player-2", "player-3", "player-4"];
-            image!(16 + index, &format!("ui/battle/target/{}", names[index]))
-        })?,
-        stun: image!(62, "ui/battle/stun")?,
+        targets: array(|i| region(16 + i, regions.targets[i]))?,
+        stun: region(62, regions.stun)?,
         notices: NoticeArt {
-            frame: image!(80, "ui/battle/notices/frame")?,
-            fill: image!(81, "ui/battle/notices/fill")?,
-            icons: array(|index| {
-                let names = ["arte", "spell", "item", "outcome"];
-                image!(82 + index, &format!("ui/battle/notices/{}", names[index]))
-            })?,
-            icon_origins: array(|index| {
-                array(|axis| half(&module, 0x4280 + index * 4 + axis * 2))
-            })?,
+            frame: region(80, regions.notice_frame)?,
+            fill: region(81, regions.notice_fill)?,
+            icons: array(|i| region(82 + i, regions.notice_icons[i]))?,
+            icon_origins,
             defeated: module.text(4, 0x2c3c)?,
             escaped: module.text(4, 0x220)?,
-            faces: array(|index| {
-                image!(
-                    32 + index,
-                    &format!(
-                        "ui/battle/notices/{}",
-                        PartyCharacterId::RESOURCE_NAMES[index]
-                    ),
-                )
-            })?,
+            faces: array(|i| region(32 + i, regions.notice_faces[i]))?,
         },
         combo: ComboArt {
             anchors: [half(&module, 0x4304)?, half(&module, 0x4306)?],
@@ -333,18 +227,12 @@ fn convert(disc: &Path) -> Result<Vec<(String, Vec<u8>)>> {
         stat_backdrops: array(|line| {
             array(|corner| color(&module, 0x437c + line * 16 + corner * 4))
         })?,
-        stat_icons: [
-            image!(94, "ui/battle/status/attack")?,
-            image!(93, "ui/battle/status/defense")?,
-            image!(91, "ui/battle/status/up")?,
-            image!(87, "ui/battle/status/magic-attack")?,
-            image!(89, "ui/battle/status/physical-barrier")?,
-            image!(90, "ui/battle/status/magical-barrier")?,
-            image!(42, "ui/battle/status/accuracy-curse")?,
-            image!(43, "ui/battle/status/reduced-item-effect")?,
-            image!(88, "ui/battle/status/holy-song")?,
-            image!(92, "ui/battle/status/down")?,
-        ],
+        stat_icons: array(|i| {
+            region(
+                [94, 93, 91, 87, 89, 90, 42, 43, 88, 92][i],
+                regions.stat_icons[i],
+            )
+        })?,
         unison_buttons: [
             UiTexture {
                 path: resonance_content::input_prompts::IMAGE_PATH.into(),
@@ -363,41 +251,28 @@ fn convert(disc: &Path) -> Result<Vec<(String, Vec<u8>)>> {
             item_bar: colors(&module, 0x439c)?,
             item_text: colors(&module, 0x43ac)?,
             scan_vitals: array(|side| colors(&module, 0x4c0 + side * 8))?,
-            scan_icons: array(|index| {
-                let names = [
-                    "neutral",
-                    "water",
-                    "wind",
-                    "fire",
-                    "earth",
-                    "lightning",
-                    "ice",
-                    "light",
-                    "darkness",
-                    "headings",
-                ];
-                image!(48 + index, &format!("ui/battle/scan/{}", names[index]))
-            })?,
-            unison_frame: image!(27, "ui/battle/unison/frame")?,
+            scan_icons: array(|i| region(48 + i, regions.scan_icons[i]))?,
+            unison_frame: region(27, regions.unison_frame)?,
             unison_ready: module.text(4, 0x4560)?,
             unison_text: colors(&module, 0x4274)?,
-            escape: [
-                image!(29, "ui/battle/escape/frame")?,
-                image!(30, "ui/battle/escape/needle")?,
-                image!(31, "ui/battle/escape/fill")?,
-            ],
+            escape: array(|i| region(29 + i, regions.escape[i]))?,
             escape_positions: array(|index| {
                 array(|axis| half(&module, 0x420c + index * 4 + axis * 2))
             })?,
         },
     };
-    let atlas = command_atlas(&tpl, &mut art.commands)?;
-    files.push((art.commands.texture.path.clone(), atlas));
-    files.push((
-        "ui/battle/battle.json".into(),
-        resonance_asset_writer::json::encode(&art)?,
-    ));
-    Ok(files)
+    let commands = command_atlas(&sheet, &mut art.commands)?;
+    Ok(vec![
+        (
+            atlas::PATH.into(),
+            resonance_asset_writer::gpu::encode_rgba8(512, 512, &atlas.pixels)?,
+        ),
+        (art.commands.texture.path.clone(), commands),
+        (
+            "ui/battle/battle.json".into(),
+            resonance_asset_writer::json::encode(&art)?,
+        ),
+    ])
 }
 
 /// Cook battle HUD data and artwork. Fonts and character portraits have their own owners.

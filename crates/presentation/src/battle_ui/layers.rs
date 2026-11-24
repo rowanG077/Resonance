@@ -33,6 +33,7 @@ impl Depth {
 pub(super) struct LayerDefinition {
     pub(super) image: Handle<Image>,
     pub(super) size: [u32; 2],
+    offset: [i16; 2],
     pub(super) depth: f32,
     pub(super) nearest: bool,
     pub(super) interpolation: UiInterpolation,
@@ -43,10 +44,21 @@ impl LayerDefinition {
         Self {
             image,
             size,
+            offset: [0; 2],
             depth: depth.value(),
             nearest: false,
             interpolation: UiInterpolation::Centroid,
             texture_effect: TextureEffect::Plain,
+        }
+    }
+    pub(super) fn hud(
+        image: Handle<Image>,
+        region: &resonance_content::battle_ui::HudImage,
+        depth: Depth,
+    ) -> Self {
+        Self {
+            offset: region.offset,
+            ..Self::new(image, [region.texture.width, region.texture.height], depth)
         }
     }
     pub(super) fn offset_depth(mut self, offset: f32) -> Self {
@@ -129,12 +141,13 @@ impl HudLayer {
             commands,
         ));
     }
-    pub(super) fn upload(&mut self, batch: Batch, commands: &mut Commands) -> Result<()> {
+    pub(super) fn upload(&mut self, mut batch: Batch, commands: &mut Commands) -> Result<()> {
         let visible = !batch.indices.is_empty();
         let layer = self
             .rendered
             .as_mut()
             .context("battle HUD layer was not prepared")?;
+        batch.translate_uv(self.definition.offset);
         layer.update(batch, self.definition.size);
         layer.show(visible, commands);
         Ok(())
@@ -144,6 +157,34 @@ impl HudLayer {
             layer.show(visible, commands);
         }
     }
+}
+
+#[test]
+fn hud_upload_translates_clipped_sprite_and_pattern_coordinates() -> Result<()> {
+    let region = serde_json::from_value(serde_json::json!({
+        "image": "ui/battle/hud.ktx2", "size": [512, 512], "offset": [-16, 32]
+    }))?;
+    let mut layer = HudLayer {
+        definition: LayerDefinition::hud(Handle::default(), &region, Depth::Notice),
+        material: Handle::default(),
+        rendered: None,
+    };
+    let mut batch = Batch::default();
+    batch.quad([0., 0., 8., 8.], [64., 48., 72., 56.], [1.; 4]);
+    batch.clip_vertical(0, 238., 232.);
+    batch.pattern_uv = vec![[96., 64.]; 4];
+
+    let mut world = World::new();
+    layer.prepare(&mut world.commands());
+    layer.upload(batch, &mut world.commands())?;
+    let mut frame = crate::materials::GeometryFrame::default();
+    layer.rendered.unwrap().geometry.append_to(&mut frame);
+    frame.finish();
+    let vertex = &frame.vertices[0];
+    assert_eq!(vertex.uv, [48., 82.].map(|v| v / 512.));
+    assert_eq!(vertex.pattern_uv, [80., 96.].map(|v| v / 512.));
+    assert_eq!(vertex.bounds, [48., 80., 56., 88.].map(|v| v / 512.));
+    Ok(())
 }
 
 pub(super) struct Palette {

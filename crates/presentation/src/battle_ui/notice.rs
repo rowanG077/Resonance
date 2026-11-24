@@ -44,9 +44,8 @@ pub(super) fn layers(
         .chain(&art.notices.faces)
         .enumerate()
     {
-        let image = load(texture, false, true);
-        let definition =
-            LayerDefinition::new(image, [texture.width, texture.height], Depth::Notice).nearest();
+        let image = load(&texture.texture, false, true);
+        let definition = LayerDefinition::hud(image, texture, Depth::Notice).nearest();
         definitions.push(if index == FILL - FRAME {
             definition
         } else {
@@ -663,19 +662,22 @@ mod tests {
 
         let art = fixtures::battle_art()?;
         let frame = ktx2(&std::fs::read(
-            fixtures::asset_root().join(&art.notices.frame.path),
+            fixtures::asset_root().join(&art.notices.frame.texture.path),
         )?)?
         .remove(0);
         let fill = ktx2(&std::fs::read(
-            fixtures::asset_root().join(&art.notices.fill.path),
+            fixtures::asset_root().join(&art.notices.fill.texture.path),
         )?)?
         .remove(0);
         let mut batches = (0..FACES).map(|_| Batch::default()).collect::<Vec<_>>();
         draw_frame(180., 15., 1, [128; 4], 255, &mut batches);
+        batches[FRAME].translate_uv(art.notices.frame.offset);
+        batches[FILL].translate_uv(art.notices.fill.offset);
         let border = &batches[FRAME];
         let first = border.positions.len() - 4;
         let origin = Vec2::new(border.positions[first][0], border.positions[first][1]);
         let [u, v] = border.uv[first].map(|value| value as u32);
+        let mut visible_fill = false;
         for y in 0..40 {
             let alpha = |x: u32| frame.rgba[(((v + y) * frame.width + u + x) * 4 + 3) as usize];
             let Some(left) = (0..40).find(|&x| alpha(x) != 0) else {
@@ -686,12 +688,13 @@ mod tests {
                 let point = origin + Vec2::new(x as f32 + 0.5, -(y as f32 + 0.5));
                 let fills = covered(&batches[FILL], &fill, point);
                 ensure!(fills <= 1, "overlapping emblem fill at {x},{y}");
-                ensure!(
-                    covered(border, &frame, point) != 0 || fills == 1,
-                    "empty emblem interior at {x},{y}"
-                );
+                if covered(border, &frame, point) == 0 {
+                    ensure!(fills == 1, "empty emblem interior at {x},{y}");
+                    visible_fill = true;
+                }
             }
         }
+        ensure!(visible_fill, "no visible fill inside the emblem border");
         Ok(())
     }
 

@@ -2156,6 +2156,22 @@ struct Batch {
     indices: Vec<u32>,
 }
 impl Batch {
+    fn translate_uv(&mut self, offset: [i16; 2]) {
+        if offset != [0, 0] {
+            let [x, y] = offset.map(f32::from);
+            for uv in self.uv.iter_mut().chain(&mut self.pattern_uv) {
+                uv[0] += x;
+                uv[1] += y;
+            }
+            for [left, top, right, bottom] in self.clipped_bounds.values_mut() {
+                *left += x;
+                *right += x;
+                *top += y;
+                *bottom += y;
+            }
+        }
+    }
+
     /// Geometry and color may move; changing glyphs, atlas frames and topology
     /// remain discrete so input speculation cannot morph unrelated UI content.
     fn interpolate(&mut self, next: &Self, alpha: f32) {
