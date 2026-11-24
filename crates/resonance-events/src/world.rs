@@ -538,7 +538,7 @@ impl Actor {
             footstep_contact: None,
             unlit: false,
             toon_lighting: None,
-            draw_layer: 2,
+            draw_layer: 1,
             heading: 0.,
             target_heading: 0.,
             turn_speed: 5.,

@@ -1236,6 +1236,10 @@ impl EventRuntime {
                         && self.resources.model(actor.model_resource()).is_some()
                     {
                         actor.sample_field_model(id == self.world.controlled_actor);
+                        // Solid models move to the early pass after their current draw.
+                        if actor.model_collision.is_some() {
+                            actor.draw_layer = 2;
+                        }
                     }
                 }
             }

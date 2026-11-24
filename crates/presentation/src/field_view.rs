@@ -1948,33 +1948,11 @@ fn pose(
     mut applied: ResMut<Applied>,
     effects: Res<super::field_effects::Artwork>,
     mut failures: Failures,
-    mut actor_depths: Local<Vec<(i32, f32)>>,
 ) {
     profile_span!("field pose");
     let session = session.get();
     let world = &session.events.world;
     let tick = session.events.tick();
-    let smoothing = prediction.as_deref().filter(|p| p.alpha > 0.);
-    let direction = world.field_camera.as_ref().map_or(Vec3::ZERO, |camera| {
-        let direction = |c: &resonance_events::camera::CameraRig| {
-            Vec3::from_array(c.target) - Vec3::from_array(c.position)
-        };
-        let current = direction(camera);
-        if let Some(p) = smoothing
-            && let Some(next) = p.camera(camera)
-            && (direction(next) != current || next.orientation != camera.orientation)
-        {
-            *p.camera_transform(camera).forward()
-        } else {
-            current
-        }
-    });
-    super::draw_order::field_actor_depths(
-        &mut actor_depths,
-        world,
-        direction,
-        smoothing.and_then(|p| Some((&p.field()?.events.world, p.alpha))),
-    );
     for (root, mut instance, mut transform, mut visibility, _model) in &mut roots {
         if instance.disabled {
             *visibility = Visibility::Hidden;
@@ -2332,21 +2310,7 @@ fn pose(
         {
             Layer::Scene(0)
         } else {
-            match pose.draw_layer {
-                -1 => Layer::Scene(DrawStage::LateActors.offset()),
-                -4 => Layer::Scene(DrawStage::TranslucentScenery.offset() + 2 * MODEL_DRAW_SPAN),
-                -3 => Layer::ModelEffects(MODEL_DRAW_SPAN),
-                -2 => Layer::ModelEffects(2 * MODEL_DRAW_SPAN),
-                _ => Layer::Scene(DrawStage::Actors.offset()),
-            }
-        };
-        let actor_order = if draw_stage.is_field_actor() {
-            actor_depths
-                .iter()
-                .position(|(id, _)| *id == instance.actor)
-                .unwrap()
-        } else {
-            actor_order
+            Layer::field_actor(pose.draw_layer)
         };
         if !instance.prepared {
             let mut descendants = 0;
