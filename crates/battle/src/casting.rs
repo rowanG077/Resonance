@@ -424,6 +424,10 @@ impl CastRun {
                 phase: CastPhase::Incantation,
             });
         }
+        self.chant_effects(sequence, cues);
+    }
+
+    fn chant_effects(&self, sequence: &crate::action::Sequence, cues: &mut Vec<Cue>) {
         // Admission owns age zero; periodic artwork begins on the first casting update.
         let elapsed = sequence.age.saturating_sub(1);
         for (interval, phase, enabled) in [
@@ -878,6 +882,8 @@ impl CastRun {
                 || battle.cast_command_changed(actor, sequence.action)
                 || battle.special_guard_threat_pending(actor))
         {
+            // A circle due on this update outlives the interrupted cast.
+            self.chant_effects(sequence, cues);
             battle.cancel_cast(actor, cues);
             return Ok(Progress::Cancelled);
         }
