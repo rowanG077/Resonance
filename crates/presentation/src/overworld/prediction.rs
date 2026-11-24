@@ -27,6 +27,9 @@ pub(super) fn update(
     }
     let mut input = controls.0;
     input.menu = menu_controls.current();
+    if scene.session.menu.is_some() {
+        input.menu = input.menu.for_menu_prediction();
+    }
     let key = crate::field_view::prediction::Key::World(
         owner.live.as_ref().unwrap().last_changed(),
         input,

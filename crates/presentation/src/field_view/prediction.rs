@@ -440,10 +440,11 @@ pub(super) fn title(
         {
             return;
         }
-        let key = Key::Menu(menu.last_changed(), controls.input);
+        let input = controls.input.for_menu_prediction();
+        let key = Key::Menu(menu.last_changed(), input);
         prediction.predict(key, || {
             let mut next = menu.0.clone();
-            next.step(controls.input);
+            next.step(input);
             Ok(Endpoint::Menu(next))
         });
     } else if let Some(events) = events {
