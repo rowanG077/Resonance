@@ -310,7 +310,7 @@ fn files() -> Files {
                 "spawn_offset": [0., 0., 0.],
                 "motion": {"velocity_jitter": [0., 0., 0.], "speed": null,
                            "steering": null, "response": null},
-                "contact": {"damage_kind": "magic", "guarded": false, "recoil": 1,
+                "contact": {"bypass_guard": true,
                     "recoil_direction": "away_from_owner", "repeat_limit": 0,
                     "shape": {"kind": "cylinder"}, "radius": 10., "height": 20.,
                     "growth": [0., 0.], "offset": [0., 0., 0.],
