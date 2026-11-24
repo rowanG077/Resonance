@@ -1431,6 +1431,10 @@ impl Battle {
             && !self.unison.active()
             && !self.summon_entry.active()
             && !self.enemy_presentation.holding()
+            && !self
+                .volleys
+                .values()
+                .any(crate::release::Volley::transitioning)
     }
 
     pub fn random_state(&self) -> u64 {
@@ -1777,22 +1781,17 @@ impl Battle {
                 // The first actor update completes the pan before tracking starts.
                 camera.frame_entry(tick);
             } else {
-                camera.step(
-                    &self.actors,
-                    self.runtime[camera.definition.leader.index()].target,
-                    self.runtime[camera.definition.leader.index()].target_settle_remaining != 0,
-                    if self.clock.feedback_paused() {
-                        crate::camera::Update::Held
-                    } else if let BattleClock::Learning(actor) = self.clock {
-                        crate::camera::Update::Spell(actor)
-                    } else if let Some(volley) =
-                        self.volleys.values().find(|volley| volley.transitioning())
-                    {
-                        crate::camera::Update::Spell(volley.actor)
-                    } else {
-                        crate::camera::Update::Tracking
-                    },
-                )?;
+                self.step_camera(if self.clock.feedback_paused() {
+                    crate::camera::Update::Held
+                } else if let BattleClock::Learning(actor) = self.clock {
+                    crate::camera::Update::Spell(actor)
+                } else if let Some(volley) =
+                    self.volleys.values().find(|volley| volley.transitioning())
+                {
+                    crate::camera::Update::Spell(volley.actor)
+                } else {
+                    crate::camera::Update::Tracking
+                })?;
             }
         }
         // Combat waits for framing while the scene keeps animating.

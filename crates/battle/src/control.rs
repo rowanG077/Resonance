@@ -1658,7 +1658,7 @@ impl Battle {
             self.runtime[actor.index()].target_settle_remaining =
                 crate::state::TARGET_SETTLE_UPDATES;
         }
-        self.render_target_selector(target)?;
+        self.step_camera(crate::camera::Update::Selecting(target))?;
         if !input.target.held {
             self.target_selector = None;
             self.refresh_selector_facing(actor, target);
@@ -1669,7 +1669,7 @@ impl Battle {
 
     pub(crate) fn render_command_target(&mut self) -> Result<()> {
         if let Some((_, target)) = self.command_target {
-            self.render_target_selector(target)?;
+            self.step_camera(crate::camera::Update::Selecting(target))?;
         }
         Ok(())
     }
@@ -1699,18 +1699,6 @@ impl Battle {
         let next =
             (index as isize + isize::from(step.signum())).rem_euclid(candidates.len() as isize);
         Some(candidates[next as usize])
-    }
-
-    fn render_target_selector(&mut self, target: ActorId) -> Result<()> {
-        if let Some(camera) = &mut self.camera {
-            camera.step(
-                &self.actors,
-                self.runtime[camera.definition.leader.index()].target,
-                self.runtime[camera.definition.leader.index()].target_settle_remaining != 0,
-                crate::camera::Update::Selecting(target),
-            )?;
-        }
-        Ok(())
     }
 
     pub(crate) fn refresh_selector_facing(&mut self, actor: ActorId, target: ActorId) {

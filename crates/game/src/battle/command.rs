@@ -367,6 +367,13 @@ impl Owner {
             .as_ref()
             .map(|session| session.admission.controller)
     }
+    pub(super) fn strip_open(&self) -> bool {
+        matches!(
+            self.session.as_ref().map(|session| &session.page),
+            Some(Page::Strip)
+        )
+    }
+
     pub fn input_kind(&self) -> InputKind {
         self.session
             .as_ref()

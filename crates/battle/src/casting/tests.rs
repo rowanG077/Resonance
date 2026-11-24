@@ -220,6 +220,7 @@ fn cast_learning_replaces_only_available_commit_selected_spells() -> anyhow::Res
                 if tick == 30 {
                     assert_ne!(frame.camera, camera);
                     let remaining = battle.timed_hold_remaining();
+                    battle.frame_command_menu()?;
                     let paused = battle.step(BattleInput {
                         paused: true,
                         ..Default::default()

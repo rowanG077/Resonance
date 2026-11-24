@@ -846,6 +846,7 @@ fn scene_transition_holds_gameplay_while_release_feedback_advances() {
     // A cast normally visits release age zero at the end of its gameplay update.
     battle.advance_volleys(&mut vec![], false).unwrap();
     for age in 1..=3 {
+        assert!(!battle.command_admission_allowed());
         let frame = battle.step(BattleInput::default()).unwrap();
         assert_eq!(frame.clock, BattleClock::SpellTransition);
         assert!(!frame.cues.contains(&release));
@@ -872,6 +873,7 @@ fn scene_transition_holds_gameplay_while_release_feedback_advances() {
             age == 2
         );
     }
+    assert!(battle.command_admission_allowed());
     let frame = battle.step(BattleInput::default()).unwrap();
     assert_eq!(frame.clock, BattleClock::Running);
     assert!(frame.cues.contains(&release));

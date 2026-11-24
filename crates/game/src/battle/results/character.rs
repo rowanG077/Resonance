@@ -165,6 +165,11 @@ mod tests {
             );
             let menu = f.lifecycle.command_frame().unwrap();
             assert_eq!(menu.actor, f.candidate.setup.actors[0].0);
+            let switched = f.battle.snapshot().camera.unwrap();
+            assert_ne!(switched.focus, before.camera.unwrap().focus);
+            let (held, _) = command_visit(&mut f, Default::default())?;
+            assert_ne!(held.camera.unwrap().focus, switched.focus);
+            assert_eq!(held.update, before.update);
             assert_eq!(
                 f.battle.actors()[selected_actor.index()].control_label_ticks,
                 60
