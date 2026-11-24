@@ -38,6 +38,7 @@ pub(crate) fn prepare(id: usize, bytes: &[u8]) -> Result<Cow<'_, [u8]>> {
         }
         Some(FieldId::AltessasHouse0139) => depart_after_blackout,
         Some(FieldId::Iselia0341) => release_banishment_villagers,
+        Some(FieldId::Iselia0346) => finish_villager_dialogue,
         Some(FieldId::Izoold0354) => |bytes| {
             raise_boat_passengers(
                 bytes,
@@ -119,6 +120,29 @@ fn release_banishment_villagers(bytes: &[u8]) -> Result<Vec<u8>> {
         )?;
         corrected[offset..offset + 2].copy_from_slice(&departing.to_be_bytes());
     }
+    Ok(corrected)
+}
+
+/// Both dialogue branches return through this jump. Skip the unused negation
+/// of an empty stack and let the villager return control to the player.
+fn finish_villager_dialogue(bytes: &[u8]) -> Result<Vec<u8>> {
+    const EXIT_JUMP: usize = 0x38c5 * 2;
+    const NEGATE_PC: u16 = 0x392e;
+    let header = header(bytes)?;
+    let mut corrected = bytes.to_vec();
+    let code = &mut corrected[header.code_base()..header.auxiliary_offset()];
+    expect_words(code, EXIT_JUMP, &[0x2001, NEGATE_PC])?;
+    expect_words(
+        code,
+        usize::from(NEGATE_PC) * 2,
+        &[
+            0x3005,
+            0x3000,
+            0x2000 | symphonia_script::NativeCall::EnableMappedInput as u16,
+            0x20ff,
+        ],
+    )?;
+    code[EXIT_JUMP + 2..EXIT_JUMP + 4].copy_from_slice(&(NEGATE_PC + 2).to_be_bytes());
     Ok(corrected)
 }
 
