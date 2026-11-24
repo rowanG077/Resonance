@@ -5,8 +5,8 @@ use anyhow::{Context, Result, ensure};
 use atlas::{Atlas, Sheet};
 use resonance_content::{
     battle_ui::{
-        Art, ComboArt, CommandArt, CommandMotion, DamageNumbers, FeedbackArt, MeterColors,
-        NoticeArt,
+        Art, ComboArt, CommandArt, CommandMotion, DamageNumbers, FeedbackArt, HudRegions,
+        MeterColors, NoticeArt,
     },
     font::UiTexture,
 };
@@ -174,9 +174,10 @@ fn convert(disc: &Path) -> Result<Vec<(String, Vec<u8>)>> {
     );
     let sheet = Sheet::read(&hud_tpl(disc)?)?;
     let mut atlas = Atlas::new();
-    let mut region = |palette, rect| atlas.insert(&sheet, palette, rect);
+    let mut region = |palette, rect: [u16; 4]| atlas.insert(&sheet, palette, rect.map(usize::from));
     let icon_origins: [[u16; 2]; 4] =
         array(|index| array(|axis| half(&module, 0x4280 + index * 4 + axis * 2)))?;
+    let regions = HudRegions::new(icon_origins);
     let portraits = std::array::from_fn(|index| {
         let name = PartyCharacterId::RESOURCE_NAMES[index];
         Some(UiTexture {
@@ -204,32 +205,16 @@ fn convert(disc: &Path) -> Result<Vec<(String, Vec<u8>)>> {
             colors(&module, 0x2dc8)?,
             colors(&module, 0x2de0)?,
         ],
-        targets: array(|index| {
-            region(
-                16 + index,
-                if index == 0 {
-                    [0, 256, 48, 64]
-                } else {
-                    [48, 256, 144, 64]
-                },
-            )
-        })?,
-        stun: region(62, [256, 24, 48, 32])?,
+        targets: array(|i| region(16 + i, regions.targets[i]))?,
+        stun: region(62, regions.stun)?,
         notices: NoticeArt {
-            frame: region(80, [384, 376, 128, 80])?,
-            fill: region(81, [408, 456, 104, 56])?,
-            icons: array(|index| {
-                let [u, v] = icon_origins[index].map(usize::from);
-                region(82 + index, [u, v, 24, 24])
-            })?,
+            frame: region(80, regions.notice_frame)?,
+            fill: region(81, regions.notice_fill)?,
+            icons: array(|i| region(82 + i, regions.notice_icons[i]))?,
             icon_origins,
             defeated: module.text(4, 0x2c3c)?,
             escaped: module.text(4, 0x220)?,
-            faces: array(|index| {
-                // Notices and Unison use slightly different cuts of the last three faces.
-                let x = 64 + index * 32;
-                region(32 + index, [x, 104, if index >= 6 { 40 } else { 32 }, 32])
-            })?,
+            faces: array(|i| region(32 + i, regions.notice_faces[i]))?,
         },
         combo: ComboArt {
             anchors: [half(&module, 0x4304)?, half(&module, 0x4306)?],
@@ -242,19 +227,12 @@ fn convert(disc: &Path) -> Result<Vec<(String, Vec<u8>)>> {
         stat_backdrops: array(|line| {
             array(|corner| color(&module, 0x437c + line * 16 + corner * 4))
         })?,
-        stat_icons: [
-            region(94, [288, 136, 24, 24])?,
-            region(93, [352, 56, 24, 24])?,
-            region(91, [304, 56, 24, 24])?,
-            region(87, [328, 80, 24, 24])?,
-            region(89, [256, 56, 24, 24])?,
-            region(90, [280, 56, 24, 24])?,
-            // Accuracy and the blinking curse overlay share this palette.
-            region(42, [0, 72, 280, 32])?,
-            region(43, [32, 72, 24, 24])?,
-            region(88, [352, 80, 24, 24])?,
-            region(92, [328, 56, 24, 24])?,
-        ],
+        stat_icons: array(|i| {
+            region(
+                [94, 93, 91, 87, 89, 90, 42, 43, 88, 92][i],
+                regions.stat_icons[i],
+            )
+        })?,
         unison_buttons: [
             UiTexture {
                 path: resonance_content::input_prompts::IMAGE_PATH.into(),
@@ -273,22 +251,11 @@ fn convert(disc: &Path) -> Result<Vec<(String, Vec<u8>)>> {
             item_bar: colors(&module, 0x439c)?,
             item_text: colors(&module, 0x43ac)?,
             scan_vitals: array(|side| colors(&module, 0x4c0 + side * 8))?,
-            scan_icons: array(|index| {
-                let rect = if index < 9 {
-                    [index * 24, 136, 24, 24]
-                } else {
-                    [214, 136, 48, 24]
-                };
-                region(48 + index, rect)
-            })?,
-            unison_frame: region(27, [0, 368, 352, 144])?,
+            scan_icons: array(|i| region(48 + i, regions.scan_icons[i]))?,
+            unison_frame: region(27, regions.unison_frame)?,
             unison_ready: module.text(4, 0x4560)?,
             unison_text: colors(&module, 0x4274)?,
-            escape: [
-                region(29, [304, 208, 144, 80])?,
-                region(30, [448, 208, 16, 32])?,
-                region(31, [312, 208, 128, 80])?,
-            ],
+            escape: array(|i| region(29 + i, regions.escape[i]))?,
             escape_positions: array(|index| {
                 array(|axis| half(&module, 0x420c + index * 4 + axis * 2))
             })?,

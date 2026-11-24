@@ -3,6 +3,8 @@ use crate::font::{BitmapFont, UiTexture};
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 pub mod document;
+mod regions;
+pub use regions::HudRegions;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -274,19 +276,26 @@ impl Art {
     }
 
     fn required_images(&self) -> impl Iterator<Item = &UiTexture> {
-        std::iter::once(&self.commands.texture).chain(self.hud_images().map(|image| &image.texture))
+        std::iter::once(&self.commands.texture)
+            .chain(self.hud_images().map(|(image, _)| &image.texture))
     }
 
-    fn hud_images(&self) -> impl Iterator<Item = &HudImage> {
+    fn hud_images(&self) -> impl Iterator<Item = (&HudImage, [u16; 4])> {
+        let regions = HudRegions::new(self.notices.icon_origins);
         self.targets
             .iter()
-            .chain([&self.stun, &self.notices.frame, &self.notices.fill])
-            .chain(&self.notices.icons)
-            .chain(&self.notices.faces)
-            .chain(&self.stat_icons)
-            .chain(&self.feedback.scan_icons)
-            .chain([&self.feedback.unison_frame])
-            .chain(&self.feedback.escape)
+            .zip(regions.targets)
+            .chain([
+                (&self.stun, regions.stun),
+                (&self.notices.frame, regions.notice_frame),
+                (&self.notices.fill, regions.notice_fill),
+            ])
+            .chain(self.notices.icons.iter().zip(regions.notice_icons))
+            .chain(self.notices.faces.iter().zip(regions.notice_faces))
+            .chain(self.stat_icons.iter().zip(regions.stat_icons))
+            .chain(self.feedback.scan_icons.iter().zip(regions.scan_icons))
+            .chain([(&self.feedback.unison_frame, regions.unison_frame)])
+            .chain(self.feedback.escape.iter().zip(regions.escape))
     }
 
     /// Required controls and shared geometry; optional feedback validates separately.
@@ -303,12 +312,21 @@ impl Art {
                 .all(|&size| (1..=128).contains(&size)),
             "invalid damage numeral dimensions"
         );
-        for image in self.hud_images() {
+        for (image, rect) in self.hud_images() {
             image.texture.validate()?;
+            let [u, v, width, height] = rect.map(i32::from);
+            let [dx, dy] = image.offset.map(i32::from);
+            let (x, y) = (u + dx, v + dy);
             ensure!(
                 [image.texture.width, image.texture.height] == [512, 512]
                     && image.offset.iter().all(|v| v.unsigned_abs() < 512),
                 "invalid battle marker atlas"
+            );
+            ensure!(
+                x >= 0 && y >= 0 && x + width <= 512 && y + height <= 512,
+                "battle HUD rectangle {rect:?} with offset {:?} exceeds {}",
+                image.offset,
+                image.texture.path
             );
         }
         Ok(())

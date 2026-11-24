@@ -35,7 +35,7 @@ fn named_battle_roles_mod_independently_and_bad_portraits_stay_optional() -> Res
     };
     assert!(battle_ui::document::read(&mut read, &Diagnostics::new(true)).is_err());
     let diagnostics = Diagnostics::new(false);
-    let art = battle_ui::document::read(&mut read, &diagnostics)?;
+    let mut art = battle_ui::document::read(&mut read, &diagnostics)?;
     assert!(art.portraits[0].is_none());
     assert!(art.portraits[1..].iter().all(Option::is_some));
     assert_eq!(art.commands.names[4], "Inventory");
@@ -46,6 +46,14 @@ fn named_battle_roles_mod_independently_and_bad_portraits_stay_optional() -> Res
         original["commands"]["names"]["techniques"]
     );
     assert!(diagnostics.has_errors());
+    // A mod can move its 24×24 emblem right up to either sheet edge.
+    art.notices.icon_origins[0] = [20, 30];
+    art.notices.icons[0].offset = [-20, 458];
+    art.validate_layout()?;
+    for offset in [[-21, 458], [-20, 459]] {
+        art.notices.icons[0].offset = offset;
+        assert!(art.validate_layout().is_err(), "accepted offset {offset:?}");
+    }
     let mut invalid = original.clone();
     invalid["version"] = 44.into();
     assert!(serde_json::from_value::<battle_ui::Art<String>>(invalid).is_err());
