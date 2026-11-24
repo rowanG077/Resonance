@@ -575,16 +575,19 @@ impl EventRuntime {
         }
         // Bypass the input gate only for the background pause. A separate
         // handoff, such as an entry fade, still owns input until it completes.
-        let take_control = self.world.mapped_input_disabled
-            && self.world.field_exit.is_none()
-            && self.world.field_transition.is_none()
-            && self.world.world_transition.is_none()
-            && !self
+        let take_control = self.world.mapped_input_disabled && !self.field_control_in_transition();
+        self.queue_ring_callback_with_control(crate::ring::Hit::Pulse, true, take_control)
+    }
+
+    fn field_control_in_transition(&self) -> bool {
+        self.world.field_exit.is_some()
+            || self.world.field_transition.is_some()
+            || self.world.world_transition.is_some()
+            || self
                 .instances
                 .iter()
                 .flatten()
-                .any(|instance| matches!(instance.wait, Some(Wait::ControlHandoff(_))));
-        self.queue_ring_callback_with_control(crate::ring::Hit::Pulse, true, take_control)
+                .any(|instance| matches!(instance.wait, Some(Wait::ControlHandoff(_))))
     }
 
     fn queue_ring_callback_with_control(
@@ -1051,6 +1054,11 @@ impl EventRuntime {
         self.world.sync_actor_order();
         let actor_order = self.world.actor_order.clone();
         let conversation_active = self.interaction.is_some();
+        // A block grip takes over player movement while nearby enemies keep roaming.
+        let gripping_block = self.world.grabbed_block.is_some()
+            && !conversation_active
+            && !self.world.mapped_input_disabled
+            && !self.field_control_in_transition();
         let encounter_cooldown = self.world.enemy_encounter_cooldown != 0;
         self.world.enemy_encounter_cooldown = self.world.enemy_encounter_cooldown.saturating_sub(1);
         let enemy_speed = if self.world.party.as_ref().is_some_and(|party| {
@@ -1101,7 +1109,8 @@ impl EventRuntime {
                     .as_ref()
                     .is_some_and(|camera| !camera.enemy_active(actor.position));
             let ambient = actor.step_autonomy(
-                self.world.input_enabled && !offscreen_enemy,
+                (self.world.input_enabled || gripping_block && actor.enemy.is_some())
+                    && !offscreen_enemy,
                 conversation_active,
                 player_position,
                 &mut || crate::world::random(&mut self.world.random_state),
