@@ -1933,6 +1933,7 @@ fn pose(
     session: State,
     art: Res<Art>,
     children: Query<&Children>,
+    globals: Query<&GlobalTransform>,
     mut roots: Query<(
         Entity,
         &mut ActorPart,
@@ -1974,6 +1975,10 @@ fn pose(
         world,
         direction,
         smoothing.and_then(|p| Some((&p.field()?.events.world, p.alpha))),
+        |id| {
+            let root = art.instances.get(&id)?.first()?;
+            globals.get(*root).ok().map(GlobalTransform::translation)
+        },
     );
     for (root, mut instance, mut transform, mut visibility, _model) in &mut roots {
         if instance.disabled {

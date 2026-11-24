@@ -42,6 +42,7 @@ pub(super) fn field_actor_depths(
     world: &resonance_events::GameWorld,
     direction: Vec3,
     future: Option<(&resonance_events::GameWorld, f32)>,
+    rendered_position: impl Fn(i32) -> Option<Vec3>,
 ) {
     depths.clear();
     depths.extend(world.actor_order().iter().filter_map(|&id| {
@@ -49,9 +50,16 @@ pub(super) fn field_actor_depths(
         let owner = std::iter::successors(Some(id), |id| {
             Some(world.field_model_actor(*id)?.attachment.as_ref()?.actor)
         })
-        .take(world.actors.len())
+        .take(world.actors.len() + 1)
         .last()?;
-        let actor = world.field_model_actor(owner)?;
+        let Some(actor) = world.field_model_actor(owner) else {
+            // A cutscene can remove the owner first. The attachment keeps its
+            // last rendered transform until its owner returns or it is removed.
+            let child = world.field_model_actor(id)?;
+            let position =
+                rendered_position(id).unwrap_or_else(|| Vec3::from_array(child.visual_position()));
+            return Some((id, position.dot(direction)));
+        };
         let mut position = Vec3::from_array(actor.visual_position());
         if let Some((next, alpha)) = future
             && let Some(target) = next.field_model_actor(owner)
@@ -105,9 +113,16 @@ mod tests {
         next.actors.get_mut(&1).unwrap().position[1] = 5.;
         let mut depths = Vec::new();
         for (alpha, order) in [(0.25, [2, 1, 3]), (0.5, [1, 2, 3]), (0.75, [1, 3, 2])] {
-            field_actor_depths(&mut depths, &world, Vec3::Y, Some((&next, alpha)));
+            field_actor_depths(&mut depths, &world, Vec3::Y, Some((&next, alpha)), |_| None);
             assert_eq!(depths.iter().map(|&(id, _)| id).collect::<Vec<_>>(), order);
         }
+        // After its owner disappears, the child still renders at world Y = 1.
+        world.actors.remove(&1);
+        field_actor_depths(&mut depths, &world, Vec3::Y, None, |id| {
+            assert_eq!(id, 3);
+            Some(Vec3::Y)
+        });
+        assert_eq!(depths, [(2, 3.), (3, 1.)]);
         for stage in [DrawStage::Actors, DrawStage::LateActors] {
             let layer = Layer::Scene(stage.offset());
             let far_body = DrawOrder::field_model(layer, 0, 15);
