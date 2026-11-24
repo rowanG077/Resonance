@@ -810,7 +810,7 @@ fn scripted_enemy_reaction_returns_the_previous_mode_and_reads_its_current_value
 }
 
 #[test]
-fn offscreen_enemy_activity_pauses_but_scripted_movement_can_finish() {
+fn offscreen_enemies_finish_scripted_moves_and_onscreen_enemies_patrol_during_block_grips() {
     let setup = script(&[
         (
             Call::SpawnEnemyActor,
@@ -837,11 +837,28 @@ fn offscreen_enemy_activity_pauses_but_scripted_movement_can_finish() {
     steps(&mut events, 7);
     assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 1);
     assert_eq!(events.world.actors[&90].position, [5010., 1000., 0.]);
+    events.world.input_enabled = false;
+    events.world.grabbed_block = Some(5000);
+    steps(&mut events, 5);
+    assert_eq!(events.world.actors[&90].position, [5010., 1000., 0.]);
+
     let actor = events.world.actors.get_mut(&90).unwrap();
     actor.position = [0., 1000., 0.];
     actor.path.points[0] = [100., 1000., 0.];
     steps(&mut events, 5);
-    assert!(events.world.actors[&90].position[0] > 0.);
+    let during_grip = events.world.actors[&90].position;
+    assert!(during_grip[0] > 0.);
+    events.world.mapped_input_disabled = true;
+    steps(&mut events, 5);
+    assert_eq!(events.world.actors[&90].position, during_grip);
+
+    events.world.grabbed_block = None;
+    events.world.mapped_input_disabled = false;
+    steps(&mut events, 5);
+    assert_eq!(events.world.actors[&90].position, during_grip);
+    events.world.input_enabled = true;
+    steps(&mut events, 5);
+    assert!(events.world.actors[&90].position[0] > during_grip[0]);
 }
 
 #[test]
