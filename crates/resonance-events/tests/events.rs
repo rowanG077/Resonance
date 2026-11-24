@@ -4323,6 +4323,7 @@ fn field_model_keeps_its_sampled_pose_through_script_changes() {
         (Call::SetActorProperty, &[5, 1, 100]),
         (Call::SetActorProperty, &[5, 12, 1]),
         (Call::SetActorProperty, &[5, 8, 95]),
+        (Call::SetActorProperty, &[5, 47, 14]),
         (Call::SetActorProperty, &[5, 51, 64]),
         (Call::SetActorProperty, &[5, 16, 3]),
         (Call::ConfigureActorAnimation, &[5, -1, 24, 0, 2]),
@@ -4340,6 +4341,7 @@ fn field_model_keeps_its_sampled_pose_through_script_changes() {
     events.step().unwrap();
     let sheena = &events.world.actors[&5];
     let pose = sheena.field_model_pose();
+    assert_eq!((sheena.radius, pose.shadow_radius), (14., 42.));
     assert_eq!(sheena.position, [100., 20., 0.]);
     assert_eq!(pose.position, [0.; 3]);
     assert!(pose.visible());
@@ -4350,6 +4352,7 @@ fn field_model_keeps_its_sampled_pose_through_script_changes() {
     events.step().unwrap();
     let sheena = &events.world.actors[&5];
     let pose = sheena.field_model_pose();
+    assert_eq!(pose.shadow_radius, 14.);
     assert_eq!(pose.position, sheena.position);
     assert!(!pose.visible());
     assert_eq!(

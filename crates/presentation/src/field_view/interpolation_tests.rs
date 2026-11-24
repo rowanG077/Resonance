@@ -51,6 +51,7 @@ fn material_endpoints_follow_lights_wings_and_save_glow_without_advancing_the_sc
         actor.position = [8., 0., 0.];
         if id == 3 {
             actor.shadow_alpha = 128;
+            actor.radius = 14.;
             actor.scale_percent[0] = -100;
         }
         actor.light.as_mut().unwrap().shade = [48; 3];
@@ -212,6 +213,12 @@ fn material_endpoints_follow_lights_wings_and_save_glow_without_advancing_the_sc
             .world_mut()
             .query::<(&Transform, &MeshMaterial3d<TitleSurface>)>();
         let (shadow, material) = shadows.single(app.world())?;
+        let scale = (42. * (1. - alpha) + 14. * alpha) / 42.;
+        assert!(
+            shadow
+                .scale
+                .abs_diff_eq(Vec3::new(scale, scale, 1.), 0.00001)
+        );
         let height_offset = app.world().resource::<Art>().shadows.spec.height_offset;
         assert!(
             (shadow.translation.z - (height_offset + 10. * alpha)).abs() < 0.00001,

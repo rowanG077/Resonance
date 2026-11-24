@@ -298,8 +298,11 @@ pub(super) fn pose(
                 .then_some((next, p.alpha))
         });
         let mut alpha = f32::from(pose.shadow_alpha) / 255.;
+        let mut radius = pose.shadow_radius;
         if let Some((next, fraction)) = future {
-            alpha += (f32::from(next.field_model_pose().shadow_alpha) / 255. - alpha) * fraction;
+            let next = next.field_model_pose();
+            alpha += (f32::from(next.shadow_alpha) / 255. - alpha) * fraction;
+            radius += (next.shadow_radius - radius) * fraction;
         }
         if materials
             .get(&material.0)
@@ -324,6 +327,8 @@ pub(super) fn pose(
             && pose.casts_shadow
             && let Some((anchor, ground_point)) = anchor
         {
+            let scale = radius / resonance_events::Actor::DEFAULT_RADIUS;
+            transform.scale = Vec3::new(scale, scale, 1.);
             let on_floor = place(
                 &mut transform,
                 *anchor,
