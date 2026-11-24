@@ -344,6 +344,9 @@ impl Lifecycle {
         }
         input.battle.paused = command.paused;
         if input.battle.paused {
+            if self.command.strip_open() {
+                battle.frame_command_menu()?;
+            }
             candidate.world_update(battle, input.battle)
         } else {
             self.advance(battle, input, candidate, presentation)

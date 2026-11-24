@@ -407,6 +407,7 @@ fn active_scene_camera_starts_at_initialization_holds_then_restores_tracking() -
     for _ in 0..60 {
         camera.step(&actors, ActorId(1), false, Update::Spell(ActorId(1)))?;
     }
+    camera.step(&actors, ActorId(1), false, Update::CommandMenu)?;
     assert_eq!(camera.scene, Some(framing));
     for _ in 0..60 {
         camera.step(&actors, ActorId(1), false, Update::Tracking)?;
@@ -434,6 +435,40 @@ fn active_scene_camera_starts_at_initialization_holds_then_restores_tracking() -
     assert_eq!((camera.pose.radius, camera.pose.pitch), (2050., 8.));
     camera.request_scene(framing);
     assert_eq!(camera.scene, Some(framing));
+    Ok(())
+}
+
+#[test]
+fn paused_leader_switch_redirects_the_return_from_a_spell_close_up() -> Result<()> {
+    let mut actors = actors();
+    actors.truncate(2);
+    actors[0].position[0] = 100.;
+    actors[1].position[0] = -600.;
+    let mut companion = actors[0].clone();
+    companion.position[0] = -1000.;
+    actors.push(companion);
+    let mut menu = camera(&actors, true);
+    for _ in 0..60 {
+        menu.step(&actors, ActorId(1), false, Update::Spell(ActorId(0)))?;
+    }
+    let close_up = menu.frame();
+    menu.definition.leader = ActorId(2);
+    menu.step(&actors, ActorId(1), false, Update::CommandMenu)?;
+    // The 900-unit horizontal gap to the new midpoint gives a 96-unit step.
+    let first = sub(menu.frame().focus, close_up.focus);
+    assert!(first[0] < 0. && (distance::length(first) - 96.).abs() < 0.001);
+    for _ in 0..60 {
+        if menu.spell.is_none() {
+            break;
+        }
+        menu.step(&actors, ActorId(1), false, Update::CommandMenu)?;
+    }
+    assert!(menu.spell.is_none());
+    let handoff = menu.frame();
+    menu.step(&actors, ActorId(1), false, Update::CommandMenu)?;
+    let next = menu.frame();
+    assert!(handoff.focus[0] > -800. && next.focus[0] < handoff.focus[0]);
+    assert!(((handoff.eye[1] - handoff.focus[1]) - (next.eye[1] - next.focus[1])).abs() < 0.001);
     Ok(())
 }
 

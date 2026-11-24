@@ -75,7 +75,7 @@ impl Shot {
         let delta = sub(focus, self.focus);
         let speed =
             (FOCUS_SPEED + FOCUS_RESPONSE * delta[0].hypot(delta[2])).min(MAXIMUM_FOCUS_SPEED);
-        let focused = approach_position(&mut self.focus, focus, speed);
+        approach_position(&mut self.focus, focus, speed);
         let (sin, cos) = bearing.sin_cos();
         let eye = [
             self.focus[0] + self.zoom * cos,
@@ -88,6 +88,6 @@ impl Shot {
         let delta = radius - self.zoom;
         let speed = ZOOM_SPEED + ZOOM_RESPONSE * delta.abs();
         self.zoom += delta.clamp(-speed, speed);
-        focused && placed && delta == 0.
+        placed && delta == 0.
     }
 }

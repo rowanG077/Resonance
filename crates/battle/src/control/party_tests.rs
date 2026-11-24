@@ -167,8 +167,9 @@ fn assigned_ally_arte_reports_insufficient_tp_without_queueing() -> Result<()> {
 }
 
 #[test]
-fn party_reorder_preserves_active_actions_targets_and_camera_pose() -> Result<()> {
+fn party_reorder_reframes_the_paused_camera_without_interrupting_combat() -> Result<()> {
     let mut battle = fixture()?;
+    battle.actors[1].position[2] = 400.;
     assert!(battle.start_actor_command(
         crate::ActionRequest {
             actor: ActorId(0),
@@ -178,7 +179,11 @@ fn party_reorder_preserves_active_actions_targets_and_camera_pose() -> Result<()
         &mut vec![],
     )?);
     let action = *battle.runtime[0].task().action().unwrap().0;
+    let opening = battle.snapshot().camera.unwrap();
+    battle.frame_command_menu()?;
     let before = battle.snapshot();
+    let previous = before.camera.unwrap();
+    assert_ne!(previous.eye, opening.eye);
     let age = battle.action_age(action);
     let random = battle.random_state();
     battle.reorder_party(&[ActorId(1), ActorId(0)])?;
@@ -190,7 +195,18 @@ fn party_reorder_preserves_active_actions_targets_and_camera_pose() -> Result<()
         battle.camera.as_ref().unwrap().definition.leader,
         ActorId(1)
     );
-    assert_eq!(battle.snapshot().camera, before.camera);
+    assert_eq!(battle.snapshot().camera, Some(previous));
+    battle.frame_command_menu()?;
+    let moving = battle.snapshot().camera.unwrap();
+    for _ in 0..90 {
+        battle.frame_command_menu()?;
+    }
+    let settled = battle.snapshot().camera.unwrap();
+    assert!(settled.focus[0] < moving.focus[0] && moving.focus[0] < previous.focus[0]);
+    assert_eq!(settled.focus, [-50., 120., 200.]);
+    assert_eq!(settled.yaw, previous.yaw);
+    assert!(settled.radius > previous.radius);
+    assert_ne!(settled.eye, moving.eye);
     assert_eq!(battle.snapshot().targets, before.targets);
     assert_eq!(battle.action_age(action), age);
     assert_eq!(battle.random_state(), random);

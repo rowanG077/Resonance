@@ -27,6 +27,7 @@ pub struct CameraDefinition {
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Update {
     Tracking,
+    CommandMenu,
     Held,
     Selecting(ActorId),
     Spell(ActorId),
@@ -93,6 +94,29 @@ struct SummonFocus {
     target: [f32; 3],
     distance: f32,
     remaining: u16,
+}
+
+impl crate::Battle {
+    /// Let the battle command strip frame the current leader while combat is held.
+    pub fn frame_command_menu(&mut self) -> Result<()> {
+        if self.timed_hold.is_some() {
+            return Ok(());
+        }
+        self.step_camera(Update::CommandMenu)
+    }
+
+    pub(crate) fn step_camera(&mut self, update: Update) -> Result<()> {
+        if let Some(camera) = &mut self.camera {
+            let leader = &self.runtime[camera.definition.leader.index()];
+            camera.step(
+                &self.actors,
+                leader.target,
+                leader.target_settle_remaining != 0,
+                update,
+            )?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(feature = "test-support")]
@@ -351,30 +375,26 @@ impl Camera {
             .filter(|scene| scene.duration != 0)
             .map(|scene| scene.bounds);
         let minimum_distance = bounds.map_or(0., |bounds| bounds.minimum_distance);
-        let distance_override = matches!(update, Update::Tracking)
-            .then_some(self.distance_override)
-            .flatten()
-            .map(|request| request.distance);
-        let summon_focus = matches!(update, Update::Tracking)
-            .then_some(self.summon_focus)
-            .flatten();
         let selected = match update {
             Update::Selecting(actor) => Some(actor),
             _ => None,
         };
+        let distance_override = self
+            .distance_override
+            .filter(|_| selected.is_none())
+            .map(|request| request.distance);
+        let summon_focus = self.summon_focus.filter(|_| selected.is_none());
         let base_pitch = BASE_PITCH + self.definition.stage_pitch;
         let scene_pitch = bounds.map_or(base_pitch, |bounds| {
             base_pitch.max(bounds.minimum_elevation)
         });
         let leader = &actors[self.definition.leader.index()];
-        let eye = if matches!(update, Update::Tracking | Update::Selecting(_))
-            && leader.control != Control::Auto
-            && leader.available()
-        {
+        let controlled = leader.control != Control::Auto && leader.available();
+        let (focus, radius) = if controlled {
             let direction = sub(actors[target.index()].position, leader.position);
             let separation = direction[0].hypot(direction[2]);
             let bearing = direction[2].atan2(direction[0]);
-            if selected.is_none() && separation > 0.1 {
+            if matches!(update, Update::Tracking) && separation > 0.1 {
                 // Either end of the combat line can face screen-right. Keep the
                 // nearer view when actors cross instead of orbiting behind them.
                 let desired_yaw = bearing.to_degrees() + VIEW_ANGLE;
@@ -436,8 +456,7 @@ impl Camera {
             self.pose.radius += delta.clamp(-speed, speed);
             // Combat distance framing follows the preceding position sample.
             self.pending_radius = desired_radius;
-            self.constrain_yaw();
-            controlled_eye(self.pose)
+            (focus, desired_radius)
         } else {
             if matches!(update, Update::Tracking) {
                 let direction = sub(actors[target.index()].position, leader.position);
@@ -490,15 +509,38 @@ impl Camera {
             );
             self.pose.radius += (radius - self.pose.radius) * RESPONSE;
             self.pending_radius = self.pose.radius;
-            self.constrain_yaw();
+            (focus, radius)
+        };
+        // The returning shot supplies its own easing toward the new framing.
+        let menu_return = matches!(update, Update::CommandMenu) && self.spell.is_some();
+        if menu_return {
+            self.pose.focus = focus;
+            self.pose.radius = radius;
+            self.pending_radius = radius;
+        }
+        self.constrain_yaw();
+        let eye = if controlled {
+            controlled_eye(self.pose)
+        } else {
             let mut desired = self.pose;
             desired.place_eye();
             desired.eye
         };
-        self.approach_eye(eye);
+        if menu_return {
+            self.pose.eye = eye;
+        } else {
+            self.approach_eye(eye);
+        }
         if let Some(shot) = &mut self.spell
             && shot.return_to(self.pose)
+            && (menu_return || shot.frame().focus == self.pose.focus)
         {
+            if menu_return {
+                // The strip hands the remaining pan back to ordinary tracking.
+                let returned = shot.frame();
+                self.pose.eye = returned.eye;
+                self.pose.focus = returned.focus;
+            }
             self.spell = None;
         }
         // Selection and the caster close-up can move the camera without spending
@@ -632,7 +674,7 @@ fn controlled_eye(pose: CameraPose) -> [f32; 3] {
     let (sin, cos) = pose.yaw.to_radians().sin_cos();
     [
         pose.focus[0] + pose.radius * cos,
-        EYE_HEIGHT + pose.radius * pose.pitch.to_radians().sin(),
+        pose.focus[1] + (EYE_HEIGHT - FOCUS_HEIGHT) + pose.radius * pose.pitch.to_radians().sin(),
         pose.focus[2] + pose.radius * sin,
     ]
 }
